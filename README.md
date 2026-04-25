@@ -1,6 +1,6 @@
 # Nexus RPG System
 
-Sistema de fichas para Ordem Paranormal com Mestre IA.
+Sistema de fichas para Ordem Paranormal com Ajudante do Mestre.
 
 ---
 

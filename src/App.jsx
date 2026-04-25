@@ -35,6 +35,8 @@ const G = () => (
     @keyframes flicker{0%,100%{opacity:1}92%{opacity:1}93%{opacity:0.7}94%{opacity:1}97%{opacity:.85}98%{opacity:1}}
     @keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-6px)}}
     @keyframes borderGlow{0%,100%{border-color:rgba(201,168,76,0.2)}50%{border-color:rgba(201,168,76,0.6)}}
+    @keyframes eyeBlink{0%,82%{transform:scaleY(1)}86%{transform:scaleY(0.04)}90%{transform:scaleY(0.04)}95%{transform:scaleY(1)}100%{transform:scaleY(1)}}
+    .eye-blink-group{transform-box:fill-box;transform-origin:center;animation:eyeBlink 5s ease-in-out infinite}
 
     .fade{animation:fadeIn 0.5s ease forwards}
 
@@ -230,6 +232,9 @@ const NexusLogo = ({ size = 40, animate = false }) => (
       </g>
     ))}
 
+    {/* ── Eye (blink animation group) ── */}
+    <g className="eye-blink-group">
+
     {/* ── Eye white / sclera glow ── */}
     <path d="M60 36 Q92 60 60 84 Q28 60 60 36 Z"
       fill="#1a1000" stroke="url(#eyeGold)" strokeWidth="1.5"
@@ -276,6 +281,8 @@ const NexusLogo = ({ size = 40, animate = false }) => (
       const ey2 = 60 - 27*Math.cos(angle);
       return <line key={i} x1={ex} y1={ey} x2={ex2} y2={ey2} stroke="#c9a84c" strokeWidth="1" strokeOpacity="0.7" filter="url(#softGlow)" />;
     })}
+
+    </g>
 
     {/* ── Corner ornaments ── */}
     {/* Top center dot */}
@@ -439,7 +446,7 @@ function Login({ onLogin }) {
             <div style={{display:"flex",flexDirection:"column",gap:22,marginBottom:52}}>
               {[
                 {icon:"◈",title:"Fichas Digitais",desc:"Gerencie personagens com atributos, perícias e inventário completos"},
-                {icon:"◉",title:"Mestre IA",desc:"Narração assistida por inteligência artificial para suas campanhas"},
+                {icon:"◉",title:"Ajudante do Mestre",desc:"Narração assistida por inteligência artificial para suas campanhas"},
                 {icon:"⬙",title:"Mapas Interativos",desc:"Crie e explore mapas colaborativos com sua mesa"},
                 {icon:"♪",title:"Trilhas Sonoras",desc:"Atmosfera imersiva com músicas e ambientações para cada cena"},
               ].map(({icon,title,desc})=>(
@@ -550,7 +557,7 @@ const navItems = [
   { id:"dashboard", icon:"⬡", label:"Painel" },
   { id:"sheet",     icon:"◈", label:"Fichas" },
   { id:"map",       icon:"⬙", label:"Mapas" },
-  { id:"master",    icon:"◉", label:"Mestre IA" },
+  { id:"master",    icon:"◉", label:"Ajudante do Mestre" },
   { id:"music",     icon:"♪", label:"Trilhas" },
   { id:"party",     icon:"◎", label:"Grupo" },
 ];
@@ -697,7 +704,7 @@ function Dashboard({ system, onCreateChar, characters, sessions }) {
       <div style={{fontSize:32, opacity:0.3}}>◉</div>
       <div style={{fontFamily:"Cinzel,serif", fontSize:14, letterSpacing:2, color:"var(--muted)", textTransform:"uppercase"}}>Nenhuma sessão ainda</div>
       <div style={{fontFamily:"Crimson Pro,serif", fontSize:16, color:"var(--muted)", fontStyle:"italic"}}>
-        Use o Mestre IA para iniciar sua primeira sessão.
+        Use o Ajudante do Mestre para iniciar sua primeira sessão.
       </div>
     </div>
   );
@@ -802,7 +809,7 @@ function Dashboard({ system, onCreateChar, characters, sessions }) {
       {/* Sessions */}
       <div>
         <div style={{fontFamily:"Cinzel,serif", fontSize:14, letterSpacing:2, color:accentText, textTransform:"uppercase", marginBottom:14}}>
-          Últimas Sessões com Mestre IA
+          Últimas Sessões com Ajudante do Mestre
         </div>
         {sessions.length === 0 ? <EmptySessions/> : (
           <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:10}}>
@@ -1122,7 +1129,7 @@ function PlaceholderScreen({ icon, title, desc, badge }) {
    TOPBAR
 ═══════════════════════════════ */
 function Topbar({ screen, system, onChangeSystem }) {
-  const labels = { dashboard:"Painel", sheet:"Fichas de Personagem", map:"Editor de Mapas", master:"Mestre IA", music:"Trilhas Sonoras", party:"Grupo de Agentes" };
+  const labels = { dashboard:"Painel", sheet:"Fichas de Personagem", map:"Editor de Mapas", master:"Ajudante do Mestre", music:"Trilhas Sonoras", party:"Grupo de Agentes" };
   return (
     <div style={{
       height:56, background:"rgba(5,5,5,0.9)", borderBottom:"1px solid var(--border)",
@@ -2613,7 +2620,7 @@ export default function App() {
       case "dashboard": return <Dashboard system={activeSystem} onCreateChar={()=>setCreatingChar(true)} characters={characters} sessions={sessions}/>;
       case "sheet":     return <SheetList characters={characters} system={activeSystem} onCreateChar={()=>setCreatingChar(true)} onSelectChar={c=>{ setCreatedChar(c); }}/>;
       case "map":       return <PlaceholderScreen icon="🗺️" title="Editor de Mapas" desc={`Mapas com tiles e névoa de guerra para ${sysName}.`} badge="Em breve" />;
-      case "master":    return <PlaceholderScreen icon="🎭" title="Mestre IA por Voz" desc={`Mestre inteligente treinado nas regras de ${sysName}.`} badge="Beta · Pro" />;
+      case "master":    return <PlaceholderScreen icon="🎭" title="Ajudante do Mestre por Voz" desc={`Ajudante inteligente treinado nas regras de ${sysName}.`} badge="Beta · Pro" />;
       case "music":     return <PlaceholderScreen icon="🎵" title="Trilhas Sonoras" desc="Biblioteca temática: combate, terror, investigação." badge="16 Faixas" />;
       case "party":     return <PlaceholderScreen icon="◎" title="Grupo de Agentes" desc="Compartilhe fichas e gerencie sua campanha." badge="Em breve" />;
       default: return <Dashboard system={activeSystem} onCreateChar={()=>setCreatingChar(true)} characters={characters} sessions={sessions}/>;
