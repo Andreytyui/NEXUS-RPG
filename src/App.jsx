@@ -826,6 +826,124 @@ function Dashboard({ system, onCreateChar, characters, sessions }) {
 }
 
 /* ═══════════════════════════════
+   SHEET LIST — Agent Grid
+═══════════════════════════════ */
+function SheetList({ characters, system, onCreateChar, onSelectChar }) {
+  const [search, setSearch] = useState("");
+  const purple = "#7c3aed";
+  const purpleHover = "#6d28d9";
+
+  const filtered = characters.filter(c =>
+    (c.form?.personagem || "").toLowerCase().includes(search.toLowerCase())
+  );
+
+  return (
+    <div className="fade" style={{display:"flex", flexDirection:"column", gap:20}}>
+
+      {/* Header row */}
+      <div style={{display:"flex", justifyContent:"space-between", alignItems:"center"}}>
+        <h2 style={{fontFamily:"Cinzel,serif", fontSize:20, fontWeight:700, color:"var(--text)", letterSpacing:1}}>
+          Agentes: {characters.length}/{characters.length}
+        </h2>
+        <button onClick={onCreateChar} style={{
+          fontFamily:"Cinzel,serif", fontSize:10, letterSpacing:2, textTransform:"uppercase",
+          padding:"9px 20px", borderRadius:6, cursor:"pointer",
+          background:"rgba(255,255,255,0.07)", border:"1px solid rgba(255,255,255,0.14)",
+          color:"var(--text)", transition:"all 0.2s",
+        }}
+          onMouseEnter={e=>{e.currentTarget.style.background="rgba(255,255,255,0.12)"}}
+          onMouseLeave={e=>{e.currentTarget.style.background="rgba(255,255,255,0.07)"}}>
+          Novo Agente
+        </button>
+      </div>
+
+      {/* Search */}
+      <div style={{position:"relative"}}>
+        <span style={{position:"absolute", left:14, top:"50%", transform:"translateY(-50%)", color:"var(--muted)", fontSize:17, pointerEvents:"none"}}>🔍</span>
+        <input
+          placeholder="Buscar"
+          value={search}
+          onChange={e=>setSearch(e.target.value)}
+          style={{paddingLeft:44, borderRadius:8, fontSize:15, background:"rgba(255,255,255,0.03)", border:"1px solid rgba(255,255,255,0.07)"}}
+        />
+      </div>
+
+      {/* Empty state */}
+      {filtered.length === 0 && (
+        <div style={{display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", padding:"60px 20px", gap:16, textAlign:"center"}}>
+          <div style={{fontSize:48, opacity:0.2}}>🕵️</div>
+          <div style={{fontFamily:"Cinzel,serif", fontSize:13, letterSpacing:2, color:"var(--muted)", textTransform:"uppercase"}}>
+            {search ? "Nenhum agente encontrado" : "Nenhum agente criado"}
+          </div>
+          {!search && (
+            <button className="btn-gold" onClick={onCreateChar} style={{fontSize:12, padding:"10px 24px", marginTop:4}}>
+              + Criar Agente
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Cards grid */}
+      {filtered.length > 0 && (
+        <div style={{display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:14}}>
+          {filtered.map((c, i) => (
+            <div key={i} style={{
+              background:"var(--card)", borderRadius:10,
+              border:"1px solid rgba(255,255,255,0.06)",
+              position:"relative", overflow:"hidden",
+              transition:"border-color 0.2s, transform 0.2s",
+            }}
+              onMouseEnter={e=>{e.currentTarget.style.borderColor="rgba(124,58,237,0.45)"; e.currentTarget.style.transform="translateY(-2px)"}}
+              onMouseLeave={e=>{e.currentTarget.style.borderColor="rgba(255,255,255,0.06)"; e.currentTarget.style.transform="translateY(0)"}}>
+
+              {/* Gear */}
+              <div style={{position:"absolute", top:10, right:12, fontSize:17, color:"rgba(255,255,255,0.3)", cursor:"pointer", zIndex:1}}
+                title="Configurações">⚙</div>
+
+              {/* Card body */}
+              <div style={{display:"flex", gap:14, padding:"18px 16px 0"}}>
+                {/* Avatar */}
+                <div style={{
+                  width:82, height:82, borderRadius:8, flexShrink:0,
+                  background:"rgba(124,58,237,0.12)", border:"1px solid rgba(124,58,237,0.25)",
+                  display:"flex", alignItems:"center", justifyContent:"center", fontSize:34,
+                }}>🕵️</div>
+
+                <div style={{flex:1, minWidth:0, paddingRight:24}}>
+                  <div style={{fontFamily:"Cinzel,serif", fontSize:17, fontWeight:700, color:"#fff", marginBottom:5, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap"}}>
+                    {c.form?.personagem || "Sem nome"}
+                  </div>
+                  <div style={{fontFamily:"Crimson Pro,serif", fontSize:14, color:"rgba(255,255,255,0.55)", marginBottom:5}}>
+                    {c.classe?.name || "—"}
+                  </div>
+                  <div style={{fontFamily:"Crimson Pro,serif", fontSize:12, color:"rgba(255,255,255,0.3)"}}>
+                    Registrado em {c.createdAt || "—"}
+                  </div>
+                </div>
+              </div>
+
+              {/* Footer */}
+              <div style={{display:"flex", justifyContent:"flex-end", padding:"14px 16px"}}>
+                <button onClick={()=>onSelectChar(c)} style={{
+                  background:purple, color:"#fff", border:"none",
+                  borderRadius:6, padding:"8px 20px",
+                  fontFamily:"Cinzel,serif", fontSize:10, letterSpacing:1.5,
+                  textTransform:"uppercase", cursor:"pointer", transition:"background 0.2s",
+                }}
+                  onMouseEnter={e=>{e.currentTarget.style.background=purpleHover}}
+                  onMouseLeave={e=>{e.currentTarget.style.background=purple}}>
+                  Acessar Ficha
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ═══════════════════════════════
    CHARACTER SHEET
 ═══════════════════════════════ */
 function Sheet({ system }) {
@@ -2478,8 +2596,11 @@ export default function App() {
   const [sessions] = useState([]); // sessions list (empty for now)
 
   const handleFinishChar = (char) => {
-    setCharacters(prev => [...prev, char]);
-    setCreatedChar(char);
+    const d = new Date();
+    const dateStr = `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${String(d.getFullYear()).slice(-2)}`;
+    const charWithDate = { ...char, createdAt: dateStr };
+    setCharacters(prev => [...prev, charWithDate]);
+    setCreatedChar(charWithDate);
     setCreatingChar(false);
     setScreen("sheet");
   };
@@ -2487,12 +2608,10 @@ export default function App() {
   const renderScreen = () => {
     const sysName = activeSystem?.name || "Sistema";
     if (creatingChar) return null;
-    if (createdChar && screen === "sheet") return <FullSheet character={createdChar} onBack={()=>{ setCreatedChar(null); setScreen("dashboard"); }}/>;
+    if (createdChar && screen === "sheet") return <FullSheet character={createdChar} onBack={()=>setCreatedChar(null)}/>;
     switch(screen){
       case "dashboard": return <Dashboard system={activeSystem} onCreateChar={()=>setCreatingChar(true)} characters={characters} sessions={sessions}/>;
-      case "sheet":     return createdChar
-        ? <FullSheet character={createdChar} onBack={()=>{ setCreatedChar(null); setScreen("dashboard"); }}/>
-        : <Dashboard system={activeSystem} onCreateChar={()=>setCreatingChar(true)} characters={characters} sessions={sessions}/>;
+      case "sheet":     return <SheetList characters={characters} system={activeSystem} onCreateChar={()=>setCreatingChar(true)} onSelectChar={c=>{ setCreatedChar(c); }}/>;
       case "map":       return <PlaceholderScreen icon="🗺️" title="Editor de Mapas" desc={`Mapas com tiles e névoa de guerra para ${sysName}.`} badge="Em breve" />;
       case "master":    return <PlaceholderScreen icon="🎭" title="Mestre IA por Voz" desc={`Mestre inteligente treinado nas regras de ${sysName}.`} badge="Beta · Pro" />;
       case "music":     return <PlaceholderScreen icon="🎵" title="Trilhas Sonoras" desc="Biblioteca temática: combate, terror, investigação." badge="16 Faixas" />;
