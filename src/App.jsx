@@ -2255,20 +2255,19 @@ function CharacterCreator({ onFinish, onCancel }) {
 
 /* ── NEX progression (Ordem Paranormal 2ª Ed.) ── */
 const NEX_STEPS = [5,10,15,20,25,30,35,40,45,50,55,60,65,70,75,80,85,90,95,99];
-const NEX_BONUS = {
-  combatente:   { pv:4, san:0, pe:1 },
-  especialista: { pv:3, san:0, pe:2 },
-  ocultista:    { pv:3, san:1, pe:2 },
-};
 function nexStats(nexVal, classId, attrs) {
   const base = {
-    combatente:  { pv:20+attrs.VIG*4, san:12+attrs.PRE*2, pe:3+attrs.PRE },
-    especialista:{ pv:12+attrs.VIG*3, san:16+attrs.PRE*2, pe:5+attrs.PRE },
-    ocultista:   { pv:12+attrs.VIG*3, san:20+attrs.PRE*3, pe:4+attrs.PRE },
-  }[classId] ?? { pv:12+attrs.VIG*3, san:20+attrs.PRE*3, pe:4+attrs.PRE };
-  const b = NEX_BONUS[classId] ?? NEX_BONUS.ocultista;
+    combatente:   { pv: 20 + attrs.VIG, san: 12, pe: 2 + attrs.PRE },
+    especialista: { pv: 16 + attrs.VIG, san: 16, pe: 3 + attrs.PRE },
+    ocultista:    { pv: 12 + attrs.VIG, san: 20, pe: 4 + attrs.PRE },
+  }[classId] ?? { pv: 12 + attrs.VIG, san: 20, pe: 4 + attrs.PRE };
+  const perNex = {
+    combatente:   { pv: 4 + attrs.VIG, san: 3, pe: 2 + attrs.PRE },
+    especialista: { pv: 3 + attrs.VIG, san: 4, pe: 3 + attrs.PRE },
+    ocultista:    { pv: 2 + attrs.VIG, san: 5, pe: 4 + attrs.PRE },
+  }[classId] ?? { pv: 2 + attrs.VIG, san: 5, pe: 4 + attrs.PRE };
   const lvl = nexVal === 99 ? 19 : (nexVal - 5) / 5;
-  return { pv: base.pv + lvl*b.pv, san: base.san + lvl*b.san, pe: base.pe + lvl*b.pe };
+  return { pv: base.pv + lvl*perNex.pv, san: base.san + lvl*perNex.san, pe: base.pe + lvl*perNex.pe };
 }
 
 /* ═══════════════════════════════
