@@ -37,6 +37,7 @@ const G = () => (
     @keyframes flicker{0%,100%{opacity:1}92%{opacity:1}93%{opacity:0.7}94%{opacity:1}97%{opacity:.85}98%{opacity:1}}
     @keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-6px)}}
     @keyframes borderGlow{0%,100%{border-color:rgba(201,168,76,0.2)}50%{border-color:rgba(201,168,76,0.6)}}
+    @keyframes critAura{0%,100%{box-shadow:0 0 8px 3px rgba(255,215,0,0.9),0 0 22px 8px rgba(255,180,0,0.55),0 0 44px 16px rgba(201,168,76,0.25);color:#ffe86a}50%{box-shadow:0 0 16px 6px rgba(255,215,0,1),0 0 40px 14px rgba(255,180,0,0.8),0 0 70px 28px rgba(201,168,76,0.45);color:#fff5a0}}
     @keyframes eyeBlink{0%,82%{transform:scaleY(1)}86%{transform:scaleY(0.04)}90%{transform:scaleY(0.04)}95%{transform:scaleY(1)}100%{transform:scaleY(1)}}
     .eye-blink-group{transform-box:fill-box;transform-origin:center;animation:eyeBlink 5s ease-in-out infinite}
 
@@ -1667,7 +1668,7 @@ function rollOP(attrVal) {
   const n = attrVal === 0 ? 2 : attrVal;
   const rolls = Array.from({ length: n }, () => Math.floor(Math.random() * 20) + 1);
   const result = attrVal === 0 ? Math.min(...rolls) : Math.max(...rolls);
-  return { rolls, result, worst: attrVal === 0 };
+  return { rolls, result, worst: attrVal === 0, crit: rolls.includes(20) };
 }
 
 /* ── Attribute Diagram SVG — clickable nodes with roll popup ── */
@@ -2327,7 +2328,8 @@ function FullSheet({ character, onBack }) {
     if (!match) { setRollPopup({ attr:"Erro", rolls:[], result:"Ex: 1d20+3", worst:false }); return; }
     const n=parseInt(match[1]||"1"), d=parseInt(match[2]), mod=parseInt(match[3]||"0");
     const rolls=Array.from({length:n},()=>Math.floor(Math.random()*d)+1);
-    setRollPopup({ attr:diceInput.toUpperCase(), rolls, result:rolls.reduce((a,b)=>a+b,0)+mod, worst:false });
+    const crit=d===20&&rolls.includes(20);
+    setRollPopup({ attr:diceInput.toUpperCase(), rolls, result:rolls.reduce((a,b)=>a+b,0)+mod, worst:false, crit });
     setTimeout(()=>setRollPopup(null),4500);
   };
 
@@ -2424,8 +2426,8 @@ function FullSheet({ character, onBack }) {
 
       {/* ── Roll popup ── */}
       {rollPopup && (
-        <div style={{position:"fixed",bottom:16,right:16,zIndex:9999,background:"var(--card)",border:"1px solid rgba(201,168,76,0.5)",borderRadius:10,padding:"12px 16px",minWidth:190,boxShadow:"0 6px 32px rgba(0,0,0,0.9)",animation:"fadeIn 0.25s ease",display:"flex",gap:10,alignItems:"center"}}>
-          <div style={{width:32,height:32,borderRadius:6,background:"rgba(201,168,76,0.12)",border:"1px solid rgba(201,168,76,0.4)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:15,flexShrink:0}}>⬡</div>
+        <div style={{position:"fixed",bottom:16,right:16,zIndex:9999,background:rollPopup.crit?"rgba(20,15,0,0.97)":"var(--card)",border:`1px solid ${rollPopup.crit?"rgba(255,215,0,0.8)":"rgba(201,168,76,0.5)"}`,borderRadius:10,padding:"12px 16px",minWidth:190,boxShadow:"0 6px 32px rgba(0,0,0,0.9)",animation:"fadeIn 0.25s ease",display:"flex",gap:10,alignItems:"center"}}>
+          <div style={{width:32,height:32,borderRadius:6,background:rollPopup.crit?"rgba(255,200,0,0.18)":"rgba(201,168,76,0.12)",border:`1px solid ${rollPopup.crit?"rgba(255,215,0,0.9)":"rgba(201,168,76,0.4)"}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:rollPopup.crit?19:15,flexShrink:0,animation:rollPopup.crit?"critAura 1.2s ease-in-out infinite":undefined,color:rollPopup.crit?"#ffe86a":undefined}}>⬡</div>
           <div style={{flex:1}}>
             <div style={{fontFamily:"Cinzel,serif",fontSize:10,color:"var(--gold)",marginBottom:2,fontWeight:600}}>{rollPopup.attr}</div>
             <div style={{fontFamily:"Crimson Pro,serif",fontSize:11,color:"var(--muted2)",marginBottom:3}}>[{rollPopup.rolls.join(", ")}]{rollPopup.worst?" → pior":" → maior"}</div>
@@ -2548,7 +2550,7 @@ function FullSheet({ character, onBack }) {
                   onClick={()=>{
                     const res=rollOP(attrs[p.attr]);
                     const total=res.result+t.bonus;
-                    setRollPopup({attr:`${p.n.replace(/[*+]/g,"")} (${p.attr})`,rolls:res.rolls,result:total,worst:res.worst});
+                    setRollPopup({attr:`${p.n.replace(/[*+]/g,"")} (${p.attr})`,rolls:res.rolls,result:total,worst:res.worst,crit:res.crit});
                     setTimeout(()=>setRollPopup(null),4500);
                   }}>
                   <span style={{fontSize:11,color:isTrained?"#9b80e8":"var(--muted)",textAlign:"center"}}>⬡</span>
@@ -2632,7 +2634,7 @@ function FullSheet({ character, onBack }) {
                     <div style={{width:22,height:22,background:"rgba(122,95,212,0.15)",border:"1px solid rgba(122,95,212,0.3)",borderRadius:4,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,cursor:"pointer"}}
                       onClick={()=>{
                         const m=atk.dmg.match(/(\d+)?[dD](\d+)([+-]\d+)?/);
-                        if(m){const n=parseInt(m[1]||"1"),d=parseInt(m[2]),mod=parseInt(m[3]||"0");const rolls=Array.from({length:n},()=>Math.floor(Math.random()*d)+1);setRollPopup({attr:atk.name,rolls,result:rolls.reduce((a,b)=>a+b,0)+mod,worst:false});setTimeout(()=>setRollPopup(null),4500);}
+                        if(m){const n=parseInt(m[1]||"1"),d=parseInt(m[2]),mod=parseInt(m[3]||"0");const rolls=Array.from({length:n},()=>Math.floor(Math.random()*d)+1);const crit=d===20&&rolls.includes(20);setRollPopup({attr:atk.name,rolls,result:rolls.reduce((a,b)=>a+b,0)+mod,worst:false,crit});setTimeout(()=>setRollPopup(null),4500);}
                       }}>
                       <span style={{fontSize:11,color:"#9b80e8"}}>⬡</span>
                     </div>
