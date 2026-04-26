@@ -27,6 +27,8 @@ const G = () => (
     ::-webkit-scrollbar{width:3px}
     ::-webkit-scrollbar-thumb{background:var(--gold3);border-radius:2px}
 
+    input[type=number]::-webkit-inner-spin-button,input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}
+    input[type=number]{-moz-appearance:textfield}
     @keyframes fadeIn{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:translateY(0)}}
     @keyframes glow{0%,100%{box-shadow:0 0 20px rgba(201,168,76,0.15)}50%{box-shadow:0 0 40px rgba(201,168,76,0.35)}}
     @keyframes spin{to{transform:rotate(360deg)}}
@@ -1669,7 +1671,18 @@ function rollOP(attrVal) {
 }
 
 /* ── Attribute Diagram SVG — clickable nodes with roll popup ── */
-const AttrDiagram = ({ attrs, onChange, onRoll, readOnly = false }) => {
+const AttrDiagram = ({ attrs, onChange, onEdit, onRoll, readOnly = false }) => {
+  const [editing, setEditing] = useState(null);
+  const [inputVal, setInputVal] = useState("");
+  const inputRef = useRef(null);
+
+  useEffect(() => {
+    if (editing && inputRef.current) {
+      inputRef.current.focus();
+      inputRef.current.select();
+    }
+  }, [editing]);
+
   const positions = {
     AGI: { x:160, y:30  },
     FOR: { x:50,  y:145 },
@@ -1679,6 +1692,19 @@ const AttrDiagram = ({ attrs, onChange, onRoll, readOnly = false }) => {
   };
   const center = { x:160, y:178 };
   const LABELS = { AGI:"AGILIDADE", FOR:"FORÇA", INT:"INTELECTO", PRE:"PRESENÇA", VIG:"VIGOR" };
+
+  const startEdit = (key) => {
+    setEditing(key);
+    setInputVal(String(attrs[key]));
+  };
+
+  const commitEdit = () => {
+    if (!editing) return;
+    const parsed = parseInt(inputVal, 10);
+    const newVal = isNaN(parsed) ? attrs[editing] : Math.max(0, Math.min(99, parsed));
+    if (onEdit) onEdit(editing, newVal);
+    setEditing(null);
+  };
 
   return (
     <svg viewBox="0 0 320 330" style={{display:"block",width:"100%",height:"auto"}}>
@@ -1702,25 +1728,61 @@ const AttrDiagram = ({ attrs, onChange, onRoll, readOnly = false }) => {
 
       {Object.entries(positions).map(([key,p])=>{
         const val = attrs[key];
+        const isEditing = editing === key;
         return (
           <g key={key}>
             <circle cx={p.x} cy={p.y} r="40" fill="none" stroke="rgba(201,168,76,0.1)" strokeWidth="1" strokeDasharray="2,3"/>
-            {/* Clickable area for rolling */}
-            <circle cx={p.x} cy={p.y} r="33" fill="rgba(5,5,5,0.95)" stroke="rgba(201,168,76,0.5)" strokeWidth="1.5" filter="url(#ag2)"
-              style={{cursor: onRoll ? "pointer" : "default"}}
-              onClick={()=> onRoll && onRoll(key)}/>
+            {/* Outer circle — click to roll */}
+            <circle cx={p.x} cy={p.y} r="33" fill="rgba(5,5,5,0.95)"
+              stroke={isEditing ? "rgba(201,168,76,0.9)" : "rgba(201,168,76,0.5)"}
+              strokeWidth={isEditing ? "2" : "1.5"} filter="url(#ag2)"
+              style={{cursor: onRoll && !isEditing ? "pointer" : "default"}}
+              onClick={()=> !isEditing && onRoll && onRoll(key)}/>
             <circle cx={p.x} cy={p.y} r="28" fill="#080808" stroke="rgba(201,168,76,0.25)" strokeWidth="1"
-              style={{cursor: onRoll ? "pointer" : "default"}}
-              onClick={()=> onRoll && onRoll(key)}/>
-            {/* Value — big and clickable */}
-            <text x={p.x} y={p.y-2} textAnchor="middle" fontFamily="Cinzel Decorative,serif" fontSize="20" fill="#e8c96d" fontWeight="700"
-              style={{cursor: onRoll ? "pointer" : "default"}}
-              onClick={()=> onRoll && onRoll(key)}>{val}</text>
+              style={{cursor: onRoll && !isEditing ? "pointer" : "default"}}
+              onClick={()=> !isEditing && onRoll && onRoll(key)}/>
+            {/* Value — click to edit if onEdit provided, else roll */}
+            {isEditing ? (
+              <foreignObject x={p.x-21} y={p.y-19} width="42" height="26">
+                <input
+                  ref={inputRef}
+                  type="number"
+                  min="0"
+                  max="99"
+                  value={inputVal}
+                  onChange={e => setInputVal(e.target.value)}
+                  onBlur={commitEdit}
+                  onKeyDown={e => {
+                    if (e.key === "Enter") commitEdit();
+                    if (e.key === "Escape") setEditing(null);
+                  }}
+                  style={{
+                    width:"100%", height:"100%", textAlign:"center",
+                    background:"rgba(0,0,0,0.95)",
+                    border:"1px solid rgba(201,168,76,0.85)",
+                    color:"#e8c96d",
+                    fontFamily:"'Cinzel Decorative',serif",
+                    fontSize:"15px", fontWeight:"700",
+                    borderRadius:"3px", padding:0, outline:"none",
+                    boxSizing:"border-box",
+                    MozAppearance:"textfield",
+                  }}
+                />
+              </foreignObject>
+            ) : (
+              <text x={p.x} y={p.y-2} textAnchor="middle" fontFamily="Cinzel Decorative,serif" fontSize="20" fill="#e8c96d" fontWeight="700"
+                style={{cursor: onEdit ? "text" : onRoll ? "pointer" : "default"}}
+                onClick={e => { e.stopPropagation(); onEdit ? startEdit(key) : onRoll && onRoll(key); }}>
+                {val}
+              </text>
+            )}
             <text x={p.x} y={p.y+11} textAnchor="middle" fontFamily="Cinzel,serif" fontSize="6.5" fill="#b0a07a" letterSpacing="1"
-              onClick={()=> onRoll && onRoll(key)} style={{cursor: onRoll ? "pointer" : "default"}}>{LABELS[key]}</text>
+              style={{cursor: onRoll && !isEditing ? "pointer" : "default"}}
+              onClick={()=> !isEditing && onRoll && onRoll(key)}>{LABELS[key]}</text>
             <text x={p.x} y={p.y+21} textAnchor="middle" fontFamily="Cinzel,serif" fontSize="10" fill="#c9a84c" fontWeight="600"
-              onClick={()=> onRoll && onRoll(key)} style={{cursor: onRoll ? "pointer" : "default"}}>{key}</text>
-            {/* +/- only in edit mode */}
+              style={{cursor: onRoll && !isEditing ? "pointer" : "default"}}
+              onClick={()=> !isEditing && onRoll && onRoll(key)}>{key}</text>
+            {/* +/- only in creator mode */}
             {!readOnly && onChange && (
               <>
                 <rect x={p.x-27} y={p.y+24} width="18" height="12" rx="3" fill="rgba(201,168,76,0.1)" stroke="rgba(201,168,76,0.3)" strokeWidth="1" style={{cursor:"pointer"}} onClick={()=>onChange(key,-1)}/>
@@ -2191,29 +2253,46 @@ function CharacterCreator({ onFinish, onCancel }) {
   );
 }
 
+/* ── NEX progression (Ordem Paranormal 2ª Ed.) ── */
+const NEX_STEPS = [5,10,15,20,25,30,35,40,45,50,55,60,65,70,75,80,85,90,95,99];
+const NEX_BONUS = {
+  combatente:   { pv:4, san:0, pe:1 },
+  especialista: { pv:3, san:0, pe:2 },
+  ocultista:    { pv:3, san:1, pe:2 },
+};
+function nexStats(nexVal, classId, attrs) {
+  const base = {
+    combatente:  { pv:20+attrs.VIG*4, san:12+attrs.PRE*2, pe:3+attrs.PRE },
+    especialista:{ pv:12+attrs.VIG*3, san:16+attrs.PRE*2, pe:5+attrs.PRE },
+    ocultista:   { pv:12+attrs.VIG*3, san:20+attrs.PRE*3, pe:4+attrs.PRE },
+  }[classId] ?? { pv:12+attrs.VIG*3, san:20+attrs.PRE*3, pe:4+attrs.PRE };
+  const b = NEX_BONUS[classId] ?? NEX_BONUS.ocultista;
+  const lvl = nexVal === 99 ? 19 : (nexVal - 5) / 5;
+  return { pv: base.pv + lvl*b.pv, san: base.san + lvl*b.san, pe: base.pe + lvl*b.pe };
+}
+
 /* ═══════════════════════════════
    FICHA COMPLETA — NEXUS SHEET
    Layout inspirado no CRIS com
    identidade visual Nexus
 ═══════════════════════════════ */
 function FullSheet({ character, onBack }) {
-  const { attrs, origem, classe, form } = character;
+  const { attrs: initAttrs, origem, classe, form } = character;
+  const [attrs, setAttrs] = useState(initAttrs);
+  const handleAttrEdit = (key, val) => setAttrs(a => ({ ...a, [key]: val }));
 
-  // ── Correct OP stats by class
-  const classStats = {
-    combatente:  { pv:20+attrs.VIG*4, san:12+attrs.PRE*2, pe:3+attrs.PRE  },
-    especialista:{ pv:12+attrs.VIG*3, san:16+attrs.PRE*2, pe:5+attrs.PRE  },
-    ocultista:   { pv:12+attrs.VIG*3, san:20+attrs.PRE*3, pe:4+attrs.PRE  },
-  };
-  const cs = classStats[classe?.id] || classStats.ocultista;
+  // ── Base stats at NEX 5%
+  const cs0 = nexStats(5, classe?.id, initAttrs);
 
-  const [pvMax,  setPvMax]  = useState(cs.pv);
-  const [sanMax, setSanMax] = useState(cs.san);
-  const [peMax,  setPeMax]  = useState(cs.pe);
-  const [hp,  setHp]  = useState(cs.pv);
-  const [san, setSan] = useState(cs.san);
-  const [pe,  setPe]  = useState(cs.pe);
-  const [nex]  = useState(5);
+  const [pvMax,  setPvMax]  = useState(cs0.pv);
+  const [sanMax, setSanMax] = useState(cs0.san);
+  const [peMax,  setPeMax]  = useState(cs0.pe);
+  const [hp,  setHp]  = useState(cs0.pv);
+  const [san, setSan] = useState(cs0.san);
+  const [pe,  setPe]  = useState(cs0.pe);
+  const [nex, setNex] = useState(5);
+  const [showNexMenu, setShowNexMenu] = useState(false);
+  const nexBtnRef = useRef(null);
   const [activeTab, setActiveTab] = useState("combate");
   const [diceInput, setDiceInput] = useState("");
   const [rollPopup, setRollPopup] = useState(null);
@@ -2233,6 +2312,15 @@ function FullSheet({ character, onBack }) {
     const LABEL = { AGI:"Agilidade", FOR:"Força", INT:"Intelecto", PRE:"Presença", VIG:"Vigor" };
     setRollPopup({ attr: LABEL[key], key, ...res });
     setTimeout(() => setRollPopup(null), 4500);
+  };
+
+  const handleNexChange = (newNex) => {
+    const ns = nexStats(newNex, classe?.id, attrs);
+    setPvMax(ns.pv);  setHp(v  => Math.min(v, ns.pv));
+    setSanMax(ns.san); setSan(v => Math.min(v, ns.san));
+    setPeMax(ns.pe);  setPe(v  => Math.min(v, ns.pe));
+    setNex(newNex);
+    setShowNexMenu(false);
   };
 
   const rollFreeInput = () => {
@@ -2313,6 +2401,28 @@ function FullSheet({ character, onBack }) {
   return (
     <div style={{display:"flex",flexDirection:"column",gap:0,position:"relative",fontFamily:"Crimson Pro,serif"}}>
 
+      {/* ── NEX dropdown (fixed, escapes overflow:hidden) ── */}
+      {showNexMenu && (() => {
+        const r = nexBtnRef.current?.getBoundingClientRect() ?? {bottom:0,left:0,width:80};
+        return (
+          <div style={{position:"fixed",top:r.bottom+4,left:r.left,width:Math.max(r.width,72),zIndex:9998,background:"var(--card2)",border:"1px solid rgba(201,168,76,0.5)",borderRadius:6,boxShadow:"0 6px 24px rgba(0,0,0,0.9)",maxHeight:220,overflowY:"auto"}}
+            onMouseLeave={()=>setShowNexMenu(false)}>
+            {NEX_STEPS.map(v=>(
+              <div key={v} onClick={()=>handleNexChange(v)}
+                style={{padding:"7px 10px",fontFamily:"Cinzel,serif",fontSize:11,textAlign:"center",cursor:"pointer",
+                  color: v===nex?"var(--gold)":"var(--muted2)",
+                  background: v===nex?"rgba(201,168,76,0.14)":"transparent",
+                  borderLeft: v===nex?"2px solid var(--gold)":"2px solid transparent",
+                  transition:"background 0.15s"}}
+                onMouseEnter={e=>e.currentTarget.style.background="rgba(201,168,76,0.08)"}
+                onMouseLeave={e=>e.currentTarget.style.background=v===nex?"rgba(201,168,76,0.14)":"transparent"}>
+                {v}%
+              </div>
+            ))}
+          </div>
+        );
+      })()}
+
       {/* ── Roll popup ── */}
       {rollPopup && (
         <div style={{position:"fixed",bottom:16,right:16,zIndex:9999,background:"var(--card)",border:"1px solid rgba(201,168,76,0.5)",borderRadius:10,padding:"12px 16px",minWidth:190,boxShadow:"0 6px 32px rgba(0,0,0,0.9)",animation:"fadeIn 0.25s ease",display:"flex",gap:10,alignItems:"center"}}>
@@ -2351,11 +2461,18 @@ function FullSheet({ character, onBack }) {
 
           {/* Attribute diagram */}
           <div style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:8,padding:"10px 6px 14px",overflow:"hidden"}}>
-            <div style={{fontFamily:"Cinzel,serif",fontSize:9,letterSpacing:2,color:"var(--muted2)",textTransform:"uppercase",textAlign:"center",marginBottom:4}}>Clique para rolar</div>
-            <AttrDiagram attrs={attrs} onRoll={handleAttrRoll} readOnly/>
-            {/* NEX + PE/turno + Deslocamento */}
+            <div style={{fontFamily:"Cinzel,serif",fontSize:9,letterSpacing:2,color:"var(--muted2)",textTransform:"uppercase",textAlign:"center",marginBottom:4}}>Número: editar · Círculo: rolar</div>
+            <AttrDiagram attrs={attrs} onRoll={handleAttrRoll} onEdit={handleAttrEdit}/>
+            {/* NEX + PD/turno + Deslocamento */}
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:5,marginTop:10,padding:"0 8px"}}>
-              {[{l:"NEX",v:`${nex}%`},{l:"PD / TURNO",v:peturno},{l:"DESLOCAMENTO",v:desl}].map(({l,v})=>(
+              {/* NEX — clicável */}
+              <div ref={nexBtnRef} onClick={()=>setShowNexMenu(v=>!v)}
+                style={{background:"var(--card2)",border:`1px solid ${showNexMenu?"rgba(201,168,76,0.7)":"var(--border)"}`,borderRadius:4,padding:"7px 4px",textAlign:"center",cursor:"pointer",userSelect:"none",position:"relative"}}>
+                <div style={{fontFamily:"Cinzel,serif",fontSize:8,color:"var(--muted2)",letterSpacing:1,textTransform:"uppercase"}}>NEX ▾</div>
+                <div style={{fontFamily:"Cinzel,serif",fontSize:13,color:"var(--gold)",fontWeight:600}}>{nex}%</div>
+              </div>
+              {/* PD/turno + Desl estáticos */}
+              {[{l:"PD / TURNO",v:peturno},{l:"DESLOCAMENTO",v:desl}].map(({l,v})=>(
                 <div key={l} style={{background:"var(--card2)",border:"1px solid var(--border)",borderRadius:4,padding:"7px 4px",textAlign:"center"}}>
                   <div style={{fontFamily:"Cinzel,serif",fontSize:8,color:"var(--muted2)",letterSpacing:1,textTransform:"uppercase"}}>{l}</div>
                   <div style={{fontFamily:"Cinzel,serif",fontSize:13,color:"var(--gold)",fontWeight:600}}>{v}</div>
