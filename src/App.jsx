@@ -2271,6 +2271,65 @@ function nexStats(nexVal, classId, attrs) {
   return { pv: base.pv + lvl*perNex.pv, san: base.san + lvl*perNex.san, pe: base.pe + lvl*perNex.pe };
 }
 
+/* ── Aura sound (Web Audio API) ── */
+function startAuraSound() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+
+    // Master gain — fade in over 1.5 s
+    const master = ctx.createGain();
+    master.gain.setValueAtTime(0, ctx.currentTime);
+    master.gain.linearRampToValueAtTime(0.13, ctx.currentTime + 1.5);
+    master.connect(ctx.destination);
+
+    // Simple reverb via feedback delay
+    const delay = ctx.createDelay(1.0);
+    delay.delayTime.value = 0.35;
+    const fbGain = ctx.createGain();
+    fbGain.gain.value = 0.45;
+    delay.connect(fbGain);
+    fbGain.connect(delay);
+    delay.connect(master);
+
+    // LFO — slow shimmer at 0.7 Hz
+    const lfo = ctx.createOscillator();
+    const lfoGain = ctx.createGain();
+    lfo.type = "sine";
+    lfo.frequency.value = 0.7;
+    lfoGain.gain.value = 0.04;
+    lfo.connect(lfoGain);
+    lfo.start();
+
+    // Chord: A3 · C#4 · E4 · A4 · E5 (golden major chord)
+    const freqs = [220, 277.18, 329.63, 440, 659.25];
+    const detunes = [0, 1.5, -1.2, 0.8, -0.6];
+    const oscs = freqs.map((freq, i) => {
+      const osc = ctx.createOscillator();
+      const g   = ctx.createGain();
+      osc.type = "sine";
+      osc.frequency.value = freq + detunes[i];
+      g.gain.value = 0.22 / freqs.length;
+      lfoGain.connect(g.gain);
+      osc.connect(g);
+      g.connect(delay);
+      g.connect(master);
+      osc.start();
+      return osc;
+    });
+
+    return { ctx, oscs, lfo, master };
+  } catch { return null; }
+}
+
+function stopAuraSound(sound) {
+  if (!sound) return;
+  const { ctx, oscs, lfo, master } = sound;
+  master.gain.cancelScheduledValues(ctx.currentTime);
+  master.gain.setValueAtTime(master.gain.value, ctx.currentTime);
+  master.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.8);
+  setTimeout(() => { oscs.forEach(o => { try { o.stop(); } catch {} }); try { lfo.stop(); } catch {} ctx.close(); }, 900);
+}
+
 /* ═══════════════════════════════
    FICHA COMPLETA — NEXUS SHEET
    Layout inspirado no CRIS com
@@ -2293,6 +2352,17 @@ function FullSheet({ character, onBack }) {
   const [nex, setNex] = useState(5);
   const [showNexMenu, setShowNexMenu] = useState(false);
   const nexBtnRef = useRef(null);
+  const auraRef   = useRef(null);
+
+  useEffect(() => {
+    if (rollPopup?.crit) {
+      auraRef.current = startAuraSound();
+    } else {
+      stopAuraSound(auraRef.current);
+      auraRef.current = null;
+    }
+    return () => { stopAuraSound(auraRef.current); auraRef.current = null; };
+  }, [rollPopup?.crit]);
   const [activeTab, setActiveTab] = useState("combate");
   const [diceInput, setDiceInput] = useState("");
   const [rollPopup, setRollPopup] = useState(null);
