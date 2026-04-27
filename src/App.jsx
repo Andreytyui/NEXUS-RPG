@@ -2353,6 +2353,12 @@ function FullSheet({ character, onBack }) {
   const [showNexMenu, setShowNexMenu] = useState(false);
   const nexBtnRef = useRef(null);
   const auraRef   = useRef(null);
+  const [activeTab, setActiveTab] = useState("combate");
+  const [diceInput, setDiceInput] = useState("");
+  const [rollPopup, setRollPopup] = useState(null);
+  const [attacks, setAttacks] = useState([]);
+  const [showNewAtk, setShowNewAtk] = useState(false);
+  const [newAtk, setNewAtk] = useState({ name:"", dmg:"", crit:"x2" });
 
   useEffect(() => {
     if (rollPopup?.crit) {
@@ -2363,12 +2369,6 @@ function FullSheet({ character, onBack }) {
     }
     return () => { stopAuraSound(auraRef.current); auraRef.current = null; };
   }, [rollPopup?.crit]);
-  const [activeTab, setActiveTab] = useState("combate");
-  const [diceInput, setDiceInput] = useState("");
-  const [rollPopup, setRollPopup] = useState(null);
-  const [attacks, setAttacks] = useState([]);
-  const [showNewAtk, setShowNewAtk] = useState(false);
-  const [newAtk, setNewAtk] = useState({ name:"", dmg:"", crit:"x2" });
 
   // derived
   const defesa   = 10 + attrs.AGI;
