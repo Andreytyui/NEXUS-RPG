@@ -446,11 +446,14 @@ function Login({ onLogin }) {
   const [resetSent, setResetSent] = useState(false);
 
   const friendlyError = (code) => {
-    if (code === "auth/invalid-credential" || code === "auth/wrong-password" || code === "auth/user-not-found") return "E-mail ou senha incorretos.";
+    if (["auth/invalid-credential","auth/wrong-password","auth/user-not-found","auth/invalid-login-credentials"].includes(code))
+      return "E-mail ou senha incorretos.";
     if (code === "auth/email-already-in-use") return "Este e-mail já está em uso.";
     if (code === "auth/weak-password") return "Senha muito fraca (mínimo 6 caracteres).";
     if (code === "auth/invalid-email") return "E-mail inválido.";
-    if (code === "auth/popup-closed-by-user") return "Login com Google cancelado.";
+    if (code === "auth/too-many-requests") return "Muitas tentativas. Tente novamente mais tarde.";
+    if (code === "auth/popup-closed-by-user" || code === "auth/cancelled-popup-request") return "Login com Google cancelado.";
+    if (code === "auth/network-request-failed") return "Erro de conexão. Verifique sua internet.";
     return "Ocorreu um erro. Tente novamente.";
   };
 
@@ -467,6 +470,7 @@ function Login({ onLogin }) {
       }
       onLogin();
     } catch (e) {
+      console.error("auth error:", e.code, e.message);
       setError(friendlyError(e.code));
     } finally {
       setLoading(false);
