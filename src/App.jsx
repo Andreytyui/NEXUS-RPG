@@ -39,10 +39,10 @@ const G = () => (
     @keyframes borderGlow{0%,100%{border-color:rgba(201,168,76,0.2)}50%{border-color:rgba(201,168,76,0.6)}}
     @keyframes critAura{0%,100%{box-shadow:0 0 8px 3px rgba(255,215,0,0.9),0 0 22px 8px rgba(255,180,0,0.55),0 0 44px 16px rgba(201,168,76,0.25);color:#ffe86a}50%{box-shadow:0 0 16px 6px rgba(255,215,0,1),0 0 40px 14px rgba(255,180,0,0.8),0 0 70px 28px rgba(201,168,76,0.45);color:#fff5a0}}
     @keyframes eyeBlink{
-      0%,85%  {transform:scaleX(1)}
-      88%     {transform:scaleX(0.05)}
-      90%     {transform:scaleX(0.05)}
-      94%     {transform:scaleX(1)}
+      0%,83%  {transform:scaleX(1);animation-timing-function:cubic-bezier(0.4,0,1,0.4)}
+      87%     {transform:scaleX(0.04);animation-timing-function:linear}
+      89%     {transform:scaleX(0.04);animation-timing-function:cubic-bezier(0,0.6,0.4,1)}
+      95%     {transform:scaleX(1)}
       100%    {transform:scaleX(1)}
     }
     .eye-blink-group{transform-box:fill-box;transform-origin:center center;animation:eyeBlink 6s linear infinite}
