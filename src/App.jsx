@@ -1,4 +1,22 @@
 import { useState, useEffect, useRef } from "react";
+import { initializeApp } from "firebase/app";
+import {
+  getAuth, onAuthStateChanged,
+  signInWithEmailAndPassword, createUserWithEmailAndPassword,
+  signInWithPopup, GoogleAuthProvider,
+  sendPasswordResetEmail, updateProfile,
+} from "firebase/auth";
+
+const firebaseApp = initializeApp({
+  apiKey: "AIzaSyAunCnV2lla9DVIy_4A-ngR1W23dZNRUKU",
+  authDomain: "nexus-rpg-app.firebaseapp.com",
+  projectId: "nexus-rpg-app",
+  storageBucket: "nexus-rpg-app.firebasestorage.app",
+  messagingSenderId: "947645487813",
+  appId: "1:947645487813:web:ab4b81ff1a37b8b65c2eac",
+});
+const auth = getAuth(firebaseApp);
+const googleProvider = new GoogleAuthProvider();
 
 /* ─── FONTS & GLOBAL CSS ─── */
 const G = () => (
@@ -421,13 +439,62 @@ function NexusQuote() {
 function Login({ onLogin }) {
   const [email, setEmail] = useState("");
   const [pass, setPass] = useState("");
+  const [name, setName] = useState("");
   const [loading, setLoading] = useState(false);
   const [tab, setTab] = useState("login");
+  const [error, setError] = useState("");
+  const [resetSent, setResetSent] = useState(false);
 
-  const handle = () => {
-    if (!email) return;
+  const friendlyError = (code) => {
+    if (code === "auth/invalid-credential" || code === "auth/wrong-password" || code === "auth/user-not-found") return "E-mail ou senha incorretos.";
+    if (code === "auth/email-already-in-use") return "Este e-mail já está em uso.";
+    if (code === "auth/weak-password") return "Senha muito fraca (mínimo 6 caracteres).";
+    if (code === "auth/invalid-email") return "E-mail inválido.";
+    if (code === "auth/popup-closed-by-user") return "Login com Google cancelado.";
+    return "Ocorreu um erro. Tente novamente.";
+  };
+
+  const handle = async () => {
+    setError("");
+    if (!email || !pass) return;
     setLoading(true);
-    setTimeout(() => { setLoading(false); onLogin(); }, 1400);
+    try {
+      if (tab === "login") {
+        await signInWithEmailAndPassword(auth, email, pass);
+      } else {
+        const cred = await createUserWithEmailAndPassword(auth, email, pass);
+        if (name) await updateProfile(cred.user, { displayName: name });
+      }
+      onLogin();
+    } catch (e) {
+      setError(friendlyError(e.code));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleGoogle = async () => {
+    setError("");
+    setLoading(true);
+    try {
+      await signInWithPopup(auth, googleProvider);
+      onLogin();
+    } catch (e) {
+      setError(friendlyError(e.code));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleReset = async () => {
+    if (!email) { setError("Digite seu e-mail para recuperar a senha."); return; }
+    try {
+      await sendPasswordResetEmail(auth, email);
+      setResetSent(true);
+      setError("");
+    } catch (e) {
+      setError(friendlyError(e.code));
+    }
   };
 
   return (
@@ -521,7 +588,7 @@ function Login({ onLogin }) {
               {tab==="register" && (
                 <div>
                   <div style={{fontFamily:"Cinzel,serif", fontSize:9, letterSpacing:2, color:"var(--muted)", textTransform:"uppercase", marginBottom:7}}>Nome de Agente</div>
-                  <input placeholder="Seu nome ou codinome" />
+                  <input value={name} onChange={e=>setName(e.target.value)} placeholder="Seu nome ou codinome" />
                 </div>
               )}
               <div>
@@ -534,10 +601,12 @@ function Login({ onLogin }) {
               </div>
               {tab==="login" && (
                 <div style={{textAlign:"right"}}>
-                  <span style={{fontFamily:"Cinzel,serif", fontSize:9, letterSpacing:1, color:"var(--muted)", cursor:"pointer", textDecoration:"underline"}}>Esqueci minha senha</span>
+                  <span onClick={handleReset} style={{fontFamily:"Cinzel,serif", fontSize:9, letterSpacing:1, color:"var(--muted)", cursor:"pointer", textDecoration:"underline"}}>Esqueci minha senha</span>
                 </div>
               )}
-              <button className="btn-gold" onClick={handle} style={{marginTop:8, width:"100%", display:"flex", alignItems:"center", justifyContent:"center", gap:8}}>
+              {resetSent && <div style={{fontFamily:"Cinzel,serif",fontSize:10,color:"#7aad6e",textAlign:"center"}}>E-mail de recuperação enviado!</div>}
+              {error && <div style={{fontFamily:"Cinzel,serif",fontSize:10,color:"#c96a6a",textAlign:"center"}}>{error}</div>}
+              <button className="btn-gold" onClick={handle} disabled={loading} style={{marginTop:8, width:"100%", display:"flex", alignItems:"center", justifyContent:"center", gap:8}}>
                 {loading ? (
                   <div style={{width:16,height:16,border:"2px solid rgba(0,0,0,0.3)",borderTopColor:"#050505",borderRadius:"50%",animation:"spin 0.7s linear infinite"}}/>
                 ) : (tab==="login"?"Acessar o Nexus":"Registrar Agente")}
@@ -545,7 +614,7 @@ function Login({ onLogin }) {
               <div style={{display:"flex", gap:10, alignItems:"center", margin:"4px 0"}}>
                 <div style={{flex:1, height:1, background:"var(--border)"}}/><span style={{fontFamily:"Cinzel,serif", fontSize:9, color:"var(--muted)"}}>ou</span><div style={{flex:1, height:1, background:"var(--border)"}}/>
               </div>
-              <button className="btn-ghost" style={{width:"100%"}}>☢ Continuar com Google</button>
+              <button className="btn-ghost" onClick={handleGoogle} disabled={loading} style={{width:"100%"}}>☢ Continuar com Google</button>
             </div>
 
             {/* Quote — hidden on desktop */}
@@ -2834,14 +2903,19 @@ function FullSheet({ character, onBack }) {
    ROOT
 ═══════════════════════════════ */
 export default function App() {
-  const [loggedIn, setLoggedIn] = useState(false);
+  const [loggedIn, setLoggedIn] = useState(null); // null = carregando, false = deslogado, true = logado
   const [activeSystem, setActiveSystem] = useState(null);
   const [screen, setScreen] = useState("dashboard");
   const [collapsed, setCollapsed] = useState(false);
   const [creatingChar, setCreatingChar] = useState(false);
   const [createdChar, setCreatedChar] = useState(null);
-  const [characters, setCharacters] = useState([]); // all created characters
-  const [sessions] = useState([]); // sessions list (empty for now)
+  const [characters, setCharacters] = useState([]);
+  const [sessions] = useState([]);
+
+  useEffect(() => {
+    const unsub = onAuthStateChanged(auth, user => setLoggedIn(!!user));
+    return unsub;
+  }, []);
 
   const handleFinishChar = (char) => {
     const d = new Date();
@@ -2868,6 +2942,7 @@ export default function App() {
     }
   };
 
+  if (loggedIn === null) return (<><G/><div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"var(--bg)"}}><div style={{width:32,height:32,border:"2px solid rgba(201,168,76,0.3)",borderTopColor:"var(--gold)",borderRadius:"50%",animation:"spin 0.8s linear infinite"}}/></div></>);
   if (!loggedIn) return (<><G/><Login onLogin={()=>setLoggedIn(true)}/></>);
   if (!activeSystem) return (<><G/><SystemSelect onSelect={sys => setActiveSystem(sys)}/></>);
 
