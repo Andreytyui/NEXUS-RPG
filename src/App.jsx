@@ -4,7 +4,7 @@ import {
   getAuth, onAuthStateChanged,
   signInWithEmailAndPassword, createUserWithEmailAndPassword,
   signInWithPopup, GoogleAuthProvider,
-  sendPasswordResetEmail, updateProfile,
+  sendPasswordResetEmail, updateProfile, signOut,
 } from "firebase/auth";
 
 const firebaseApp = initializeApp({
@@ -645,7 +645,7 @@ const navItems = [
   { id:"party",     icon:"◎", label:"Grupo" },
 ];
 
-function Sidebar({ active, onNav, collapsed, setCollapsed, system, onChangeSystem }) {
+function Sidebar({ active, onNav, collapsed, setCollapsed, system, onChangeSystem, onLogout }) {
   return (
     <div style={{
       width: collapsed ? 60 : 220,
@@ -732,11 +732,19 @@ function Sidebar({ active, onNav, collapsed, setCollapsed, system, onChangeSyste
           fontFamily:"Cinzel,serif", fontSize:13, color:"var(--gold)", flexShrink:0,
         }}>A</div>
         {!collapsed && (
-          <div style={{overflow:"hidden"}}>
+          <div style={{overflow:"hidden", flex:1}}>
             <div style={{fontFamily:"Cinzel,serif", fontSize:11, color:"var(--text)", whiteSpace:"nowrap"}}>Agente</div>
             <div style={{fontFamily:"Cinzel,serif", fontSize:8, letterSpacing:1, color:"var(--gold)", textTransform:"uppercase"}}>✦ Pro</div>
           </div>
         )}
+        <button onClick={onLogout} title="Sair da conta" style={{
+          background:"none", border:"none", cursor:"pointer",
+          color:"var(--muted)", fontSize:16, padding:"4px", flexShrink:0,
+          transition:"color 0.2s", lineHeight:1,
+        }}
+          onMouseEnter={e=>e.currentTarget.style.color="#c96a6a"}
+          onMouseLeave={e=>e.currentTarget.style.color="var(--muted)"}
+        >⏻</button>
       </div>
     </div>
   );
@@ -2959,7 +2967,7 @@ export default function App() {
       <G/>
       <Deco/>
       <div style={{display:"flex", minHeight:"100vh", background:"var(--bg)", position:"relative", zIndex:1}}>
-        <Sidebar active={screen} onNav={setScreen} collapsed={collapsed} setCollapsed={setCollapsed} system={activeSystem} onChangeSystem={()=>setActiveSystem(null)}/>
+        <Sidebar active={screen} onNav={setScreen} collapsed={collapsed} setCollapsed={setCollapsed} system={activeSystem} onChangeSystem={()=>setActiveSystem(null)} onLogout={()=>signOut(auth)}/>
         <div style={{flex:1, display:"flex", flexDirection:"column", minWidth:0, overflow:"hidden"}}>
           <Topbar screen={screen} system={activeSystem} onChangeSystem={()=>setActiveSystem(null)}/>
           <main style={{flex:1, overflowY:"auto", padding:"20px 20px"}}>
