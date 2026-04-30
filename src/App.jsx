@@ -38,23 +38,23 @@ const G = () => (
     @keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-6px)}}
     @keyframes borderGlow{0%,100%{border-color:rgba(201,168,76,0.2)}50%{border-color:rgba(201,168,76,0.6)}}
     @keyframes critAura{0%,100%{box-shadow:0 0 8px 3px rgba(255,215,0,0.9),0 0 22px 8px rgba(255,180,0,0.55),0 0 44px 16px rgba(201,168,76,0.25);color:#ffe86a}50%{box-shadow:0 0 16px 6px rgba(255,215,0,1),0 0 40px 14px rgba(255,180,0,0.8),0 0 70px 28px rgba(201,168,76,0.45);color:#fff5a0}}
-    @keyframes eyeBlink{
-      0%,83%  {transform:scaleX(1);animation-timing-function:cubic-bezier(0.4,0,1,0.4)}
-      87%     {transform:scaleX(0.04);animation-timing-function:linear}
-      89%     {transform:scaleX(0.04);animation-timing-function:cubic-bezier(0,0.6,0.4,1)}
-      95%     {transform:scaleX(1)}
-      100%    {transform:scaleX(1)}
+    @keyframes upperLidAnim{
+      0%,83%  {transform:translateY(-28px);animation-timing-function:cubic-bezier(0.55,0,1,0.45)}
+      87%     {transform:translateY(0);animation-timing-function:linear}
+      89%     {transform:translateY(0);animation-timing-function:cubic-bezier(0,0.55,0.45,1)}
+      95%     {transform:translateY(-28px)}
+      100%    {transform:translateY(-28px)}
     }
-    @keyframes lidSweep{
-      0%,83%  {transform:scaleX(0);animation-timing-function:cubic-bezier(0.4,0,1,0.4)}
-      87%     {transform:scaleX(1);animation-timing-function:linear}
-      89%     {transform:scaleX(1);animation-timing-function:cubic-bezier(0,0.6,0.4,1)}
-      95%     {transform:scaleX(0)}
-      100%    {transform:scaleX(0)}
+    @keyframes lowerLidAnim{
+      0%,83%  {transform:translateY(26px);animation-timing-function:cubic-bezier(0.55,0,1,0.45)}
+      87%     {transform:translateY(0);animation-timing-function:linear}
+      89%     {transform:translateY(0);animation-timing-function:cubic-bezier(0,0.55,0.45,1)}
+      95%     {transform:translateY(26px)}
+      100%    {transform:translateY(26px)}
     }
-    .eye-blink-group{transform-box:view-box;transform-origin:60px 60px;animation:eyeBlink 6s linear infinite}
-    .lid-left {transform-box:view-box;transform-origin:28px 60px;animation:lidSweep 6s linear infinite}
-    .lid-right{transform-box:view-box;transform-origin:92px 60px;animation:lidSweep 6s linear infinite}
+    .eye-blink-group{}
+    .lid-upper{animation:upperLidAnim 6s linear infinite}
+    .lid-lower{animation:lowerLidAnim 6s linear infinite}
 
     .fade{animation:fadeIn 0.5s ease forwards}
 
@@ -302,13 +302,17 @@ const NexusLogo = ({ size = 40, animate = false }) => (
 
     </g>
 
-    {/* ── Eyelids (sweep in from sides during blink) ── */}
-    <path className="lid-left"
-      d="M28,60 Q60,36 60,60 Q60,84 28,60 Z"
-      fill="#0d0800" stroke="url(#eyeGold)" strokeWidth="1.2" filter="url(#softGlow)" />
-    <path className="lid-right"
-      d="M92,60 Q60,36 60,60 Q60,84 92,60 Z"
-      fill="#0d0800" stroke="url(#eyeGold)" strokeWidth="1.2" filter="url(#softGlow)" />
+    {/* ── Eyelids: clipped rects that translate over the eye ── */}
+    <g clipPath="url(#eyeClip)" className="lid-upper">
+      <rect x="0" y="0" width="120" height="60" fill="#120900" />
+    </g>
+    <g clipPath="url(#eyeClip)" className="lid-lower">
+      <rect x="0" y="60" width="120" height="60" fill="#0e0700" />
+    </g>
+    {/* Upper lid edge — gold crease line that moves with the upper lid */}
+    <g className="lid-upper">
+      <path d="M32,60 Q60,54 88,60" fill="none" stroke="url(#eyeGold)" strokeWidth="1" strokeOpacity="0.75" filter="url(#softGlow)" />
+    </g>
 
     {/* ── Corner ornaments ── */}
     {/* Top center dot */}
