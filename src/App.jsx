@@ -1219,7 +1219,7 @@ function PlaceholderScreen({ icon, title, desc, badge }) {
 /* ═══════════════════════════════
    TOPBAR
 ═══════════════════════════════ */
-function Topbar({ screen, system, onChangeSystem }) {
+function Topbar({ screen, system, onChangeSystem, onLogout }) {
   const labels = { dashboard:"Painel", sheet:"Fichas de Personagem", map:"Editor de Mapas", master:"Ajudante do Mestre", music:"Trilhas Sonoras", party:"Grupo de Agentes" };
   return (
     <div style={{
@@ -1256,6 +1256,21 @@ function Topbar({ screen, system, onChangeSystem }) {
           border:"1px solid var(--border2)",
           fontFamily:"Cinzel,serif", fontSize:8, letterSpacing:2, color:"var(--gold)", textTransform:"uppercase",
         }}>✦ Plano Pro</div>
+        <button onClick={onLogout} title="Sair da conta" style={{
+          background:"none", border:"1px solid rgba(201,168,76,0.2)", borderRadius:8,
+          cursor:"pointer", color:"var(--muted)", padding:"5px 10px",
+          display:"flex", alignItems:"center", gap:6,
+          fontFamily:"Cinzel,serif", fontSize:8, letterSpacing:1, textTransform:"uppercase",
+          transition:"all 0.2s",
+        }}
+          onMouseEnter={e=>{e.currentTarget.style.color="#c96a6a";e.currentTarget.style.borderColor="rgba(201,100,100,0.4)";}}
+          onMouseLeave={e=>{e.currentTarget.style.color="var(--muted)";e.currentTarget.style.borderColor="rgba(201,168,76,0.2)";}}
+        >
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/>
+          </svg>
+          Sair
+        </button>
       </div>
     </div>
   );
@@ -1546,7 +1561,7 @@ const SYSTEMS = [
   },
 ];
 
-function SystemSelect({ onSelect }) {
+function SystemSelect({ onSelect, onLogout }) {
   const [hovered, setHovered] = useState(null);
   const [selected, setSelected] = useState(null);
   const [entering, setEntering] = useState(false);
@@ -1565,6 +1580,23 @@ function SystemSelect({ onSelect }) {
       position:"relative", overflow:"hidden",
     }}>
       <Deco/>
+
+      <button onClick={onLogout} title="Sair da conta" style={{
+        position:"fixed", top:20, right:24, zIndex:10,
+        background:"rgba(13,13,13,0.85)", border:"1px solid rgba(201,168,76,0.2)",
+        borderRadius:8, cursor:"pointer", color:"var(--muted)",
+        padding:"7px 14px", display:"flex", alignItems:"center", gap:7,
+        fontFamily:"Cinzel,serif", fontSize:9, letterSpacing:1, textTransform:"uppercase",
+        backdropFilter:"blur(8px)", transition:"all 0.2s",
+      }}
+        onMouseEnter={e=>{e.currentTarget.style.color="#c96a6a";e.currentTarget.style.borderColor="rgba(201,100,100,0.4)";}}
+        onMouseLeave={e=>{e.currentTarget.style.color="var(--muted)";e.currentTarget.style.borderColor="rgba(201,168,76,0.2)";}}
+      >
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/>
+        </svg>
+        Sair
+      </button>
 
       {/* Ambient glow based on hover */}
       <div style={{
@@ -2956,7 +2988,7 @@ export default function App() {
 
   if (loggedIn === null) return (<><G/><div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"var(--bg)"}}><div style={{width:32,height:32,border:"2px solid rgba(201,168,76,0.3)",borderTopColor:"var(--gold)",borderRadius:"50%",animation:"spin 0.8s linear infinite"}}/></div></>);
   if (!loggedIn) return (<><G/><Login onLogin={()=>setLoggedIn(true)}/></>);
-  if (!activeSystem) return (<><G/><SystemSelect onSelect={sys => setActiveSystem(sys)}/></>);
+  if (!activeSystem) return (<><G/><SystemSelect onSelect={sys => setActiveSystem(sys)} onLogout={()=>signOut(auth)}/></>);
 
   if (creatingChar) return (
     <><G/><CharacterCreator onFinish={handleFinishChar} onCancel={()=>setCreatingChar(false)}/></>
@@ -2969,7 +3001,7 @@ export default function App() {
       <div style={{display:"flex", minHeight:"100vh", background:"var(--bg)", position:"relative", zIndex:1}}>
         <Sidebar active={screen} onNav={setScreen} collapsed={collapsed} setCollapsed={setCollapsed} system={activeSystem} onChangeSystem={()=>setActiveSystem(null)} onLogout={()=>signOut(auth)}/>
         <div style={{flex:1, display:"flex", flexDirection:"column", minWidth:0, overflow:"hidden"}}>
-          <Topbar screen={screen} system={activeSystem} onChangeSystem={()=>setActiveSystem(null)}/>
+          <Topbar screen={screen} system={activeSystem} onChangeSystem={()=>setActiveSystem(null)} onLogout={()=>signOut(auth)}/>
           <main style={{flex:1, overflowY:"auto", padding:"20px 20px"}}>
             {renderScreen()}
           </main>
