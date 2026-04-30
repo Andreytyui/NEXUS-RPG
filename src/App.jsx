@@ -38,8 +38,14 @@ const G = () => (
     @keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-6px)}}
     @keyframes borderGlow{0%,100%{border-color:rgba(201,168,76,0.2)}50%{border-color:rgba(201,168,76,0.6)}}
     @keyframes critAura{0%,100%{box-shadow:0 0 8px 3px rgba(255,215,0,0.9),0 0 22px 8px rgba(255,180,0,0.55),0 0 44px 16px rgba(201,168,76,0.25);color:#ffe86a}50%{box-shadow:0 0 16px 6px rgba(255,215,0,1),0 0 40px 14px rgba(255,180,0,0.8),0 0 70px 28px rgba(201,168,76,0.45);color:#fff5a0}}
-    @keyframes eyeBlink{0%,82%{transform:scaleY(1)}86%{transform:scaleY(0.04)}90%{transform:scaleY(0.04)}95%{transform:scaleY(1)}100%{transform:scaleY(1)}}
-    .eye-blink-group{transform-box:fill-box;transform-origin:center;animation:eyeBlink 5s ease-in-out infinite}
+    @keyframes eyeBlink{
+      0%,85%  {transform:scaleY(1)}
+      88%     {transform:scaleY(0.06)}
+      90%     {transform:scaleY(0.06)}
+      94%     {transform:scaleY(1)}
+      100%    {transform:scaleY(1)}
+    }
+    .eye-blink-group{transform-box:fill-box;transform-origin:50% 78%;animation:eyeBlink 6s linear infinite}
 
     .fade{animation:fadeIn 0.5s ease forwards}
 
