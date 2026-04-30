@@ -52,9 +52,9 @@ const G = () => (
       95%     {transform:scaleX(0)}
       100%    {transform:scaleX(0)}
     }
-    .eye-blink-group{transform-box:fill-box;transform-origin:center center;animation:eyeBlink 6s linear infinite}
-    .lid-left {transform-box:fill-box;transform-origin:100% 50%;animation:lidSweep 6s linear infinite}
-    .lid-right{transform-box:fill-box;transform-origin:0%   50%;animation:lidSweep 6s linear infinite}
+    .eye-blink-group{transform-box:view-box;transform-origin:60px 60px;animation:eyeBlink 6s linear infinite}
+    .lid-left {transform-box:view-box;transform-origin:28px 60px;animation:lidSweep 6s linear infinite}
+    .lid-right{transform-box:view-box;transform-origin:92px 60px;animation:lidSweep 6s linear infinite}
 
     .fade{animation:fadeIn 0.5s ease forwards}
 
