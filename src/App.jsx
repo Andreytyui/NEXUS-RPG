@@ -45,7 +45,16 @@ const G = () => (
       95%     {transform:scaleX(1)}
       100%    {transform:scaleX(1)}
     }
+    @keyframes lidSweep{
+      0%,83%  {transform:scaleX(0);animation-timing-function:cubic-bezier(0.4,0,1,0.4)}
+      87%     {transform:scaleX(1);animation-timing-function:linear}
+      89%     {transform:scaleX(1);animation-timing-function:cubic-bezier(0,0.6,0.4,1)}
+      95%     {transform:scaleX(0)}
+      100%    {transform:scaleX(0)}
+    }
     .eye-blink-group{transform-box:fill-box;transform-origin:center center;animation:eyeBlink 6s linear infinite}
+    .lid-left {transform-box:fill-box;transform-origin:100% 50%;animation:lidSweep 6s linear infinite}
+    .lid-right{transform-box:fill-box;transform-origin:0%   50%;animation:lidSweep 6s linear infinite}
 
     .fade{animation:fadeIn 0.5s ease forwards}
 
@@ -292,6 +301,14 @@ const NexusLogo = ({ size = 40, animate = false }) => (
     })}
 
     </g>
+
+    {/* ── Eyelids (sweep in from sides during blink) ── */}
+    <path className="lid-left"
+      d="M28,60 Q60,36 60,60 Q60,84 28,60 Z"
+      fill="#0d0800" stroke="url(#eyeGold)" strokeWidth="1.2" filter="url(#softGlow)" />
+    <path className="lid-right"
+      d="M92,60 Q60,36 60,60 Q60,84 92,60 Z"
+      fill="#0d0800" stroke="url(#eyeGold)" strokeWidth="1.2" filter="url(#softGlow)" />
 
     {/* ── Corner ornaments ── */}
     {/* Top center dot */}
