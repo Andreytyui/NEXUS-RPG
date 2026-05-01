@@ -1223,48 +1223,48 @@ function Topbar({ screen, system, onChangeSystem, onLogout }) {
   const labels = { dashboard:"Painel", sheet:"Fichas de Personagem", map:"Editor de Mapas", master:"Ajudante do Mestre", music:"Trilhas Sonoras", party:"Grupo de Agentes" };
   return (
     <div style={{
-      height:56, background:"rgba(5,5,5,0.9)", borderBottom:"1px solid var(--border)",
+      height:56, background:"rgba(8,8,8,0.95)", borderBottom:"1px solid var(--border2)",
       display:"flex", alignItems:"center", padding:"0 24px", gap:16,
       position:"sticky", top:0, zIndex:50, backdropFilter:"blur(12px)",
     }}>
-      <div style={{fontFamily:"Cinzel,serif", fontSize:13, color:"var(--text)"}}>{labels[screen]}</div>
-      <div style={{height:1, flex:1, background:"var(--border)"}}/>
+      <div style={{fontFamily:"Cinzel,serif", fontSize:13, color:"var(--gold2)", letterSpacing:0.5}}>{labels[screen]}</div>
+      <div style={{height:1, flex:1, background:"var(--border2)"}}/>
       <div style={{display:"flex", gap:14, alignItems:"center"}}>
         {/* Active system badge */}
         {system && (
           <button onClick={onChangeSystem} className="topbar-sys" style={{
             alignItems:"center", gap:7, cursor:"pointer",
             padding:"4px 12px", borderRadius:20,
-            background:`${system.accent}18`,
-            border:`1px solid ${system.accent}50`,
+            background:`${system.accent}28`,
+            border:`1px solid ${system.accent}80`,
             fontFamily:"Cinzel,serif", fontSize:8, letterSpacing:2,
             color:system.accent, textTransform:"uppercase",
             transition:"all 0.2s",
           }} title="Trocar sistema">
             <span style={{display:"flex",alignItems:"center"}}>{system?.svgIcon ? system.svgIcon(false) : system?.icon}</span>
             <span>{system.name}</span>
-            <span style={{opacity:0.5, fontSize:10}}>⇄</span>
+            <span style={{opacity:0.7, fontSize:10}}>⇄</span>
           </button>
         )}
         <div style={{display:"flex", gap:6, alignItems:"center"}}>
-          <div style={{width:6, height:6, borderRadius:"50%", background:"#4caf50", boxShadow:"0 0 5px #4caf50", animation:"pulse 2s infinite"}}/>
-          <span style={{fontFamily:"Cinzel,serif", fontSize:8, letterSpacing:2, color:"var(--muted)", textTransform:"uppercase"}}>Online</span>
+          <div style={{width:6, height:6, borderRadius:"50%", background:"#4caf50", boxShadow:"0 0 6px #4caf50", animation:"pulse 2s infinite"}}/>
+          <span style={{fontFamily:"Cinzel,serif", fontSize:8, letterSpacing:2, color:"var(--muted2)", textTransform:"uppercase"}}>Online</span>
         </div>
         <div style={{
           padding:"4px 12px", borderRadius:20,
-          background:"linear-gradient(135deg,rgba(201,168,76,0.2),rgba(201,168,76,0.05))",
+          background:"linear-gradient(135deg,rgba(201,168,76,0.25),rgba(201,168,76,0.08))",
           border:"1px solid var(--border2)",
-          fontFamily:"Cinzel,serif", fontSize:8, letterSpacing:2, color:"var(--gold)", textTransform:"uppercase",
+          fontFamily:"Cinzel,serif", fontSize:8, letterSpacing:2, color:"var(--gold2)", textTransform:"uppercase",
         }}>✦ Plano Pro</div>
         <button onClick={onLogout} title="Sair da conta" style={{
-          background:"none", border:"1px solid rgba(201,168,76,0.2)", borderRadius:8,
-          cursor:"pointer", color:"var(--muted)", padding:"5px 10px",
+          background:"none", border:"1px solid var(--border2)", borderRadius:8,
+          cursor:"pointer", color:"var(--muted2)", padding:"5px 10px",
           display:"flex", alignItems:"center", gap:6,
           fontFamily:"Cinzel,serif", fontSize:8, letterSpacing:1, textTransform:"uppercase",
           transition:"all 0.2s",
         }}
-          onMouseEnter={e=>{e.currentTarget.style.color="#c96a6a";e.currentTarget.style.borderColor="rgba(201,100,100,0.4)";}}
-          onMouseLeave={e=>{e.currentTarget.style.color="var(--muted)";e.currentTarget.style.borderColor="rgba(201,168,76,0.2)";}}
+          onMouseEnter={e=>{e.currentTarget.style.color="#e07070";e.currentTarget.style.borderColor="rgba(201,100,100,0.5)";}}
+          onMouseLeave={e=>{e.currentTarget.style.color="var(--muted2)";e.currentTarget.style.borderColor="var(--border2)";}}
         >
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/>
@@ -2314,18 +2314,21 @@ function CharacterCreator({ onFinish, onCancel }) {
     <div style={{ minHeight:"100vh", background:"var(--bg)", overflowY:"auto" }}>
       {/* Header */}
       <div style={{
-        padding:"18px 32px", borderBottom:"1px solid var(--border)",
+        padding:"18px 32px", borderBottom:"1px solid var(--border2)",
         display:"flex", alignItems:"center", gap:16,
-        background:"rgba(5,5,5,0.95)", backdropFilter:"blur(10px)",
+        background:"rgba(8,8,8,0.97)", backdropFilter:"blur(10px)",
         position:"sticky", top:0, zIndex:50,
       }}>
         <NexusLogo size={28}/>
-        <div style={{fontFamily:"Cinzel,serif", fontSize:12, color:"var(--muted2)"}}>Nova Ficha de Agente</div>
-        <div style={{height:1, flex:1, background:"var(--border)"}}/>
-        <span style={{fontFamily:"Cinzel,serif", fontSize:9, letterSpacing:2, color:"var(--muted)", textTransform:"uppercase"}}>
+        <div style={{fontFamily:"Cinzel,serif", fontSize:13, color:"var(--gold2)", letterSpacing:1}}>Nova Ficha de Agente</div>
+        <div style={{height:1, flex:1, background:"var(--border2)"}}/>
+        <span style={{fontFamily:"Cinzel,serif", fontSize:9, letterSpacing:2, color:"var(--muted2)", textTransform:"uppercase"}}>
           🌀 Ordem Paranormal · 2ª Ed.
         </span>
-        <button onClick={onCancel} style={{background:"none", border:"1px solid var(--border)", borderRadius:4, color:"var(--muted)", cursor:"pointer", fontFamily:"Cinzel,serif", fontSize:9, letterSpacing:2, textTransform:"uppercase", padding:"6px 14px"}}>Cancelar</button>
+        <button onClick={onCancel} style={{background:"none", border:"1px solid var(--border2)", borderRadius:4, color:"var(--muted2)", cursor:"pointer", fontFamily:"Cinzel,serif", fontSize:9, letterSpacing:2, textTransform:"uppercase", padding:"6px 14px", transition:"all 0.2s"}}
+          onMouseEnter={e=>{e.currentTarget.style.color="var(--gold)";e.currentTarget.style.borderColor="var(--gold)";}}
+          onMouseLeave={e=>{e.currentTarget.style.color="var(--muted2)";e.currentTarget.style.borderColor="var(--border2)";}}
+        >Cancelar</button>
       </div>
 
       <div style={{maxWidth:900, margin:"0 auto", padding:"40px 28px"}}>
