@@ -1233,17 +1233,22 @@ function Topbar({ screen, system, onChangeSystem, onLogout }) {
         {/* Active system badge */}
         {system && (
           <button onClick={onChangeSystem} className="topbar-sys" style={{
-            alignItems:"center", gap:7, cursor:"pointer",
-            padding:"4px 12px", borderRadius:20,
-            background:`${system.accent}28`,
-            border:`1px solid ${system.accent}80`,
-            fontFamily:"Cinzel,serif", fontSize:8, letterSpacing:2,
-            color:system.accent, textTransform:"uppercase",
-            transition:"all 0.2s",
-          }} title="Trocar sistema">
-            <span style={{display:"flex",alignItems:"center"}}>{system?.svgIcon ? system.svgIcon(false) : system?.icon}</span>
-            <span>{system.name}</span>
-            <span style={{opacity:0.7, fontSize:10}}>⇄</span>
+            alignItems:"center", gap:8, cursor:"pointer",
+            padding:"6px 14px", borderRadius:24,
+            background:`linear-gradient(135deg,${system.accent}38,${system.accent}18)`,
+            border:`1px solid ${system.accentText}90`,
+            fontFamily:"Cinzel,serif", fontSize:9, letterSpacing:2,
+            color:system.accentText, textTransform:"uppercase",
+            transition:"all 0.25s",
+            boxShadow:`0 0 12px ${system.accent}55, inset 0 1px 0 ${system.accentText}25`,
+          }}
+            onMouseEnter={e=>{e.currentTarget.style.boxShadow=`0 0 20px ${system.accent}99, inset 0 1px 0 ${system.accentText}40`;e.currentTarget.style.borderColor=system.accentText;}}
+            onMouseLeave={e=>{e.currentTarget.style.boxShadow=`0 0 12px ${system.accent}55, inset 0 1px 0 ${system.accentText}25`;e.currentTarget.style.borderColor=`${system.accentText}90`;}}
+            title="Trocar sistema"
+          >
+            <span style={{display:"flex",alignItems:"center",filter:`drop-shadow(0 0 4px ${system.accent})`}}>{system?.svgIcon ? system.svgIcon(false) : system?.icon}</span>
+            <span style={{textShadow:`0 0 8px ${system.accent}`}}>{system.name}</span>
+            <span style={{opacity:0.8, fontSize:11}}>⇄</span>
           </button>
         )}
         <div style={{display:"flex", gap:6, alignItems:"center"}}>
@@ -1493,9 +1498,9 @@ const SYSTEMS = [
     svgIcon: (glow) => <OPEnergyIcon size={48} glow={glow} />,
     desc: "Enfrente o Outro Lado. Investigue o inexplicável. Sobreviva ao horror sobrenatural nas ruas do Brasil.",
     tags: ["Terror","Investigação","Sobrenatural"],
-    accent: "#8b2020",
-    accentText: "#e06060",
-    accentGlow: "rgba(139,32,32,0.25)",
+    accent: "#b030d8",
+    accentText: "#d870f8",
+    accentGlow: "rgba(180,50,220,0.35)",
     available: true,
   },
   {
@@ -2322,7 +2327,7 @@ function CharacterCreator({ onFinish, onCancel }) {
         <NexusLogo size={28}/>
         <div style={{fontFamily:"Cinzel,serif", fontSize:13, color:"var(--gold2)", letterSpacing:1}}>Nova Ficha de Agente</div>
         <div style={{height:1, flex:1, background:"var(--border2)"}}/>
-        <span style={{fontFamily:"Cinzel,serif", fontSize:9, letterSpacing:2, color:"var(--muted2)", textTransform:"uppercase"}}>
+        <span style={{fontFamily:"Cinzel,serif", fontSize:9, letterSpacing:2, color:"#d870f8", textTransform:"uppercase", textShadow:"0 0 10px rgba(180,50,220,0.7)"}}>
           🌀 Ordem Paranormal · 2ª Ed.
         </span>
         <button onClick={onCancel} style={{background:"none", border:"1px solid var(--border2)", borderRadius:4, color:"var(--muted2)", cursor:"pointer", fontFamily:"Cinzel,serif", fontSize:9, letterSpacing:2, textTransform:"uppercase", padding:"6px 14px", transition:"all 0.2s"}}
