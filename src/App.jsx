@@ -718,34 +718,63 @@ function Sidebar({ active, onNav, collapsed, setCollapsed, system, onChangeSyste
       </nav>
 
       {/* User */}
-      <div style={{
-        padding: collapsed?"12px 0":"14px 16px",
-        borderTop:"1px solid var(--border)",
-        display:"flex", alignItems:"center", justifyContent: collapsed?"center":"flex-start",
-        gap:10,
-      }}>
+      {collapsed ? (
         <div style={{
-          width:32, height:32, borderRadius:6,
-          background:"linear-gradient(135deg,rgba(201,168,76,0.3),rgba(201,168,76,0.1))",
-          border:"1px solid var(--border2)",
-          display:"flex", alignItems:"center", justifyContent:"center",
-          fontFamily:"Cinzel,serif", fontSize:13, color:"var(--gold)", flexShrink:0,
-        }}>A</div>
-        {!collapsed && (
+          padding:"12px 0", borderTop:"1px solid var(--border)",
+          display:"flex", flexDirection:"column", alignItems:"center", gap:8,
+        }}>
+          <div style={{
+            width:32, height:32, borderRadius:6,
+            background:"linear-gradient(135deg,rgba(201,168,76,0.3),rgba(201,168,76,0.1))",
+            border:"1px solid var(--border2)",
+            display:"flex", alignItems:"center", justifyContent:"center",
+            fontFamily:"Cinzel,serif", fontSize:13, color:"var(--gold)",
+          }}>A</div>
+          <button onClick={onLogout} title="Sair da conta" style={{
+            background:"none", border:"1px solid rgba(201,168,76,0.2)", borderRadius:6,
+            cursor:"pointer", color:"var(--muted2)", padding:"5px",
+            display:"flex", alignItems:"center", justifyContent:"center",
+            transition:"all 0.2s", width:32, height:28,
+          }}
+            onMouseEnter={e=>{e.currentTarget.style.color="#e07070";e.currentTarget.style.borderColor="rgba(200,80,80,0.5)";e.currentTarget.style.background="rgba(200,60,60,0.08)";}}
+            onMouseLeave={e=>{e.currentTarget.style.color="var(--muted2)";e.currentTarget.style.borderColor="rgba(201,168,76,0.2)";e.currentTarget.style.background="none";}}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/>
+            </svg>
+          </button>
+        </div>
+      ) : (
+        <div style={{
+          padding:"14px 16px", borderTop:"1px solid var(--border)",
+          display:"flex", alignItems:"center", gap:10,
+        }}>
+          <div style={{
+            width:32, height:32, borderRadius:6,
+            background:"linear-gradient(135deg,rgba(201,168,76,0.3),rgba(201,168,76,0.1))",
+            border:"1px solid var(--border2)",
+            display:"flex", alignItems:"center", justifyContent:"center",
+            fontFamily:"Cinzel,serif", fontSize:13, color:"var(--gold)", flexShrink:0,
+          }}>A</div>
           <div style={{overflow:"hidden", flex:1}}>
             <div style={{fontFamily:"Cinzel,serif", fontSize:11, color:"var(--text)", whiteSpace:"nowrap"}}>Agente</div>
             <div style={{fontFamily:"Cinzel,serif", fontSize:8, letterSpacing:1, color:"var(--gold)", textTransform:"uppercase"}}>✦ Pro</div>
           </div>
-        )}
-        <button onClick={onLogout} title="Sair da conta" style={{
-          background:"none", border:"none", cursor:"pointer",
-          color:"var(--muted)", fontSize:16, padding:"4px", flexShrink:0,
-          transition:"color 0.2s", lineHeight:1,
-        }}
-          onMouseEnter={e=>e.currentTarget.style.color="#c96a6a"}
-          onMouseLeave={e=>e.currentTarget.style.color="var(--muted)"}
-        >⏻</button>
-      </div>
+          <button onClick={onLogout} title="Sair da conta" style={{
+            background:"none", border:"1px solid rgba(201,168,76,0.2)", borderRadius:6,
+            cursor:"pointer", color:"var(--muted2)", padding:"5px",
+            display:"flex", alignItems:"center", justifyContent:"center",
+            transition:"all 0.2s", flexShrink:0,
+          }}
+            onMouseEnter={e=>{e.currentTarget.style.color="#e07070";e.currentTarget.style.borderColor="rgba(200,80,80,0.5)";e.currentTarget.style.background="rgba(200,60,60,0.08)";}}
+            onMouseLeave={e=>{e.currentTarget.style.color="var(--muted2)";e.currentTarget.style.borderColor="rgba(201,168,76,0.2)";e.currentTarget.style.background="none";}}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/>
+            </svg>
+          </button>
+        </div>
+      )}
     </div>
   );
 }
