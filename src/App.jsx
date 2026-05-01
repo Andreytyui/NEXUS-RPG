@@ -3040,16 +3040,30 @@ function fmtDuration(ms) {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 }
 
+function fmtSeconds(s) {
+  if (!s || s < 0) return "0:00";
+  return `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
+}
+
 /* ── Persistent Music Player Bar ── */
 function MusicPlayerBar({ nowPlaying, onNowPlaying, ytPlayerRef }) {
   const [ytState, setYtState] = useState(-1);
   const [displayIdx, setDisplayIdx] = useState(nowPlaying?.startIdx || 0);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [seeking, setSeeking] = useState(false);
   const pollRef = useRef(null);
+  const displayIdxRef = useRef(displayIdx);
+  const seekingRef = useRef(seeking);
+  displayIdxRef.current = displayIdx;
+  seekingRef.current = seeking;
   const gold = "var(--gold)";
 
   /* init / reinit YouTube IFrame player when playlist changes */
   useEffect(() => {
     if (nowPlaying?.svc !== "youtube") return;
+    setCurrentTime(0);
+    setDuration(0);
     const create = () => {
       if (ytPlayerRef.current) {
         try { ytPlayerRef.current.destroy(); } catch (_) {}
@@ -3073,14 +3087,21 @@ function MusicPlayerBar({ nowPlaying, onNowPlaying, ytPlayerRef }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [nowPlaying?.playlistId]);
 
-  /* poll current track index */
+  /* poll current track index + progress */
   useEffect(() => {
     if (nowPlaying?.svc !== "youtube") return;
     pollRef.current = setInterval(() => {
       const p = ytPlayerRef.current;
       if (!p || typeof p.getPlaylistIndex !== "function") return;
       const idx = p.getPlaylistIndex();
-      if (idx >= 0) setDisplayIdx(idx);
+      if (idx >= 0 && idx !== displayIdxRef.current) {
+        setDisplayIdx(idx);
+        onNowPlaying(prev => prev ? { ...prev, startIdx: idx } : prev);
+      }
+      if (!seekingRef.current) {
+        if (typeof p.getCurrentTime === "function") setCurrentTime(Math.floor(p.getCurrentTime()));
+        if (typeof p.getDuration === "function") setDuration(Math.floor(p.getDuration()));
+      }
     }, 800);
     return () => clearInterval(pollRef.current);
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -3146,49 +3167,78 @@ function MusicPlayerBar({ nowPlaying, onNowPlaying, ytPlayerRef }) {
   }
 
   /* YouTube: full controls */
+  const progress = duration > 0 ? (currentTime / duration) * 100 : 0;
+
   return (
-    <div style={{ background: "rgba(8,8,8,0.97)", borderTop: "1px solid var(--border2)", padding: "10px 24px", display: "flex", gap: 16, alignItems: "center", backdropFilter: "blur(16px)" }}>
-      {/* Thumb */}
-      <div style={{ width: 46, height: 46, borderRadius: 4, overflow: "hidden", flexShrink: 0, background: "var(--card2)", display: "flex", alignItems: "center", justifyContent: "center" }}>
-        {thumb ? <img src={thumb} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <span style={{ color: "var(--muted)", fontSize: 20 }}>♪</span>}
+    <div style={{ background: "rgba(8,8,8,0.97)", borderTop: "1px solid var(--border2)", padding: "8px 24px 10px", backdropFilter: "blur(16px)" }}>
+      {/* Row 1: thumb + info + controls + stop */}
+      <div style={{ display: "flex", gap: 16, alignItems: "center" }}>
+        {/* Thumb */}
+        <div style={{ width: 42, height: 42, borderRadius: 4, overflow: "hidden", flexShrink: 0, background: "var(--card2)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+          {thumb ? <img src={thumb} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <span style={{ color: "var(--muted)", fontSize: 20 }}>♪</span>}
+        </div>
+        {/* Info */}
+        <div style={{ minWidth: 0, width: 200, flexShrink: 0 }}>
+          <div style={{ fontFamily: "Cinzel,serif", fontSize: 9, color: "var(--text)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{title}</div>
+          <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{channel}</div>
+          {tracks.length > 0 && <div style={{ fontSize: 10, color: "#ff4444", marginTop: 1 }}>{displayIdx + 1} / {tracks.length}</div>}
+        </div>
+        {/* Controls */}
+        <div style={{ display: "flex", gap: 4, alignItems: "center", margin: "0 auto" }}>
+          <button onClick={cycleRepeat} title={repeat === "none" ? "Sem repetição" : repeat === "all" ? "Repetir playlist" : "Repetir música"}
+            style={{ ...btnCtrl, fontSize: 16, color: repeat !== "none" ? gold : "var(--muted)" }}>
+            {repeat === "one" ? "🔂" : "🔁"}
+          </button>
+          <button onClick={prevTrack} style={btnCtrl}
+            onMouseEnter={e => e.currentTarget.style.color = "var(--text)"}
+            onMouseLeave={e => e.currentTarget.style.color = "var(--muted2)"}>⏮</button>
+          <button onClick={togglePlay} style={{
+            width: 42, height: 42, borderRadius: "50%",
+            background: "linear-gradient(135deg,#c9a84c,#e8c96d)", border: "none", cursor: "pointer",
+            fontSize: 16, color: "#050505", display: "flex", alignItems: "center", justifyContent: "center",
+            boxShadow: "0 2px 14px rgba(201,168,76,0.45)", transition: "transform 0.15s, box-shadow 0.15s",
+          }}
+            onMouseEnter={e => { e.currentTarget.style.transform = "scale(1.1)"; e.currentTarget.style.boxShadow = "0 4px 20px rgba(201,168,76,0.65)"; }}
+            onMouseLeave={e => { e.currentTarget.style.transform = "scale(1)"; e.currentTarget.style.boxShadow = "0 2px 14px rgba(201,168,76,0.45)"; }}>
+            {isPlaying ? "⏸" : "▶"}
+          </button>
+          <button onClick={nextTrack} style={btnCtrl}
+            onMouseEnter={e => e.currentTarget.style.color = "var(--text)"}
+            onMouseLeave={e => e.currentTarget.style.color = "var(--muted2)"}>⏭</button>
+        </div>
+        {/* Stop */}
+        <button onClick={stop} style={{ ...btnCtrl, border: "1px solid var(--border)", width: 30, height: 30, borderRadius: 4, fontSize: 14, color: "var(--muted)" }}
+          onMouseEnter={e => { e.currentTarget.style.borderColor = "var(--border2)"; e.currentTarget.style.color = "var(--text)"; }}
+          onMouseLeave={e => { e.currentTarget.style.borderColor = "var(--border)"; e.currentTarget.style.color = "var(--muted)"; }}>✕</button>
       </div>
-      {/* Info */}
-      <div style={{ minWidth: 0, maxWidth: 220, flexShrink: 0 }}>
-        <div style={{ fontFamily: "Cinzel,serif", fontSize: 9, color: "var(--text)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{title}</div>
-        <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{channel}</div>
-        {tracks.length > 0 && <div style={{ fontSize: 10, color: "#ff4444", marginTop: 1 }}>{displayIdx + 1} / {tracks.length}</div>}
+      {/* Row 2: progress bar */}
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 6 }}>
+        <span style={{ fontSize: 10, color: "var(--muted)", flexShrink: 0, fontVariantNumeric: "tabular-nums", minWidth: 32, textAlign: "right" }}>{fmtSeconds(currentTime)}</span>
+        <div style={{ flex: 1, position: "relative", height: 16, display: "flex", alignItems: "center", cursor: "pointer" }}
+          onClick={e => {
+            const rect = e.currentTarget.getBoundingClientRect();
+            const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+            const seekTo = Math.floor(ratio * (duration || 0));
+            setCurrentTime(seekTo);
+            ytPlayerRef.current?.seekTo(seekTo, true);
+          }}>
+          {/* Track */}
+          <div style={{ position: "absolute", inset: "6px 0", borderRadius: 3, background: "rgba(255,255,255,0.1)" }} />
+          {/* Fill */}
+          <div style={{ position: "absolute", left: 0, top: 6, bottom: 6, width: `${progress}%`, borderRadius: 3, background: "linear-gradient(90deg,#a07830,#e8c96d)", transition: seeking ? "none" : "width 0.4s linear" }} />
+          {/* Thumb */}
+          <div style={{ position: "absolute", left: `${progress}%`, top: "50%", transform: "translate(-50%,-50%)", width: 12, height: 12, borderRadius: "50%", background: "var(--gold)", boxShadow: "0 0 6px rgba(201,168,76,0.7)", transition: seeking ? "none" : "left 0.4s linear", pointerEvents: "none" }} />
+          {/* Invisible range input for drag support */}
+          <input type="range" min={0} max={duration || 1} value={currentTime} step={1}
+            onChange={e => setCurrentTime(Number(e.target.value))}
+            onMouseDown={() => setSeeking(true)}
+            onMouseUp={e => { setSeeking(false); ytPlayerRef.current?.seekTo(Number(e.target.value), true); }}
+            onTouchStart={() => setSeeking(true)}
+            onTouchEnd={e => { setSeeking(false); ytPlayerRef.current?.seekTo(Number(e.target.value), true); }}
+            style={{ position: "absolute", inset: 0, opacity: 0, cursor: "pointer", width: "100%", margin: 0 }} />
+        </div>
+        <span style={{ fontSize: 10, color: "var(--muted)", flexShrink: 0, fontVariantNumeric: "tabular-nums", minWidth: 32 }}>{fmtSeconds(duration)}</span>
       </div>
-      {/* Controls */}
-      <div style={{ display: "flex", gap: 4, alignItems: "center", margin: "0 auto" }}>
-        {/* Repeat */}
-        <button onClick={cycleRepeat} title={repeat === "none" ? "Sem repetição" : repeat === "all" ? "Repetir playlist" : "Repetir música"}
-          style={{ ...btnCtrl, fontSize: 16, color: repeat !== "none" ? gold : "var(--muted)" }}>
-          {repeat === "one" ? "🔂" : "🔁"}
-        </button>
-        {/* Prev */}
-        <button onClick={prevTrack} style={btnCtrl}
-          onMouseEnter={e => e.currentTarget.style.color = "var(--text)"}
-          onMouseLeave={e => e.currentTarget.style.color = "var(--muted2)"}>⏮</button>
-        {/* Play/Pause */}
-        <button onClick={togglePlay} style={{
-          width: 42, height: 42, borderRadius: "50%",
-          background: "linear-gradient(135deg,#c9a84c,#e8c96d)", border: "none", cursor: "pointer",
-          fontSize: 16, color: "#050505", display: "flex", alignItems: "center", justifyContent: "center",
-          boxShadow: "0 2px 14px rgba(201,168,76,0.45)", transition: "transform 0.15s, box-shadow 0.15s",
-        }}
-          onMouseEnter={e => { e.currentTarget.style.transform = "scale(1.1)"; e.currentTarget.style.boxShadow = "0 4px 20px rgba(201,168,76,0.65)"; }}
-          onMouseLeave={e => { e.currentTarget.style.transform = "scale(1)"; e.currentTarget.style.boxShadow = "0 2px 14px rgba(201,168,76,0.45)"; }}>
-          {isPlaying ? "⏸" : "▶"}
-        </button>
-        {/* Next */}
-        <button onClick={nextTrack} style={btnCtrl}
-          onMouseEnter={e => e.currentTarget.style.color = "var(--text)"}
-          onMouseLeave={e => e.currentTarget.style.color = "var(--muted2)"}>⏭</button>
-      </div>
-      {/* Stop */}
-      <button onClick={stop} style={{ ...btnCtrl, border: "1px solid var(--border)", width: 30, height: 30, borderRadius: 4, fontSize: 14, color: "var(--muted)" }}
-        onMouseEnter={e => { e.currentTarget.style.borderColor = "var(--border2)"; e.currentTarget.style.color = "var(--text)"; }}
-        onMouseLeave={e => { e.currentTarget.style.borderColor = "var(--border)"; e.currentTarget.style.color = "var(--muted)"; }}>✕</button>
     </div>
   );
 }
@@ -3669,7 +3719,7 @@ export default function App() {
           <Topbar screen={screen} system={activeSystem} onChangeSystem={()=>setActiveSystem(null)} onLogout={()=>signOut(auth)}/>
           {/* hidden div that hosts the YT IFrame player — never unmounts */}
           <div id="yt-player-host" style={{ position:"fixed", top:-9999, left:-9999, width:1, height:1, pointerEvents:"none" }} />
-          <main style={{flex:1, overflowY:"auto", padding:"20px 20px", paddingBottom: nowPlaying ? 90 : 20}}>
+          <main style={{flex:1, overflowY:"auto", padding:"20px 20px", paddingBottom: nowPlaying ? 112 : 20}}>
             {/* MusicScreen is always mounted so audio persists across navigation */}
             <div style={{ display: screen === "music" ? "block" : "none" }}>
               <MusicScreen nowPlaying={nowPlaying} onNowPlaying={setNowPlaying} musicTokens={musicTokens} onMusicTokens={setMusicTokens} ytPlayerRef={ytPlayerRef} />
