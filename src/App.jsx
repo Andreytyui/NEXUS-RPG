@@ -3,7 +3,7 @@ import { initializeApp } from "firebase/app";
 import {
   getAuth, onAuthStateChanged,
   signInWithEmailAndPassword, createUserWithEmailAndPassword,
-  signInWithPopup, GoogleAuthProvider,
+  signInWithPopup, GoogleAuthProvider, reauthenticateWithPopup,
   sendPasswordResetEmail, updateProfile, signOut,
 } from "firebase/auth";
 
@@ -2981,6 +2981,486 @@ function FullSheet({ character, onBack }) {
 }
 
 /* ═══════════════════════════════
+   MUSIC SCREEN
+═══════════════════════════════ */
+
+async function ytFetchPlaylists(token) {
+  const r = await fetch(
+    "https://www.googleapis.com/youtube/v3/playlists?part=snippet,contentDetails&mine=true&maxResults=50",
+    { headers: { Authorization: `Bearer ${token}` } }
+  );
+  const d = await r.json();
+  if (d.error) throw Object.assign(new Error(d.error.message), { status: d.error.code });
+  return d.items || [];
+}
+
+async function spFetchPlaylists(token) {
+  const r = await fetch("https://api.spotify.com/v1/me/playlists?limit=50", {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const d = await r.json();
+  if (d.error) throw Object.assign(new Error(d.error.message), { status: d.error.status });
+  return d.items || [];
+}
+
+function spRandStr(n) {
+  return Array.from(crypto.getRandomValues(new Uint8Array(n)))
+    .map(b => "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"[b % 62])
+    .join("");
+}
+
+async function spCodeChallenge(verifier) {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier));
+  return btoa(String.fromCharCode(...new Uint8Array(digest)))
+    .replace(/=/g, "").replace(/\+/g, "-").replace(/\//g, "_");
+}
+
+function MusicScreen() {
+  const [ytToken, setYtToken] = useState(null);
+  const [spToken, setSpToken] = useState(() => {
+    try {
+      const t = localStorage.getItem("nx_sp_token");
+      const e = parseInt(localStorage.getItem("nx_sp_exp") || "0");
+      return t && Date.now() < e ? t : null;
+    } catch { return null; }
+  });
+  const [spClientId, setSpClientId] = useState(() => localStorage.getItem("nx_sp_cid") || "");
+  const [spClientIdDraft, setSpClientIdDraft] = useState(() => localStorage.getItem("nx_sp_cid") || "");
+  const [ytPlaylists, setYtPlaylists] = useState([]);
+  const [spPlaylists, setSpPlaylists] = useState([]);
+  const [activePlaylist, setActivePlaylist] = useState(null);
+  const [tab, setTab] = useState("youtube");
+  const [loading, setLoading] = useState("");
+  const [err, setErr] = useState("");
+  const [spSetupOpen, setSpSetupOpen] = useState(false);
+
+  /* ── Spotify OAuth callback handler ── */
+  useEffect(() => {
+    const p = new URLSearchParams(window.location.search);
+    const code = p.get("code");
+    const state = p.get("state");
+    const savedState = localStorage.getItem("nx_sp_state");
+    if (code && state && state === savedState) {
+      window.history.replaceState({}, "", window.location.pathname);
+      const cid = localStorage.getItem("nx_sp_cid");
+      const ver = localStorage.getItem("nx_sp_ver");
+      if (cid && ver) handleSpCallback(code, cid, ver);
+    }
+  }, []);
+
+  /* ── Load Spotify playlists if token exists ── */
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!spToken) return;
+    spFetchPlaylists(spToken)
+      .then(items => { setSpPlaylists(items); setTab("spotify"); })
+      .catch(() => { localStorage.removeItem("nx_sp_token"); setSpToken(null); });
+  }, []);
+
+  const handleSpCallback = async (code, cid, ver) => {
+    setLoading("spotify");
+    try {
+      const redirectUri = window.location.origin + window.location.pathname.replace(/\/+$/, "");
+      const body = new URLSearchParams({
+        grant_type: "authorization_code",
+        code,
+        redirect_uri: redirectUri,
+        client_id: cid,
+        code_verifier: ver,
+      });
+      const r = await fetch("https://accounts.spotify.com/api/token", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body,
+      });
+      const d = await r.json();
+      if (d.error) throw new Error(d.error_description || d.error);
+      const exp = Date.now() + d.expires_in * 1000;
+      localStorage.setItem("nx_sp_token", d.access_token);
+      localStorage.setItem("nx_sp_exp", String(exp));
+      setSpToken(d.access_token);
+      const items = await spFetchPlaylists(d.access_token);
+      setSpPlaylists(items);
+      setTab("spotify");
+    } catch (e) {
+      setErr("Spotify: " + e.message);
+    } finally {
+      setLoading("");
+      localStorage.removeItem("nx_sp_ver");
+      localStorage.removeItem("nx_sp_state");
+    }
+  };
+
+  const connectYouTube = async () => {
+    setErr(""); setLoading("youtube");
+    try {
+      const prov = new GoogleAuthProvider();
+      prov.addScope("https://www.googleapis.com/auth/youtube.readonly");
+      prov.setCustomParameters({ prompt: "consent" });
+      const user = auth.currentUser;
+      const isGoogleUser = user?.providerData?.some(p => p.providerId === "google.com");
+      const result = isGoogleUser
+        ? await reauthenticateWithPopup(user, prov)
+        : await signInWithPopup(auth, prov);
+      const cred = GoogleAuthProvider.credentialFromResult(result);
+      if (!cred?.accessToken) throw new Error("Token não obtido.");
+      setYtToken(cred.accessToken);
+      const items = await ytFetchPlaylists(cred.accessToken);
+      setYtPlaylists(items);
+      setTab("youtube");
+    } catch (e) {
+      if (e.code !== "auth/popup-closed-by-user" && e.code !== "auth/cancelled-popup-request") {
+        setErr("YouTube: " + (e.message || "Tente novamente."));
+      }
+    } finally {
+      setLoading("");
+    }
+  };
+
+  const connectSpotify = async (overrideCid) => {
+    const cid = overrideCid || spClientId;
+    if (!cid) { setSpSetupOpen(true); return; }
+    const ver = spRandStr(64);
+    const state = spRandStr(16);
+    localStorage.setItem("nx_sp_ver", ver);
+    localStorage.setItem("nx_sp_state", state);
+    localStorage.setItem("nx_sp_cid", cid);
+    const challenge = await spCodeChallenge(ver);
+    const redirectUri = window.location.origin + window.location.pathname.replace(/\/+$/, "");
+    window.location.href = "https://accounts.spotify.com/authorize?" + new URLSearchParams({
+      client_id: cid,
+      response_type: "code",
+      redirect_uri: redirectUri,
+      code_challenge_method: "S256",
+      code_challenge: challenge,
+      state,
+      scope: "playlist-read-private playlist-read-collaborative user-read-private",
+    });
+  };
+
+  const disconnectYT = () => {
+    setYtToken(null); setYtPlaylists([]);
+    if (activePlaylist?.svc === "youtube") setActivePlaylist(null);
+    if (tab === "youtube" && !spToken) setTab("youtube");
+  };
+  const disconnectSP = () => {
+    localStorage.removeItem("nx_sp_token"); localStorage.removeItem("nx_sp_exp");
+    setSpToken(null); setSpPlaylists([]);
+    if (activePlaylist?.svc === "spotify") setActivePlaylist(null);
+  };
+
+  const isConnected = ytToken || spToken;
+  const currentList = tab === "youtube" ? ytPlaylists : spPlaylists;
+  const isTabConnected = tab === "youtube" ? !!ytToken : !!spToken;
+  const gold = "var(--gold)";
+  const card = { background: "var(--card)", border: "1px solid var(--border)", borderRadius: 8 };
+
+  return (
+    <div className="fade" style={{ maxWidth: 1100, margin: "0 auto" }}>
+      {/* Header */}
+      <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 24 }}>
+        <div style={{ fontSize: 28, color: gold }}>♪</div>
+        <div>
+          <div style={{ fontFamily: "Cinzel Decorative,serif", fontSize: 18, color: gold, letterSpacing: 2 }}>
+            Trilhas Sonoras
+          </div>
+          <div style={{ color: "var(--muted)", fontSize: 13, marginTop: 2 }}>
+            Vincule YouTube ou Spotify para tocar suas playlists durante a sessão
+          </div>
+        </div>
+        {isConnected && (
+          <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
+            {[
+              { svc: "youtube", label: "YouTube", connected: !!ytToken, color: "#ff4444", onDisc: disconnectYT },
+              { svc: "spotify", label: "Spotify", connected: !!spToken, color: "#1db954", onDisc: disconnectSP },
+            ].map(({ svc, label, connected, color, onDisc }) => connected && (
+              <div key={svc} onClick={onDisc} title="Clique para desconectar"
+                style={{
+                  display: "flex", alignItems: "center", gap: 5,
+                  padding: "4px 12px", borderRadius: 20, cursor: "pointer",
+                  border: `1px solid ${color}`, background: svc === "youtube" ? "rgba(255,0,0,0.08)" : "rgba(29,185,84,0.08)",
+                  fontSize: 10, fontFamily: "Cinzel,serif", letterSpacing: 1, color,
+                  transition: "all 0.2s",
+                }}>
+                {label} <span style={{ fontSize: 8, opacity: 0.7 }}>✕</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {err && (
+        <div style={{ ...card, padding: "10px 14px", marginBottom: 16, borderColor: "rgba(139,32,32,0.5)", background: "rgba(139,32,32,0.1)", color: "#e07070", fontSize: 13, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <span>{err}</span>
+          <span style={{ cursor: "pointer", marginLeft: 12 }} onClick={() => setErr("")}>✕</span>
+        </div>
+      )}
+
+      {!isConnected ? (
+        /* ── Connect view ── */
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, maxWidth: 600, margin: "48px auto" }}>
+          {[
+            {
+              svc: "youtube", label: "YouTube", color: "#ff4444", bg: "rgba(255,68,68,0.06)",
+              icon: (
+                <svg viewBox="0 0 24 24" width="38" height="38" fill="#ff4444">
+                  <path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/>
+                </svg>
+              ),
+              desc: "Acesse suas playlists do YouTube durante a sessão de RPG",
+              onClick: connectYouTube,
+              isLoading: loading === "youtube",
+            },
+            {
+              svc: "spotify", label: "Spotify", color: "#1db954", bg: "rgba(29,185,84,0.06)",
+              icon: (
+                <svg viewBox="0 0 24 24" width="38" height="38" fill="#1db954">
+                  <path d="M12 0C5.4 0 0 5.4 0 12s5.4 12 12 12 12-5.4 12-12S18.66 0 12 0zm5.521 17.34c-.24.359-.66.48-1.021.24-2.82-1.74-6.36-2.101-10.561-1.141-.418.122-.779-.179-.899-.539-.12-.421.18-.78.54-.9 4.56-1.021 8.52-.6 11.64 1.32.42.18.479.659.301 1.02zm1.44-3.3c-.301.42-.841.6-1.262.3-3.239-1.98-8.159-2.58-11.939-1.38-.479.12-1.02-.12-1.14-.6-.12-.48.12-1.021.6-1.141C9.6 9.9 15 10.561 18.72 12.84c.361.181.54.78.241 1.2zm.12-3.36C15.24 8.4 8.82 8.16 5.16 9.301c-.6.179-1.2-.181-1.38-.721-.18-.601.18-1.2.72-1.381 4.26-1.26 11.28-1.02 15.721 1.621.539.3.719 1.02.419 1.56-.299.421-1.02.599-1.559.3z"/>
+                </svg>
+              ),
+              desc: "Toque suas playlists do Spotify enquanto joga",
+              onClick: () => connectSpotify(),
+              isLoading: loading === "spotify",
+            },
+          ].map(({ svc, label, color, bg, icon, desc, onClick, isLoading }) => (
+            <div key={svc}
+              onClick={isLoading ? undefined : onClick}
+              style={{
+                ...card, padding: 28, textAlign: "center",
+                display: "flex", flexDirection: "column", alignItems: "center", gap: 14,
+                cursor: isLoading ? "default" : "pointer", transition: "all 0.25s",
+              }}
+              onMouseEnter={e => { if (!isLoading) { e.currentTarget.style.borderColor = color; e.currentTarget.style.background = bg; e.currentTarget.style.transform = "translateY(-2px)"; }}}
+              onMouseLeave={e => { e.currentTarget.style.borderColor = "var(--border)"; e.currentTarget.style.background = "var(--card)"; e.currentTarget.style.transform = "none"; }}
+            >
+              {icon}
+              <div style={{ fontFamily: "Cinzel,serif", fontSize: 13, letterSpacing: 2, color }}>{label}</div>
+              <div style={{ color: "var(--muted)", fontSize: 13, lineHeight: 1.6 }}>{desc}</div>
+              <button className="btn-ghost" disabled={isLoading}
+                style={{ marginTop: 4, borderColor: color, color, opacity: isLoading ? 0.6 : 1 }}>
+                {isLoading
+                  ? <span style={{ display: "flex", alignItems: "center", gap: 7 }}>
+                      <span style={{ width: 12, height: 12, border: `1.5px solid ${color}`, borderTopColor: "transparent", borderRadius: "50%", display: "inline-block", animation: "spin 0.8s linear infinite" }} />
+                      Conectando...
+                    </span>
+                  : `Conectar ${label}`}
+              </button>
+            </div>
+          ))}
+        </div>
+      ) : (
+        /* ── Playlists view ── */
+        <div>
+          {/* Service tabs */}
+          <div style={{ display: "flex", gap: 8, marginBottom: 20, borderBottom: "1px solid var(--border)", paddingBottom: 12, alignItems: "center" }}>
+            {[
+              { id: "youtube", label: "▶ YouTube", connected: !!ytToken, color: "#ff4444" },
+              { id: "spotify", label: "● Spotify", connected: !!spToken, color: "#1db954" },
+            ].map(t => (
+              <div key={t.id}
+                onClick={() => t.connected ? setTab(t.id) : (t.id === "youtube" ? connectYouTube() : connectSpotify())}
+                style={{
+                  padding: "6px 18px", borderRadius: 20, cursor: "pointer",
+                  fontFamily: "Cinzel,serif", fontSize: 11, letterSpacing: 1,
+                  border: `1px solid ${tab === t.id && t.connected ? t.color : "var(--border)"}`,
+                  background: tab === t.id && t.connected
+                    ? (t.id === "youtube" ? "rgba(255,68,68,0.08)" : "rgba(29,185,84,0.08)")
+                    : "transparent",
+                  color: t.connected ? (tab === t.id ? t.color : "var(--muted2)") : "var(--muted)",
+                  transition: "all 0.2s",
+                }}>
+                {t.label} {!t.connected && <span style={{ fontSize: 9, marginLeft: 4 }}>(conectar)</span>}
+              </div>
+            ))}
+            {loading && (
+              <div style={{ display: "flex", alignItems: "center", gap: 6, color: "var(--muted)", fontSize: 12, marginLeft: 8 }}>
+                <div style={{ width: 12, height: 12, border: "1.5px solid var(--border)", borderTopColor: gold, borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
+                Carregando...
+              </div>
+            )}
+            <div style={{ marginLeft: "auto", fontSize: 12, color: "var(--muted)" }}>
+              {currentList.length > 0 && `${currentList.length} playlist${currentList.length !== 1 ? "s" : ""}`}
+            </div>
+          </div>
+
+          {/* Playlist grid */}
+          {!isTabConnected ? (
+            <div style={{ textAlign: "center", padding: "60px 20px", color: "var(--muted)" }}>
+              <div style={{ fontSize: 32, marginBottom: 12 }}>♪</div>
+              <div style={{ marginBottom: 16 }}>Conecte sua conta para ver as playlists</div>
+              <button className="btn-ghost" onClick={() => tab === "youtube" ? connectYouTube() : connectSpotify()}>
+                Conectar {tab === "youtube" ? "YouTube" : "Spotify"}
+              </button>
+            </div>
+          ) : currentList.length === 0 && !loading ? (
+            <div style={{ textAlign: "center", padding: "60px 20px", color: "var(--muted)" }}>
+              <div style={{ fontSize: 32, marginBottom: 12 }}>♪</div>
+              <div>Nenhuma playlist encontrada nesta conta.</div>
+            </div>
+          ) : (
+            <div style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fill,minmax(160px,1fr))",
+              gap: 12,
+              paddingBottom: activePlaylist ? 130 : 20,
+            }}>
+              {currentList.map(pl => {
+                const isYt = tab === "youtube";
+                const id = pl.id;
+                const thumb = isYt
+                  ? (pl.snippet?.thumbnails?.medium?.url || pl.snippet?.thumbnails?.default?.url)
+                  : pl.images?.[0]?.url;
+                const name = isYt ? pl.snippet?.title : pl.name;
+                const count = isYt ? pl.contentDetails?.itemCount : pl.tracks?.total;
+                const isActive = activePlaylist?.id === id;
+                const accentColor = tab === "youtube" ? "#ff4444" : "#1db954";
+
+                return (
+                  <div key={id}
+                    onClick={() => setActivePlaylist({ id, name, thumb, count, svc: tab })}
+                    style={{
+                      ...card, padding: 10, cursor: "pointer", transition: "all 0.2s",
+                      border: `1px solid ${isActive ? accentColor : "var(--border)"}`,
+                      background: isActive
+                        ? (tab === "youtube" ? "rgba(255,68,68,0.05)" : "rgba(29,185,84,0.05)")
+                        : "var(--card)",
+                      transform: isActive ? "translateY(-2px)" : "none",
+                    }}
+                    onMouseEnter={e => { if (!isActive) { e.currentTarget.style.borderColor = "var(--border2)"; e.currentTarget.style.transform = "translateY(-2px)"; }}}
+                    onMouseLeave={e => { if (!isActive) { e.currentTarget.style.borderColor = "var(--border)"; e.currentTarget.style.transform = "none"; }}}
+                  >
+                    <div style={{ width: "100%", aspectRatio: "1", borderRadius: 4, overflow: "hidden", marginBottom: 8, background: "var(--card2)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                      {thumb
+                        ? <img src={thumb} alt={name} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                        : <span style={{ fontSize: 28, color: "var(--muted)" }}>♪</span>
+                      }
+                    </div>
+                    <div style={{ fontFamily: "Cinzel,serif", fontSize: 9, letterSpacing: 0.5, color: "var(--text)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", marginBottom: 3 }}>
+                      {name}
+                    </div>
+                    {count != null && (
+                      <div style={{ fontSize: 11, color: "var(--muted)" }}>{count} faixas</div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Fixed bottom player */}
+          {activePlaylist && (
+            <div style={{
+              position: "fixed", bottom: 0, left: 0, right: 0, zIndex: 100,
+              background: "rgba(8,8,8,0.97)", borderTop: "1px solid var(--border2)",
+              backdropFilter: "blur(16px)", padding: "10px 20px",
+              display: "flex", gap: 14, alignItems: "center",
+            }}>
+              <div style={{ width: 44, height: 44, borderRadius: 4, overflow: "hidden", flexShrink: 0, background: "var(--card2)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                {activePlaylist.thumb
+                  ? <img src={activePlaylist.thumb} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                  : <span style={{ fontSize: 20, color: "var(--muted)" }}>♪</span>}
+              </div>
+              <div style={{ minWidth: 0, flexShrink: 0, maxWidth: 180 }}>
+                <div style={{ fontFamily: "Cinzel,serif", fontSize: 10, color: "var(--text)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                  {activePlaylist.name}
+                </div>
+                <div style={{ fontSize: 11, color: activePlaylist.svc === "youtube" ? "#ff4444" : "#1db954", marginTop: 2 }}>
+                  {activePlaylist.svc === "youtube" ? "▶ YouTube" : "● Spotify"}
+                  {activePlaylist.count ? ` · ${activePlaylist.count} faixas` : ""}
+                </div>
+              </div>
+              <div style={{ flex: 1, maxWidth: 520 }}>
+                {activePlaylist.svc === "youtube" ? (
+                  <iframe
+                    key={activePlaylist.id}
+                    title={`YouTube: ${activePlaylist.name}`}
+                    src={`https://www.youtube.com/embed?listType=playlist&list=${activePlaylist.id}&autoplay=1`}
+                    width="100%" height="72"
+                    style={{ border: "none", borderRadius: 6, display: "block" }}
+                    allow="autoplay; encrypted-media"
+                    allowFullScreen
+                  />
+                ) : (
+                  <iframe
+                    key={activePlaylist.id}
+                    title={`Spotify: ${activePlaylist.name}`}
+                    src={`https://open.spotify.com/embed/playlist/${activePlaylist.id}?utm_source=generator&theme=0`}
+                    width="100%" height="72"
+                    style={{ border: "none", borderRadius: 6, display: "block" }}
+                    allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture"
+                    loading="lazy"
+                  />
+                )}
+              </div>
+              <button onClick={() => setActivePlaylist(null)} style={{
+                background: "transparent", border: "1px solid var(--border)", color: "var(--muted)",
+                width: 30, height: 30, borderRadius: 4, cursor: "pointer", fontSize: 14,
+                flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
+                transition: "all 0.2s",
+              }}
+              onMouseEnter={e => { e.currentTarget.style.borderColor = "var(--border2)"; e.currentTarget.style.color = "var(--text)"; }}
+              onMouseLeave={e => { e.currentTarget.style.borderColor = "var(--border)"; e.currentTarget.style.color = "var(--muted)"; }}
+              >✕</button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Spotify Setup Modal */}
+      {spSetupOpen && (
+        <div
+          style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)", zIndex: 300, display: "flex", alignItems: "center", justifyContent: "center" }}
+          onClick={e => { if (e.target === e.currentTarget) setSpSetupOpen(false); }}
+        >
+          <div style={{ ...card, padding: 28, maxWidth: 480, width: "90%", background: "var(--surface)" }}>
+            <div style={{ fontFamily: "Cinzel,serif", fontSize: 14, color: gold, letterSpacing: 2, marginBottom: 6 }}>
+              Configurar Spotify
+            </div>
+            <p style={{ color: "var(--muted2)", fontSize: 13, lineHeight: 1.7, marginBottom: 16 }}>
+              Crie um app em{" "}
+              <a href="https://developer.spotify.com/dashboard" target="_blank" rel="noreferrer" style={{ color: "#1db954" }}>
+                developer.spotify.com
+              </a>
+              , copie o <strong style={{ color: "var(--text)" }}>Client ID</strong> e adicione como URI de redirecionamento:
+            </p>
+            <code style={{
+              display: "block", background: "var(--card2)", padding: "8px 12px", borderRadius: 4,
+              fontSize: 12, color: "var(--gold2)", marginBottom: 16, wordBreak: "break-all",
+              border: "1px solid var(--border)",
+            }}>
+              {window.location.origin + window.location.pathname.replace(/\/+$/, "")}
+            </code>
+            <input
+              value={spClientIdDraft}
+              onChange={e => setSpClientIdDraft(e.target.value)}
+              placeholder="Cole aqui o Client ID do Spotify..."
+              style={{ marginBottom: 14 }}
+              onKeyDown={e => {
+                if (e.key === "Enter" && spClientIdDraft.trim()) {
+                  const cid = spClientIdDraft.trim();
+                  setSpClientId(cid); setSpSetupOpen(false); connectSpotify(cid);
+                }
+              }}
+            />
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+              <button className="btn-ghost" onClick={() => setSpSetupOpen(false)}>Cancelar</button>
+              <button className="btn-gold"
+                disabled={!spClientIdDraft.trim()}
+                onClick={() => {
+                  const cid = spClientIdDraft.trim();
+                  if (cid) { setSpClientId(cid); setSpSetupOpen(false); connectSpotify(cid); }
+                }}>
+                Salvar e Conectar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ═══════════════════════════════
    ROOT
 ═══════════════════════════════ */
 export default function App() {
@@ -3017,7 +3497,7 @@ export default function App() {
       case "sheet":     return <SheetList characters={characters} system={activeSystem} onCreateChar={()=>setCreatingChar(true)} onSelectChar={c=>{ setCreatedChar(c); }}/>;
       case "map":       return <PlaceholderScreen icon="🗺️" title="Editor de Mapas" desc={`Mapas com tiles e névoa de guerra para ${sysName}.`} badge="Em breve" />;
       case "master":    return <PlaceholderScreen icon="🎭" title="Ajudante do Mestre por Voz" desc={`Ajudante inteligente treinado nas regras de ${sysName}.`} badge="Beta · Pro" />;
-      case "music":     return <PlaceholderScreen icon="🎵" title="Trilhas Sonoras" desc="Biblioteca temática: combate, terror, investigação." badge="16 Faixas" />;
+      case "music":     return <MusicScreen />;
       case "party":     return <PlaceholderScreen icon="◎" title="Grupo de Agentes" desc="Compartilhe fichas e gerencie sua campanha." badge="Em breve" />;
       default: return <Dashboard system={activeSystem} onCreateChar={()=>setCreatingChar(true)} characters={characters} sessions={sessions}/>;
     }
