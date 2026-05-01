@@ -2994,6 +2994,16 @@ async function ytFetchPlaylists(token) {
   return d.items || [];
 }
 
+async function ytFetchPlaylistItems(playlistId, token) {
+  const r = await fetch(
+    `https://www.googleapis.com/youtube/v3/playlistItems?part=snippet,contentDetails&playlistId=${playlistId}&maxResults=50`,
+    { headers: { Authorization: `Bearer ${token}` } }
+  );
+  const d = await r.json();
+  if (d.error) throw Object.assign(new Error(d.error.message), { status: d.error.code });
+  return d.items || [];
+}
+
 async function spFetchPlaylists(token) {
   const r = await fetch("https://api.spotify.com/v1/me/playlists?limit=50", {
     headers: { Authorization: `Bearer ${token}` },
@@ -3001,6 +3011,16 @@ async function spFetchPlaylists(token) {
   const d = await r.json();
   if (d.error) throw Object.assign(new Error(d.error.message), { status: d.error.status });
   return d.items || [];
+}
+
+async function spFetchTracks(playlistId, token) {
+  const r = await fetch(
+    `https://api.spotify.com/v1/playlists/${playlistId}/tracks?limit=50&fields=items(track(id,name,duration_ms,artists,album(images)))`,
+    { headers: { Authorization: `Bearer ${token}` } }
+  );
+  const d = await r.json();
+  if (d.error) throw Object.assign(new Error(d.error.message), { status: d.error.status });
+  return (d.items || []).filter(i => i.track);
 }
 
 function spRandStr(n) {
@@ -3015,20 +3035,177 @@ async function spCodeChallenge(verifier) {
     .replace(/=/g, "").replace(/\+/g, "-").replace(/\//g, "_");
 }
 
-function MusicScreen() {
-  const [ytToken, setYtToken] = useState(null);
-  const [spToken, setSpToken] = useState(() => {
-    try {
-      const t = localStorage.getItem("nx_sp_token");
-      const e = parseInt(localStorage.getItem("nx_sp_exp") || "0");
-      return t && Date.now() < e ? t : null;
-    } catch { return null; }
-  });
+function fmtDuration(ms) {
+  const s = Math.floor(ms / 1000);
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+}
+
+/* ── Persistent Music Player Bar ── */
+function MusicPlayerBar({ nowPlaying, onNowPlaying, ytPlayerRef }) {
+  const [ytState, setYtState] = useState(-1);
+  const [displayIdx, setDisplayIdx] = useState(nowPlaying?.startIdx || 0);
+  const pollRef = useRef(null);
+  const gold = "var(--gold)";
+
+  /* init / reinit YouTube IFrame player when playlist changes */
+  useEffect(() => {
+    if (nowPlaying?.svc !== "youtube") return;
+    const create = () => {
+      if (ytPlayerRef.current) {
+        try { ytPlayerRef.current.destroy(); } catch (_) {}
+        ytPlayerRef.current = null;
+      }
+      ytPlayerRef.current = new window.YT.Player("yt-player-host", {
+        height: 1, width: 1,
+        playerVars: {
+          listType: "playlist", list: nowPlaying.playlistId,
+          index: nowPlaying.startIdx || 0,
+          autoplay: 1, controls: 0, fs: 0, rel: 0,
+        },
+        events: {
+          onStateChange: e => setYtState(e.data),
+          onReady: e => { e.target.playVideo(); setDisplayIdx(e.target.getPlaylistIndex() || 0); },
+        },
+      });
+    };
+    if (window.YT?.Player) create();
+    else { const prev = window.onYouTubeIframeAPIReady; window.onYouTubeIframeAPIReady = () => { if (prev) prev(); create(); }; }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nowPlaying?.playlistId]);
+
+  /* poll current track index */
+  useEffect(() => {
+    if (nowPlaying?.svc !== "youtube") return;
+    pollRef.current = setInterval(() => {
+      const p = ytPlayerRef.current;
+      if (!p || typeof p.getPlaylistIndex !== "function") return;
+      const idx = p.getPlaylistIndex();
+      if (idx >= 0) setDisplayIdx(idx);
+    }, 800);
+    return () => clearInterval(pollRef.current);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nowPlaying?.svc]);
+
+  /* handle repeat one */
+  useEffect(() => {
+    if (ytState !== 0 || !ytPlayerRef.current) return;
+    if (nowPlaying?.repeat === "one") { ytPlayerRef.current.seekTo(0); ytPlayerRef.current.playVideo(); }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ytState]);
+
+  const isPlaying = ytState === 1;
+  const tracks = nowPlaying?.tracks || [];
+  const currentTrack = tracks[displayIdx];
+  const thumb = currentTrack?.snippet?.thumbnails?.default?.url || nowPlaying?.playlistThumb || "";
+  const title = currentTrack?.snippet?.title || nowPlaying?.playlistName || "";
+  const channel = currentTrack?.snippet?.videoOwnerChannelTitle || "";
+  const repeat = nowPlaying?.repeat || "none";
+
+  const togglePlay = () => { const p = ytPlayerRef.current; if (!p) return; isPlaying ? p.pauseVideo() : p.playVideo(); };
+  const prevTrack = () => { const p = ytPlayerRef.current; if (!p) return; displayIdx === 0 ? p.playVideoAt(Math.max(0, tracks.length - 1)) : p.previousVideo(); };
+  const nextTrack = () => ytPlayerRef.current?.nextVideo();
+  const cycleRepeat = () => {
+    const modes = ["none", "all", "one"];
+    const next = modes[(modes.indexOf(repeat) + 1) % 3];
+    onNowPlaying(prev => ({ ...prev, repeat: next }));
+    if (ytPlayerRef.current?.setLoop) ytPlayerRef.current.setLoop(next === "all");
+  };
+  const stop = () => {
+    if (ytPlayerRef.current) { try { ytPlayerRef.current.stopVideo(); ytPlayerRef.current.destroy(); } catch (_) {} ytPlayerRef.current = null; }
+    onNowPlaying(null);
+  };
+
+  const btnCtrl = {
+    background: "transparent", border: "none", cursor: "pointer",
+    color: "var(--muted2)", fontSize: 20, padding: "4px 8px", lineHeight: 1,
+    display: "flex", alignItems: "center", justifyContent: "center", transition: "color 0.15s",
+  };
+
+  /* Spotify: embed iframe (no SDK without Premium) */
+  if (nowPlaying?.svc === "spotify") {
+    return (
+      <div style={{ background: "rgba(8,8,8,0.97)", borderTop: "1px solid var(--border2)", padding: "10px 20px", display: "flex", gap: 14, alignItems: "center", backdropFilter: "blur(16px)" }}>
+        <div style={{ width: 46, height: 46, borderRadius: 4, overflow: "hidden", flexShrink: 0, background: "var(--card2)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+          {nowPlaying.playlistThumb ? <img src={nowPlaying.playlistThumb} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <span style={{ color: "var(--muted)", fontSize: 20 }}>♪</span>}
+        </div>
+        <div style={{ minWidth: 0, maxWidth: 160, flexShrink: 0 }}>
+          <div style={{ fontFamily: "Cinzel,serif", fontSize: 9, color: "var(--text)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{nowPlaying.playlistName}</div>
+          <div style={{ fontSize: 11, color: "#1db954", marginTop: 2 }}>● Spotify</div>
+        </div>
+        <div style={{ flex: 1, maxWidth: 520 }}>
+          <iframe title={`Spotify: ${nowPlaying.playlistName}`}
+            src={`https://open.spotify.com/embed/playlist/${nowPlaying.playlistId}?utm_source=generator&theme=0`}
+            width="100%" height="72" style={{ border: "none", borderRadius: 6, display: "block" }}
+            allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture" loading="lazy" />
+        </div>
+        <button onClick={stop} style={{ ...btnCtrl, border: "1px solid var(--border)", width: 30, height: 30, borderRadius: 4, color: "var(--muted)" }}
+          onMouseEnter={e => { e.currentTarget.style.borderColor = "var(--border2)"; e.currentTarget.style.color = "var(--text)"; }}
+          onMouseLeave={e => { e.currentTarget.style.borderColor = "var(--border)"; e.currentTarget.style.color = "var(--muted)"; }}>✕</button>
+      </div>
+    );
+  }
+
+  /* YouTube: full controls */
+  return (
+    <div style={{ background: "rgba(8,8,8,0.97)", borderTop: "1px solid var(--border2)", padding: "10px 24px", display: "flex", gap: 16, alignItems: "center", backdropFilter: "blur(16px)" }}>
+      {/* Thumb */}
+      <div style={{ width: 46, height: 46, borderRadius: 4, overflow: "hidden", flexShrink: 0, background: "var(--card2)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+        {thumb ? <img src={thumb} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <span style={{ color: "var(--muted)", fontSize: 20 }}>♪</span>}
+      </div>
+      {/* Info */}
+      <div style={{ minWidth: 0, maxWidth: 220, flexShrink: 0 }}>
+        <div style={{ fontFamily: "Cinzel,serif", fontSize: 9, color: "var(--text)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{title}</div>
+        <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{channel}</div>
+        {tracks.length > 0 && <div style={{ fontSize: 10, color: "#ff4444", marginTop: 1 }}>{displayIdx + 1} / {tracks.length}</div>}
+      </div>
+      {/* Controls */}
+      <div style={{ display: "flex", gap: 4, alignItems: "center", margin: "0 auto" }}>
+        {/* Repeat */}
+        <button onClick={cycleRepeat} title={repeat === "none" ? "Sem repetição" : repeat === "all" ? "Repetir playlist" : "Repetir música"}
+          style={{ ...btnCtrl, fontSize: 16, color: repeat !== "none" ? gold : "var(--muted)" }}>
+          {repeat === "one" ? "🔂" : "🔁"}
+        </button>
+        {/* Prev */}
+        <button onClick={prevTrack} style={btnCtrl}
+          onMouseEnter={e => e.currentTarget.style.color = "var(--text)"}
+          onMouseLeave={e => e.currentTarget.style.color = "var(--muted2)"}>⏮</button>
+        {/* Play/Pause */}
+        <button onClick={togglePlay} style={{
+          width: 42, height: 42, borderRadius: "50%",
+          background: "linear-gradient(135deg,#c9a84c,#e8c96d)", border: "none", cursor: "pointer",
+          fontSize: 16, color: "#050505", display: "flex", alignItems: "center", justifyContent: "center",
+          boxShadow: "0 2px 14px rgba(201,168,76,0.45)", transition: "transform 0.15s, box-shadow 0.15s",
+        }}
+          onMouseEnter={e => { e.currentTarget.style.transform = "scale(1.1)"; e.currentTarget.style.boxShadow = "0 4px 20px rgba(201,168,76,0.65)"; }}
+          onMouseLeave={e => { e.currentTarget.style.transform = "scale(1)"; e.currentTarget.style.boxShadow = "0 2px 14px rgba(201,168,76,0.45)"; }}>
+          {isPlaying ? "⏸" : "▶"}
+        </button>
+        {/* Next */}
+        <button onClick={nextTrack} style={btnCtrl}
+          onMouseEnter={e => e.currentTarget.style.color = "var(--text)"}
+          onMouseLeave={e => e.currentTarget.style.color = "var(--muted2)"}>⏭</button>
+      </div>
+      {/* Stop */}
+      <button onClick={stop} style={{ ...btnCtrl, border: "1px solid var(--border)", width: 30, height: 30, borderRadius: 4, fontSize: 14, color: "var(--muted)" }}
+        onMouseEnter={e => { e.currentTarget.style.borderColor = "var(--border2)"; e.currentTarget.style.color = "var(--text)"; }}
+        onMouseLeave={e => { e.currentTarget.style.borderColor = "var(--border)"; e.currentTarget.style.color = "var(--muted)"; }}>✕</button>
+    </div>
+  );
+}
+
+function MusicScreen({ nowPlaying, onNowPlaying, musicTokens, onMusicTokens }) {
+  const ytToken = musicTokens.yt;
+  const spToken = musicTokens.sp;
+  const setYtToken = t => onMusicTokens(prev => ({ ...prev, yt: t }));
+  const setSpToken = t => onMusicTokens(prev => ({ ...prev, sp: t }));
+
   const [spClientId, setSpClientId] = useState(() => localStorage.getItem("nx_sp_cid") || "");
   const [spClientIdDraft, setSpClientIdDraft] = useState(() => localStorage.getItem("nx_sp_cid") || "");
   const [ytPlaylists, setYtPlaylists] = useState([]);
   const [spPlaylists, setSpPlaylists] = useState([]);
-  const [activePlaylist, setActivePlaylist] = useState(null);
+  const [selectedPlaylist, setSelectedPlaylist] = useState(null);
+  const [tracks, setTracks] = useState([]);
+  const [tracksLoading, setTracksLoading] = useState(false);
   const [tab, setTab] = useState("youtube");
   const [loading, setLoading] = useState("");
   const [err, setErr] = useState("");
@@ -3046,6 +3223,7 @@ function MusicScreen() {
       const ver = localStorage.getItem("nx_sp_ver");
       if (cid && ver) handleSpCallback(code, cid, ver);
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   /* ── Load Spotify playlists if token exists ── */
@@ -3055,6 +3233,7 @@ function MusicScreen() {
     spFetchPlaylists(spToken)
       .then(items => { setSpPlaylists(items); setTab("spotify"); })
       .catch(() => { localStorage.removeItem("nx_sp_token"); setSpToken(null); });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const handleSpCallback = async (code, cid, ver) => {
@@ -3140,13 +3319,45 @@ function MusicScreen() {
 
   const disconnectYT = () => {
     setYtToken(null); setYtPlaylists([]);
-    if (activePlaylist?.svc === "youtube") setActivePlaylist(null);
-    if (tab === "youtube" && !spToken) setTab("youtube");
+    if (selectedPlaylist?.svc === "youtube") setSelectedPlaylist(null);
+    if (nowPlaying?.svc === "youtube") onNowPlaying(null);
   };
   const disconnectSP = () => {
     localStorage.removeItem("nx_sp_token"); localStorage.removeItem("nx_sp_exp");
     setSpToken(null); setSpPlaylists([]);
-    if (activePlaylist?.svc === "spotify") setActivePlaylist(null);
+    if (selectedPlaylist?.svc === "spotify") setSelectedPlaylist(null);
+    if (nowPlaying?.svc === "spotify") onNowPlaying(null);
+  };
+
+  const openPlaylist = async (pl, svc) => {
+    const name = svc === "youtube" ? pl.snippet?.title : pl.name;
+    const thumb = svc === "youtube"
+      ? (pl.snippet?.thumbnails?.medium?.url || pl.snippet?.thumbnails?.default?.url)
+      : pl.images?.[0]?.url;
+    const count = svc === "youtube" ? pl.contentDetails?.itemCount : pl.tracks?.total;
+    setSelectedPlaylist({ id: pl.id, name, thumb, count, svc });
+    setTracks([]);
+    setTracksLoading(true);
+    try {
+      const items = svc === "youtube"
+        ? await ytFetchPlaylistItems(pl.id, ytToken)
+        : await spFetchTracks(pl.id, spToken);
+      setTracks(items);
+    } catch (e) {
+      setErr("Erro ao carregar faixas: " + e.message);
+    } finally {
+      setTracksLoading(false);
+    }
+  };
+
+  const playTrack = (idx) => {
+    const pl = selectedPlaylist;
+    onNowPlaying({
+      svc: pl.svc, playlistId: pl.id, playlistName: pl.name,
+      playlistThumb: pl.thumb, trackCount: pl.count,
+      startIdx: idx, tracks,
+      repeat: nowPlaying?.repeat || "none",
+    });
   };
 
   const isConnected = ytToken || spToken;
@@ -3154,253 +3365,179 @@ function MusicScreen() {
   const isTabConnected = tab === "youtube" ? !!ytToken : !!spToken;
   const gold = "var(--gold)";
   const card = { background: "var(--card)", border: "1px solid var(--border)", borderRadius: 8 };
+  const isPlayingThis = (pl, svc) => nowPlaying?.playlistId === pl.id && nowPlaying?.svc === svc;
 
   return (
     <div className="fade" style={{ maxWidth: 1100, margin: "0 auto" }}>
       {/* Header */}
       <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 24 }}>
-        <div style={{ fontSize: 28, color: gold }}>♪</div>
+        {selectedPlaylist && (
+          <button onClick={() => { setSelectedPlaylist(null); setTracks([]); }} style={{ background: "transparent", border: "none", cursor: "pointer", color: "var(--muted2)", fontSize: 20, padding: "2px 6px", lineHeight: 1 }}
+            onMouseEnter={e => e.currentTarget.style.color = "var(--text)"}
+            onMouseLeave={e => e.currentTarget.style.color = "var(--muted2)"}
+          >←</button>
+        )}
+        <div style={{ fontSize: 24, color: gold }}>♪</div>
         <div>
-          <div style={{ fontFamily: "Cinzel Decorative,serif", fontSize: 18, color: gold, letterSpacing: 2 }}>
-            Trilhas Sonoras
+          <div style={{ fontFamily: "Cinzel Decorative,serif", fontSize: 17, color: gold, letterSpacing: 2 }}>
+            {selectedPlaylist ? selectedPlaylist.name : "Trilhas Sonoras"}
           </div>
-          <div style={{ color: "var(--muted)", fontSize: 13, marginTop: 2 }}>
-            Vincule YouTube ou Spotify para tocar suas playlists durante a sessão
+          <div style={{ color: "var(--muted)", fontSize: 12, marginTop: 2 }}>
+            {selectedPlaylist
+              ? `${tracks.length || selectedPlaylist.count || 0} faixas · ${selectedPlaylist.svc === "youtube" ? "YouTube" : "Spotify"}`
+              : "Vincule YouTube ou Spotify para tocar suas playlists durante a sessão"}
           </div>
         </div>
-        {isConnected && (
+        {isConnected && !selectedPlaylist && (
           <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
             {[
               { svc: "youtube", label: "YouTube", connected: !!ytToken, color: "#ff4444", onDisc: disconnectYT },
               { svc: "spotify", label: "Spotify", connected: !!spToken, color: "#1db954", onDisc: disconnectSP },
             ].map(({ svc, label, connected, color, onDisc }) => connected && (
               <div key={svc} onClick={onDisc} title="Clique para desconectar"
-                style={{
-                  display: "flex", alignItems: "center", gap: 5,
-                  padding: "4px 12px", borderRadius: 20, cursor: "pointer",
-                  border: `1px solid ${color}`, background: svc === "youtube" ? "rgba(255,0,0,0.08)" : "rgba(29,185,84,0.08)",
-                  fontSize: 10, fontFamily: "Cinzel,serif", letterSpacing: 1, color,
-                  transition: "all 0.2s",
-                }}>
+                style={{ display: "flex", alignItems: "center", gap: 5, padding: "4px 12px", borderRadius: 20, cursor: "pointer", border: `1px solid ${color}`, background: svc === "youtube" ? "rgba(255,0,0,0.08)" : "rgba(29,185,84,0.08)", fontSize: 10, fontFamily: "Cinzel,serif", letterSpacing: 1, color, transition: "all 0.2s" }}>
                 {label} <span style={{ fontSize: 8, opacity: 0.7 }}>✕</span>
               </div>
             ))}
           </div>
         )}
+        {selectedPlaylist && (
+          <button className="btn-gold" style={{ marginLeft: "auto", padding: "8px 18px", fontSize: 10 }}
+            onClick={() => playTrack(0)}>
+            ▶ Tocar tudo
+          </button>
+        )}
       </div>
 
       {err && (
         <div style={{ ...card, padding: "10px 14px", marginBottom: 16, borderColor: "rgba(139,32,32,0.5)", background: "rgba(139,32,32,0.1)", color: "#e07070", fontSize: 13, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <span>{err}</span>
-          <span style={{ cursor: "pointer", marginLeft: 12 }} onClick={() => setErr("")}>✕</span>
+          <span>{err}</span><span style={{ cursor: "pointer", marginLeft: 12 }} onClick={() => setErr("")}>✕</span>
         </div>
       )}
 
-      {!isConnected ? (
-        /* ── Connect view ── */
+      {/* ── Connect view ── */}
+      {!isConnected && (
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, maxWidth: 600, margin: "48px auto" }}>
           {[
-            {
-              svc: "youtube", label: "YouTube", color: "#ff4444", bg: "rgba(255,68,68,0.06)",
-              icon: (
-                <svg viewBox="0 0 24 24" width="38" height="38" fill="#ff4444">
-                  <path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/>
-                </svg>
-              ),
-              desc: "Acesse suas playlists do YouTube durante a sessão de RPG",
-              onClick: connectYouTube,
-              isLoading: loading === "youtube",
-            },
-            {
-              svc: "spotify", label: "Spotify", color: "#1db954", bg: "rgba(29,185,84,0.06)",
-              icon: (
-                <svg viewBox="0 0 24 24" width="38" height="38" fill="#1db954">
-                  <path d="M12 0C5.4 0 0 5.4 0 12s5.4 12 12 12 12-5.4 12-12S18.66 0 12 0zm5.521 17.34c-.24.359-.66.48-1.021.24-2.82-1.74-6.36-2.101-10.561-1.141-.418.122-.779-.179-.899-.539-.12-.421.18-.78.54-.9 4.56-1.021 8.52-.6 11.64 1.32.42.18.479.659.301 1.02zm1.44-3.3c-.301.42-.841.6-1.262.3-3.239-1.98-8.159-2.58-11.939-1.38-.479.12-1.02-.12-1.14-.6-.12-.48.12-1.021.6-1.141C9.6 9.9 15 10.561 18.72 12.84c.361.181.54.78.241 1.2zm.12-3.36C15.24 8.4 8.82 8.16 5.16 9.301c-.6.179-1.2-.181-1.38-.721-.18-.601.18-1.2.72-1.381 4.26-1.26 11.28-1.02 15.721 1.621.539.3.719 1.02.419 1.56-.299.421-1.02.599-1.559.3z"/>
-                </svg>
-              ),
-              desc: "Toque suas playlists do Spotify enquanto joga",
-              onClick: () => connectSpotify(),
-              isLoading: loading === "spotify",
-            },
+            { svc: "youtube", label: "YouTube", color: "#ff4444", bg: "rgba(255,68,68,0.06)",
+              icon: <svg viewBox="0 0 24 24" width="38" height="38" fill="#ff4444"><path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/></svg>,
+              desc: "Acesse suas playlists do YouTube durante a sessão de RPG", onClick: connectYouTube, isLoading: loading === "youtube" },
+            { svc: "spotify", label: "Spotify", color: "#1db954", bg: "rgba(29,185,84,0.06)",
+              icon: <svg viewBox="0 0 24 24" width="38" height="38" fill="#1db954"><path d="M12 0C5.4 0 0 5.4 0 12s5.4 12 12 12 12-5.4 12-12S18.66 0 12 0zm5.521 17.34c-.24.359-.66.48-1.021.24-2.82-1.74-6.36-2.101-10.561-1.141-.418.122-.779-.179-.899-.539-.12-.421.18-.78.54-.9 4.56-1.021 8.52-.6 11.64 1.32.42.18.479.659.301 1.02zm1.44-3.3c-.301.42-.841.6-1.262.3-3.239-1.98-8.159-2.58-11.939-1.38-.479.12-1.02-.12-1.14-.6-.12-.48.12-1.021.6-1.141C9.6 9.9 15 10.561 18.72 12.84c.361.181.54.78.241 1.2zm.12-3.36C15.24 8.4 8.82 8.16 5.16 9.301c-.6.179-1.2-.181-1.38-.721-.18-.601.18-1.2.72-1.381 4.26-1.26 11.28-1.02 15.721 1.621.539.3.719 1.02.419 1.56-.299.421-1.02.599-1.559.3z"/></svg>,
+              desc: "Toque suas playlists do Spotify enquanto joga", onClick: () => connectSpotify(), isLoading: loading === "spotify" },
           ].map(({ svc, label, color, bg, icon, desc, onClick, isLoading }) => (
-            <div key={svc}
-              onClick={isLoading ? undefined : onClick}
-              style={{
-                ...card, padding: 28, textAlign: "center",
-                display: "flex", flexDirection: "column", alignItems: "center", gap: 14,
-                cursor: isLoading ? "default" : "pointer", transition: "all 0.25s",
-              }}
+            <div key={svc} onClick={isLoading ? undefined : onClick}
+              style={{ ...card, padding: 28, textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center", gap: 14, cursor: isLoading ? "default" : "pointer", transition: "all 0.25s" }}
               onMouseEnter={e => { if (!isLoading) { e.currentTarget.style.borderColor = color; e.currentTarget.style.background = bg; e.currentTarget.style.transform = "translateY(-2px)"; }}}
-              onMouseLeave={e => { e.currentTarget.style.borderColor = "var(--border)"; e.currentTarget.style.background = "var(--card)"; e.currentTarget.style.transform = "none"; }}
-            >
+              onMouseLeave={e => { e.currentTarget.style.borderColor = "var(--border)"; e.currentTarget.style.background = "var(--card)"; e.currentTarget.style.transform = "none"; }}>
               {icon}
               <div style={{ fontFamily: "Cinzel,serif", fontSize: 13, letterSpacing: 2, color }}>{label}</div>
               <div style={{ color: "var(--muted)", fontSize: 13, lineHeight: 1.6 }}>{desc}</div>
-              <button className="btn-ghost" disabled={isLoading}
-                style={{ marginTop: 4, borderColor: color, color, opacity: isLoading ? 0.6 : 1 }}>
-                {isLoading
-                  ? <span style={{ display: "flex", alignItems: "center", gap: 7 }}>
-                      <span style={{ width: 12, height: 12, border: `1.5px solid ${color}`, borderTopColor: "transparent", borderRadius: "50%", display: "inline-block", animation: "spin 0.8s linear infinite" }} />
-                      Conectando...
-                    </span>
-                  : `Conectar ${label}`}
+              <button className="btn-ghost" disabled={isLoading} style={{ marginTop: 4, borderColor: color, color, opacity: isLoading ? 0.6 : 1 }}>
+                {isLoading ? <span style={{ display: "flex", alignItems: "center", gap: 7 }}><span style={{ width: 12, height: 12, border: `1.5px solid ${color}`, borderTopColor: "transparent", borderRadius: "50%", display: "inline-block", animation: "spin 0.8s linear infinite" }} />Conectando...</span> : `Conectar ${label}`}
               </button>
             </div>
           ))}
         </div>
-      ) : (
-        /* ── Playlists view ── */
+      )}
+
+      {/* ── Playlist grid ── */}
+      {isConnected && !selectedPlaylist && (
         <div>
-          {/* Service tabs */}
           <div style={{ display: "flex", gap: 8, marginBottom: 20, borderBottom: "1px solid var(--border)", paddingBottom: 12, alignItems: "center" }}>
-            {[
-              { id: "youtube", label: "▶ YouTube", connected: !!ytToken, color: "#ff4444" },
-              { id: "spotify", label: "● Spotify", connected: !!spToken, color: "#1db954" },
-            ].map(t => (
-              <div key={t.id}
-                onClick={() => t.connected ? setTab(t.id) : (t.id === "youtube" ? connectYouTube() : connectSpotify())}
-                style={{
-                  padding: "6px 18px", borderRadius: 20, cursor: "pointer",
-                  fontFamily: "Cinzel,serif", fontSize: 11, letterSpacing: 1,
-                  border: `1px solid ${tab === t.id && t.connected ? t.color : "var(--border)"}`,
-                  background: tab === t.id && t.connected
-                    ? (t.id === "youtube" ? "rgba(255,68,68,0.08)" : "rgba(29,185,84,0.08)")
-                    : "transparent",
-                  color: t.connected ? (tab === t.id ? t.color : "var(--muted2)") : "var(--muted)",
-                  transition: "all 0.2s",
-                }}>
-                {t.label} {!t.connected && <span style={{ fontSize: 9, marginLeft: 4 }}>(conectar)</span>}
+            {[{ id: "youtube", label: "▶ YouTube", connected: !!ytToken, color: "#ff4444" }, { id: "spotify", label: "● Spotify", connected: !!spToken, color: "#1db954" }].map(t => (
+              <div key={t.id} onClick={() => t.connected ? setTab(t.id) : (t.id === "youtube" ? connectYouTube() : connectSpotify())}
+                style={{ padding: "6px 18px", borderRadius: 20, cursor: "pointer", fontFamily: "Cinzel,serif", fontSize: 11, letterSpacing: 1, border: `1px solid ${tab === t.id && t.connected ? t.color : "var(--border)"}`, background: tab === t.id && t.connected ? (t.id === "youtube" ? "rgba(255,68,68,0.08)" : "rgba(29,185,84,0.08)") : "transparent", color: t.connected ? (tab === t.id ? t.color : "var(--muted2)") : "var(--muted)", transition: "all 0.2s" }}>
+                {t.label}{!t.connected && <span style={{ fontSize: 9, marginLeft: 4 }}>(conectar)</span>}
               </div>
             ))}
-            {loading && (
-              <div style={{ display: "flex", alignItems: "center", gap: 6, color: "var(--muted)", fontSize: 12, marginLeft: 8 }}>
-                <div style={{ width: 12, height: 12, border: "1.5px solid var(--border)", borderTopColor: gold, borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
-                Carregando...
-              </div>
-            )}
-            <div style={{ marginLeft: "auto", fontSize: 12, color: "var(--muted)" }}>
-              {currentList.length > 0 && `${currentList.length} playlist${currentList.length !== 1 ? "s" : ""}`}
-            </div>
+            {loading && <div style={{ display: "flex", alignItems: "center", gap: 6, color: "var(--muted)", fontSize: 12, marginLeft: 8 }}><div style={{ width: 12, height: 12, border: "1.5px solid var(--border)", borderTopColor: gold, borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />Carregando...</div>}
+            <div style={{ marginLeft: "auto", fontSize: 12, color: "var(--muted)" }}>{currentList.length > 0 && `${currentList.length} playlist${currentList.length !== 1 ? "s" : ""}`}</div>
           </div>
-
-          {/* Playlist grid */}
           {!isTabConnected ? (
             <div style={{ textAlign: "center", padding: "60px 20px", color: "var(--muted)" }}>
               <div style={{ fontSize: 32, marginBottom: 12 }}>♪</div>
               <div style={{ marginBottom: 16 }}>Conecte sua conta para ver as playlists</div>
-              <button className="btn-ghost" onClick={() => tab === "youtube" ? connectYouTube() : connectSpotify()}>
-                Conectar {tab === "youtube" ? "YouTube" : "Spotify"}
-              </button>
+              <button className="btn-ghost" onClick={() => tab === "youtube" ? connectYouTube() : connectSpotify()}>Conectar {tab === "youtube" ? "YouTube" : "Spotify"}</button>
             </div>
           ) : currentList.length === 0 && !loading ? (
-            <div style={{ textAlign: "center", padding: "60px 20px", color: "var(--muted)" }}>
-              <div style={{ fontSize: 32, marginBottom: 12 }}>♪</div>
-              <div>Nenhuma playlist encontrada nesta conta.</div>
-            </div>
+            <div style={{ textAlign: "center", padding: "60px 20px", color: "var(--muted)" }}><div style={{ fontSize: 32, marginBottom: 12 }}>♪</div><div>Nenhuma playlist encontrada.</div></div>
           ) : (
-            <div style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fill,minmax(160px,1fr))",
-              gap: 12,
-              paddingBottom: activePlaylist ? 130 : 20,
-            }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(160px,1fr))", gap: 12 }}>
               {currentList.map(pl => {
                 const isYt = tab === "youtube";
-                const id = pl.id;
-                const thumb = isYt
-                  ? (pl.snippet?.thumbnails?.medium?.url || pl.snippet?.thumbnails?.default?.url)
-                  : pl.images?.[0]?.url;
+                const thumb = isYt ? (pl.snippet?.thumbnails?.medium?.url || pl.snippet?.thumbnails?.default?.url) : pl.images?.[0]?.url;
                 const name = isYt ? pl.snippet?.title : pl.name;
                 const count = isYt ? pl.contentDetails?.itemCount : pl.tracks?.total;
-                const isActive = activePlaylist?.id === id;
-                const accentColor = tab === "youtube" ? "#ff4444" : "#1db954";
-
+                const playing = isPlayingThis(pl, tab);
+                const accent = tab === "youtube" ? "#ff4444" : "#1db954";
                 return (
-                  <div key={id}
-                    onClick={() => setActivePlaylist({ id, name, thumb, count, svc: tab })}
-                    style={{
-                      ...card, padding: 10, cursor: "pointer", transition: "all 0.2s",
-                      border: `1px solid ${isActive ? accentColor : "var(--border)"}`,
-                      background: isActive
-                        ? (tab === "youtube" ? "rgba(255,68,68,0.05)" : "rgba(29,185,84,0.05)")
-                        : "var(--card)",
-                      transform: isActive ? "translateY(-2px)" : "none",
-                    }}
-                    onMouseEnter={e => { if (!isActive) { e.currentTarget.style.borderColor = "var(--border2)"; e.currentTarget.style.transform = "translateY(-2px)"; }}}
-                    onMouseLeave={e => { if (!isActive) { e.currentTarget.style.borderColor = "var(--border)"; e.currentTarget.style.transform = "none"; }}}
-                  >
-                    <div style={{ width: "100%", aspectRatio: "1", borderRadius: 4, overflow: "hidden", marginBottom: 8, background: "var(--card2)", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                      {thumb
-                        ? <img src={thumb} alt={name} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-                        : <span style={{ fontSize: 28, color: "var(--muted)" }}>♪</span>
-                      }
+                  <div key={pl.id} onClick={() => openPlaylist(pl, tab)}
+                    style={{ ...card, padding: 10, cursor: "pointer", transition: "all 0.2s", border: `1px solid ${playing ? accent : "var(--border)"}`, background: playing ? (tab === "youtube" ? "rgba(255,68,68,0.05)" : "rgba(29,185,84,0.05)") : "var(--card)" }}
+                    onMouseEnter={e => { e.currentTarget.style.borderColor = accent; e.currentTarget.style.transform = "translateY(-2px)"; }}
+                    onMouseLeave={e => { e.currentTarget.style.borderColor = playing ? accent : "var(--border)"; e.currentTarget.style.transform = "none"; }}>
+                    <div style={{ width: "100%", aspectRatio: "1", borderRadius: 4, overflow: "hidden", marginBottom: 8, background: "var(--card2)", display: "flex", alignItems: "center", justifyContent: "center", position: "relative" }}>
+                      {thumb ? <img src={thumb} alt={name} style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <span style={{ fontSize: 28, color: "var(--muted)" }}>♪</span>}
+                      {playing && <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 24, color: accent }}>▶</div>}
                     </div>
-                    <div style={{ fontFamily: "Cinzel,serif", fontSize: 9, letterSpacing: 0.5, color: "var(--text)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", marginBottom: 3 }}>
-                      {name}
-                    </div>
-                    {count != null && (
-                      <div style={{ fontSize: 11, color: "var(--muted)" }}>{count} faixas</div>
-                    )}
+                    <div style={{ fontFamily: "Cinzel,serif", fontSize: 9, color: "var(--text)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", marginBottom: 3 }}>{name}</div>
+                    {count != null && <div style={{ fontSize: 11, color: "var(--muted)" }}>{count} faixas</div>}
                   </div>
                 );
               })}
             </div>
           )}
+        </div>
+      )}
 
-          {/* Fixed bottom player */}
-          {activePlaylist && (
-            <div style={{
-              position: "fixed", bottom: 0, left: 0, right: 0, zIndex: 100,
-              background: "rgba(8,8,8,0.97)", borderTop: "1px solid var(--border2)",
-              backdropFilter: "blur(16px)", padding: "10px 20px",
-              display: "flex", gap: 14, alignItems: "center",
-            }}>
-              <div style={{ width: 44, height: 44, borderRadius: 4, overflow: "hidden", flexShrink: 0, background: "var(--card2)", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                {activePlaylist.thumb
-                  ? <img src={activePlaylist.thumb} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-                  : <span style={{ fontSize: 20, color: "var(--muted)" }}>♪</span>}
-              </div>
-              <div style={{ minWidth: 0, flexShrink: 0, maxWidth: 180 }}>
-                <div style={{ fontFamily: "Cinzel,serif", fontSize: 10, color: "var(--text)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                  {activePlaylist.name}
-                </div>
-                <div style={{ fontSize: 11, color: activePlaylist.svc === "youtube" ? "#ff4444" : "#1db954", marginTop: 2 }}>
-                  {activePlaylist.svc === "youtube" ? "▶ YouTube" : "● Spotify"}
-                  {activePlaylist.count ? ` · ${activePlaylist.count} faixas` : ""}
-                </div>
-              </div>
-              <div style={{ flex: 1, maxWidth: 520 }}>
-                {activePlaylist.svc === "youtube" ? (
-                  <iframe
-                    key={activePlaylist.id}
-                    title={`YouTube: ${activePlaylist.name}`}
-                    src={`https://www.youtube.com/embed?listType=playlist&list=${activePlaylist.id}&autoplay=1`}
-                    width="100%" height="72"
-                    style={{ border: "none", borderRadius: 6, display: "block" }}
-                    allow="autoplay; encrypted-media"
-                    allowFullScreen
-                  />
-                ) : (
-                  <iframe
-                    key={activePlaylist.id}
-                    title={`Spotify: ${activePlaylist.name}`}
-                    src={`https://open.spotify.com/embed/playlist/${activePlaylist.id}?utm_source=generator&theme=0`}
-                    width="100%" height="72"
-                    style={{ border: "none", borderRadius: 6, display: "block" }}
-                    allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture"
-                    loading="lazy"
-                  />
-                )}
-              </div>
-              <button onClick={() => setActivePlaylist(null)} style={{
-                background: "transparent", border: "1px solid var(--border)", color: "var(--muted)",
-                width: 30, height: 30, borderRadius: 4, cursor: "pointer", fontSize: 14,
-                flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
-                transition: "all 0.2s",
-              }}
-              onMouseEnter={e => { e.currentTarget.style.borderColor = "var(--border2)"; e.currentTarget.style.color = "var(--text)"; }}
-              onMouseLeave={e => { e.currentTarget.style.borderColor = "var(--border)"; e.currentTarget.style.color = "var(--muted)"; }}
-              >✕</button>
+      {/* ── Track list ── */}
+      {isConnected && selectedPlaylist && (
+        <div>
+          {tracksLoading ? (
+            <div style={{ textAlign: "center", padding: "60px 20px", color: "var(--muted)" }}>
+              <div style={{ width: 28, height: 28, border: "2px solid var(--border)", borderTopColor: gold, borderRadius: "50%", animation: "spin 0.8s linear infinite", margin: "0 auto 12px" }} />
+              Carregando faixas...
+            </div>
+          ) : tracks.length === 0 ? (
+            <div style={{ textAlign: "center", padding: "60px 20px", color: "var(--muted)" }}><div style={{ fontSize: 32, marginBottom: 12 }}>♪</div><div>Nenhuma faixa encontrada.</div></div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+              {tracks.map((item, idx) => {
+                const isYt = selectedPlaylist.svc === "youtube";
+                const title = isYt ? item.snippet?.title : item.track?.name;
+                const thumb = isYt
+                  ? (item.snippet?.thumbnails?.default?.url)
+                  : item.track?.album?.images?.[2]?.url || item.track?.album?.images?.[0]?.url;
+                const sub = isYt
+                  ? item.snippet?.videoOwnerChannelTitle
+                  : item.track?.artists?.map(a => a.name).join(", ");
+                const dur = !isYt && item.track?.duration_ms ? fmtDuration(item.track.duration_ms) : null;
+                const nowIdx = nowPlaying?.playlistId === selectedPlaylist.id ? (nowPlaying?.startIdx ?? -1) : -1;
+                const isCurrentTrack = nowIdx === idx;
+                const accent = selectedPlaylist.svc === "youtube" ? "#ff4444" : "#1db954";
+
+                return (
+                  <div key={idx} onClick={() => playTrack(idx)}
+                    style={{ display: "flex", alignItems: "center", gap: 12, padding: "8px 10px", borderRadius: 6, cursor: "pointer", transition: "background 0.15s", background: isCurrentTrack ? (isYt ? "rgba(255,68,68,0.07)" : "rgba(29,185,84,0.07)") : "transparent" }}
+                    onMouseEnter={e => { if (!isCurrentTrack) e.currentTarget.style.background = "var(--card)"; }}
+                    onMouseLeave={e => { if (!isCurrentTrack) e.currentTarget.style.background = "transparent"; }}>
+                    {/* Number / play indicator */}
+                    <div style={{ width: 28, textAlign: "center", flexShrink: 0, fontSize: 12, color: isCurrentTrack ? accent : "var(--muted)", fontFamily: "Cinzel,serif" }}>
+                      {isCurrentTrack ? "▶" : idx + 1}
+                    </div>
+                    {/* Thumb */}
+                    <div style={{ width: 40, height: 40, borderRadius: 4, overflow: "hidden", flexShrink: 0, background: "var(--card2)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                      {thumb ? <img src={thumb} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <span style={{ fontSize: 16, color: "var(--muted)" }}>♪</span>}
+                    </div>
+                    {/* Info */}
+                    <div style={{ minWidth: 0, flex: 1 }}>
+                      <div style={{ fontSize: 13, color: isCurrentTrack ? accent : "var(--text)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{title}</div>
+                      {sub && <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{sub}</div>}
+                    </div>
+                    {dur && <div style={{ fontSize: 11, color: "var(--muted)", flexShrink: 0 }}>{dur}</div>}
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>
@@ -3472,10 +3609,22 @@ export default function App() {
   const [createdChar, setCreatedChar] = useState(null);
   const [characters, setCharacters] = useState([]);
   const [sessions] = useState([]);
+  const [nowPlaying, setNowPlaying] = useState(null);
+  const [musicTokens, setMusicTokens] = useState({ yt: null, sp: null });
+  const ytPlayerRef = useRef(null);
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, user => setLoggedIn(!!user));
     return unsub;
+  }, []);
+
+  /* load YouTube IFrame API once */
+  useEffect(() => {
+    if (document.getElementById("yt-api-script")) return;
+    const tag = document.createElement("script");
+    tag.id = "yt-api-script";
+    tag.src = "https://www.youtube.com/iframe_api";
+    document.head.appendChild(tag);
   }, []);
 
   const handleFinishChar = (char) => {
@@ -3497,7 +3646,6 @@ export default function App() {
       case "sheet":     return <SheetList characters={characters} system={activeSystem} onCreateChar={()=>setCreatingChar(true)} onSelectChar={c=>{ setCreatedChar(c); }}/>;
       case "map":       return <PlaceholderScreen icon="🗺️" title="Editor de Mapas" desc={`Mapas com tiles e névoa de guerra para ${sysName}.`} badge="Em breve" />;
       case "master":    return <PlaceholderScreen icon="🎭" title="Ajudante do Mestre por Voz" desc={`Ajudante inteligente treinado nas regras de ${sysName}.`} badge="Beta · Pro" />;
-      case "music":     return <MusicScreen />;
       case "party":     return <PlaceholderScreen icon="◎" title="Grupo de Agentes" desc="Compartilhe fichas e gerencie sua campanha." badge="Em breve" />;
       default: return <Dashboard system={activeSystem} onCreateChar={()=>setCreatingChar(true)} characters={characters} sessions={sessions}/>;
     }
@@ -3519,9 +3667,16 @@ export default function App() {
         <Sidebar active={screen} onNav={setScreen} collapsed={collapsed} setCollapsed={setCollapsed} system={activeSystem} onChangeSystem={()=>setActiveSystem(null)} onLogout={()=>signOut(auth)}/>
         <div style={{flex:1, display:"flex", flexDirection:"column", minWidth:0, overflow:"hidden"}}>
           <Topbar screen={screen} system={activeSystem} onChangeSystem={()=>setActiveSystem(null)} onLogout={()=>signOut(auth)}/>
-          <main style={{flex:1, overflowY:"auto", padding:"20px 20px"}}>
-            {renderScreen()}
+          {/* hidden div that hosts the YT IFrame player — never unmounts */}
+          <div id="yt-player-host" style={{ position:"fixed", top:-9999, left:-9999, width:1, height:1, pointerEvents:"none" }} />
+          <main style={{flex:1, overflowY:"auto", padding:"20px 20px", paddingBottom: nowPlaying ? 90 : 20}}>
+            {/* MusicScreen is always mounted so audio persists across navigation */}
+            <div style={{ display: screen === "music" ? "block" : "none" }}>
+              <MusicScreen nowPlaying={nowPlaying} onNowPlaying={setNowPlaying} musicTokens={musicTokens} onMusicTokens={setMusicTokens} ytPlayerRef={ytPlayerRef} />
+            </div>
+            {screen !== "music" && renderScreen()}
           </main>
+          {nowPlaying && <MusicPlayerBar nowPlaying={nowPlaying} onNowPlaying={setNowPlaying} ytPlayerRef={ytPlayerRef} />}
           <div style={{borderTop:"1px solid var(--border2)", padding:"9px 20px", display:"flex", gap:12, alignItems:"center", background:"rgba(6,6,6,0.6)"}}>
             <div style={{display:"flex", gap:8, alignItems:"center"}}>
               <NexusLogo size={16}/>
