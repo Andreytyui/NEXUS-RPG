@@ -3275,6 +3275,8 @@ function MusicScreen({ nowPlaying, onNowPlaying, musicTokens, onMusicTokens, ytP
   const [loading, setLoading] = useState("");
   const [err, setErr] = useState("");
   const [spSetupOpen, setSpSetupOpen] = useState(false);
+  const dragRef = useRef(null);
+  const dragOverRef = useRef(null);
 
   /* ── Spotify OAuth callback handler ── */
   useEffect(() => {
@@ -3404,9 +3406,12 @@ function MusicScreen({ nowPlaying, onNowPlaying, musicTokens, onMusicTokens, ytP
     setTracks([]);
     setTracksLoading(true);
     try {
-      const items = svc === "youtube"
+      const rawItems = svc === "youtube"
         ? await ytFetchPlaylistItems(pl.id, ytToken)
         : await spFetchTracks(pl.id, spToken);
+      const items = svc === "youtube"
+        ? rawItems.map((item, i) => ({ ...item, _ytIdx: i }))
+        : rawItems;
       setTracks(items);
     } catch (e) {
       setErr("Erro ao carregar faixas: " + e.message);
@@ -3415,18 +3420,32 @@ function MusicScreen({ nowPlaying, onNowPlaying, musicTokens, onMusicTokens, ytP
     }
   };
 
-  const playTrack = (idx) => {
+  const reorderTracks = (from, to) => {
+    setTracks(prev => {
+      const arr = [...prev];
+      const [moved] = arr.splice(from, 1);
+      arr.splice(to, 0, moved);
+      return arr;
+    });
+  };
+
+  const playTrack = (localIdx) => {
     const pl = selectedPlaylist;
+    const isYt = pl.svc === "youtube";
+    const ytIdx = isYt ? (tracks[localIdx]?._ytIdx ?? localIdx) : localIdx;
     const samePlaylist = nowPlaying?.playlistId === pl.id && nowPlaying?.svc === pl.svc;
-    if (samePlaylist && pl.svc === "youtube" && ytPlayerRef?.current) {
-      ytPlayerRef.current.playVideoAt(idx);
-      onNowPlaying(prev => prev ? { ...prev, startIdx: idx } : prev);
+    if (samePlaylist && isYt && ytPlayerRef?.current) {
+      ytPlayerRef.current.playVideoAt(ytIdx);
+      onNowPlaying(prev => prev ? { ...prev, startIdx: ytIdx } : prev);
       return;
     }
+    const ytOrderedTracks = isYt
+      ? [...tracks].sort((a, b) => (a._ytIdx ?? 0) - (b._ytIdx ?? 0))
+      : tracks;
     onNowPlaying({
       svc: pl.svc, playlistId: pl.id, playlistName: pl.name,
       playlistThumb: pl.thumb, trackCount: pl.count,
-      startIdx: idx, tracks,
+      startIdx: ytIdx, tracks: ytOrderedTracks,
       repeat: nowPlaying?.repeat || "none",
     });
   };
@@ -3583,17 +3602,37 @@ function MusicScreen({ nowPlaying, onNowPlaying, musicTokens, onMusicTokens, ytP
                   ? item.snippet?.videoOwnerChannelTitle
                   : item.track?.artists?.map(a => a.name).join(", ");
                 const dur = !isYt && item.track?.duration_ms ? fmtDuration(item.track.duration_ms) : null;
-                const nowIdx = nowPlaying?.playlistId === selectedPlaylist.id ? (nowPlaying?.startIdx ?? -1) : -1;
-                const isCurrentTrack = nowIdx === idx;
-                const accent = selectedPlaylist.svc === "youtube" ? "#ff4444" : "#1db954";
+                const nowYtIdx = nowPlaying?.playlistId === selectedPlaylist.id ? (nowPlaying?.startIdx ?? -1) : -1;
+                const isCurrentTrack = isYt ? (item._ytIdx === nowYtIdx) : (nowYtIdx === idx);
+                const accent = isYt ? "#ff4444" : "#1db954";
 
                 return (
-                  <div key={idx} onClick={() => playTrack(idx)}
+                  <div key={idx}
+                    draggable
+                    onDragStart={e => { dragRef.current = idx; e.dataTransfer.effectAllowed = "move"; }}
+                    onDragEnter={() => { dragOverRef.current = idx; }}
+                    onDragOver={e => e.preventDefault()}
+                    onDragEnd={() => {
+                      const from = dragRef.current;
+                      const to = dragOverRef.current;
+                      dragRef.current = null;
+                      dragOverRef.current = null;
+                      if (from !== null && to !== null && from !== to) reorderTracks(from, to);
+                    }}
+                    onClick={() => playTrack(idx)}
                     style={{ display: "flex", alignItems: "center", gap: 12, padding: "8px 10px", borderRadius: 6, cursor: "pointer", transition: "background 0.15s", background: isCurrentTrack ? (isYt ? "rgba(255,68,68,0.07)" : "rgba(29,185,84,0.07)") : "transparent" }}
                     onMouseEnter={e => { if (!isCurrentTrack) e.currentTarget.style.background = "var(--card)"; }}
                     onMouseLeave={e => { if (!isCurrentTrack) e.currentTarget.style.background = "transparent"; }}>
+                    {/* Drag handle */}
+                    <div style={{ width: 14, flexShrink: 0, display: "flex", flexDirection: "column", gap: 3, alignItems: "center", justifyContent: "center", cursor: "grab", opacity: 0.35 }}
+                      onMouseEnter={e => e.currentTarget.style.opacity = "1"}
+                      onMouseLeave={e => e.currentTarget.style.opacity = "0.35"}>
+                      <div style={{ width: 10, height: 1.5, borderRadius: 1, background: "var(--gold)" }} />
+                      <div style={{ width: 10, height: 1.5, borderRadius: 1, background: "var(--gold)" }} />
+                      <div style={{ width: 10, height: 1.5, borderRadius: 1, background: "var(--gold)" }} />
+                    </div>
                     {/* Number / play indicator */}
-                    <div style={{ width: 28, textAlign: "center", flexShrink: 0, fontSize: 12, color: isCurrentTrack ? accent : "var(--muted)", fontFamily: "Cinzel,serif" }}>
+                    <div style={{ width: 24, textAlign: "center", flexShrink: 0, fontSize: 12, color: isCurrentTrack ? accent : "var(--muted)", fontFamily: "Cinzel,serif" }}>
                       {isCurrentTrack ? "▶" : idx + 1}
                     </div>
                     {/* Thumb */}
