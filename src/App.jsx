@@ -3089,10 +3089,13 @@ function MusicPlayerBar({ nowPlaying, onNowPlaying, ytPlayerRef }) {
   const [duration, setDuration] = useState(0);
   const [seeking, setSeeking] = useState(false);
   const [autoplayBlocked, setAutoplayBlocked] = useState(false);
+  const [playerError, setPlayerError] = useState(null);
+  const [playerReady, setPlayerReady] = useState(false);
   const pollRef = useRef(null);
   const displayIdxRef = useRef(displayIdx);
   const seekingRef = useRef(seeking);
   const autoplayTimerRef = useRef(null);
+  const apiTimeoutRef = useRef(null);
   displayIdxRef.current = displayIdx;
   seekingRef.current = seeking;
   const gold = "var(--gold)";
@@ -3103,13 +3106,40 @@ function MusicPlayerBar({ nowPlaying, onNowPlaying, ytPlayerRef }) {
     setCurrentTime(0);
     setDuration(0);
     setAutoplayBlocked(false);
+    setPlayerError(null);
+    setPlayerReady(false);
     if (autoplayTimerRef.current) clearTimeout(autoplayTimerRef.current);
+    if (apiTimeoutRef.current) clearTimeout(apiTimeoutRef.current);
+
+    const ytErrors = { 2: "ID inválido", 5: "Erro HTML5", 100: "Vídeo não encontrado ou removido", 101: "Playlist privada — torne-a pública ou não listada no YouTube para reproduzir", 150: "Playlist privada — torne-a pública ou não listada no YouTube para reproduzir" };
+
     const create = () => {
+      // If player already exists, load new playlist without recreating
+      if (ytPlayerRef.current && typeof ytPlayerRef.current.loadPlaylist === "function") {
+        try {
+          ytPlayerRef.current.loadPlaylist({ listType: "playlist", list: nowPlaying.playlistId, index: nowPlaying.startIdx || 0 });
+          setPlayerReady(true);
+          autoplayTimerRef.current = setTimeout(() => {
+            const p = ytPlayerRef.current;
+            if (p && typeof p.getPlayerState === "function" && p.getPlayerState() !== 1) setAutoplayBlocked(true);
+          }, 3000);
+          return;
+        } catch (_) {}
+      }
+      // Destroy old player if exists
       if (ytPlayerRef.current) {
         try { ytPlayerRef.current.destroy(); } catch (_) {}
         ytPlayerRef.current = null;
       }
-      ytPlayerRef.current = new window.YT.Player("yt-player-host", {
+      // Find or recreate the host element (YouTube destroys it on destroy())
+      let host = document.getElementById("yt-player-host");
+      if (!host) {
+        host = document.createElement("div");
+        host.id = "yt-player-host";
+        host.style.cssText = "position:fixed;top:-9999px;left:-9999px;width:1px;height:1px;pointer-events:none";
+        document.body.appendChild(host);
+      }
+      ytPlayerRef.current = new window.YT.Player(host, {
         height: 1, width: 1,
         playerVars: {
           listType: "playlist", list: nowPlaying.playlistId,
@@ -3120,22 +3150,40 @@ function MusicPlayerBar({ nowPlaying, onNowPlaying, ytPlayerRef }) {
         events: {
           onStateChange: e => {
             setYtState(e.data);
-            if (e.data === 1) { setAutoplayBlocked(false); if (autoplayTimerRef.current) clearTimeout(autoplayTimerRef.current); }
+            if (e.data === 1) { setAutoplayBlocked(false); setPlayerError(null); if (autoplayTimerRef.current) clearTimeout(autoplayTimerRef.current); }
           },
           onReady: e => {
+            setPlayerReady(true);
             e.target.playVideo();
             setDisplayIdx(e.target.getPlaylistIndex() || 0);
             autoplayTimerRef.current = setTimeout(() => {
               const p = ytPlayerRef.current;
               if (p && typeof p.getPlayerState === "function" && p.getPlayerState() !== 1) setAutoplayBlocked(true);
-            }, 2500);
+            }, 3000);
           },
+          onError: e => setPlayerError(ytErrors[e.data] || `Erro ${e.data}`),
         },
       });
     };
-    if (window.YT?.Player) create();
-    else { const prev = window.onYouTubeIframeAPIReady; window.onYouTubeIframeAPIReady = () => { if (prev) prev(); create(); }; }
-    return () => { if (autoplayTimerRef.current) clearTimeout(autoplayTimerRef.current); };
+
+    const tryCreate = () => {
+      if (window.YT?.Player) {
+        create();
+      } else {
+        const prev = window.onYouTubeIframeAPIReady;
+        window.onYouTubeIframeAPIReady = () => { if (prev) prev(); create(); };
+        // Timeout: if API never loads (blocked by AdBlocker etc.)
+        apiTimeoutRef.current = setTimeout(() => {
+          if (!window.YT?.Player) setPlayerError("Player YouTube não carregou. Desative extensões e recarregue a página.");
+        }, 10000);
+      }
+    };
+
+    tryCreate();
+    return () => {
+      if (autoplayTimerRef.current) clearTimeout(autoplayTimerRef.current);
+      if (apiTimeoutRef.current) clearTimeout(apiTimeoutRef.current);
+    };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [nowPlaying?.playlistId]);
 
@@ -3174,7 +3222,7 @@ function MusicPlayerBar({ nowPlaying, onNowPlaying, ytPlayerRef }) {
   const channel = currentTrack?.snippet?.videoOwnerChannelTitle || "";
   const repeat = nowPlaying?.repeat || "none";
 
-  const togglePlay = () => { const p = ytPlayerRef.current; if (!p) return; setAutoplayBlocked(false); isPlaying ? p.pauseVideo() : p.playVideo(); };
+  const togglePlay = () => { const p = ytPlayerRef.current; if (!p) return; setAutoplayBlocked(false); setPlayerError(null); isPlaying ? p.pauseVideo() : p.playVideo(); };
   const prevTrack = () => { const p = ytPlayerRef.current; if (!p) return; displayIdx === 0 ? p.playVideoAt(Math.max(0, tracks.length - 1)) : p.previousVideo(); };
   const nextTrack = () => ytPlayerRef.current?.nextVideo();
   const cycleRepeat = () => {
@@ -3223,6 +3271,11 @@ function MusicPlayerBar({ nowPlaying, onNowPlaying, ytPlayerRef }) {
 
   return (
     <div style={{ background: "rgba(8,8,8,0.97)", borderTop: "1px solid var(--border2)", padding: "8px 24px 10px", backdropFilter: "blur(16px)" }}>
+      {playerError && (
+        <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 0 3px", color: "#e07070", fontFamily: "Cinzel,serif", fontSize: 9, letterSpacing: 0.5 }}>
+          <span>⚠</span><span>{playerError}</span>
+        </div>
+      )}
       {/* Row 1: thumb + info + controls + stop */}
       <div style={{ display: "flex", gap: 16, alignItems: "center" }}>
         {/* Thumb */}
@@ -3260,22 +3313,24 @@ function MusicPlayerBar({ nowPlaying, onNowPlaying, ytPlayerRef }) {
             onMouseEnter={e => e.currentTarget.style.color = "var(--text)"}
             onMouseLeave={e => e.currentTarget.style.color = "var(--muted2)"}>⏮</button>
           <div style={{ position: "relative", display: "flex", flexDirection: "column", alignItems: "center" }}>
-            {autoplayBlocked && (
+            {autoplayBlocked && !playerError && (
               <div style={{ position: "absolute", bottom: "calc(100% + 6px)", left: "50%", transform: "translateX(-50%)", background: "rgba(201,168,76,0.12)", border: "1px solid var(--border2)", borderRadius: 4, padding: "3px 8px", whiteSpace: "nowrap", fontFamily: "Cinzel,serif", fontSize: 8, color: "var(--gold2)", letterSpacing: 0.5, pointerEvents: "none" }}>
                 Clique para iniciar
               </div>
             )}
-            <button onClick={togglePlay} style={{
+            <button onClick={togglePlay} disabled={!!playerError} style={{
               width: 42, height: 42, borderRadius: "50%",
-              background: "linear-gradient(135deg,#c9a84c,#e8c96d)", border: "none", cursor: "pointer",
-              fontSize: 16, color: "#050505", display: "flex", alignItems: "center", justifyContent: "center",
+              background: playerError ? "rgba(60,30,30,0.8)" : "linear-gradient(135deg,#c9a84c,#e8c96d)",
+              border: playerError ? "1px solid #8b2020" : "none",
+              cursor: playerError ? "not-allowed" : "pointer",
+              fontSize: playerReady ? 16 : 13, color: "#050505", display: "flex", alignItems: "center", justifyContent: "center",
               boxShadow: autoplayBlocked ? "0 0 0 3px rgba(201,168,76,0.5), 0 2px 14px rgba(201,168,76,0.45)" : "0 2px 14px rgba(201,168,76,0.45)",
               transition: "transform 0.15s, box-shadow 0.15s",
-              animation: autoplayBlocked ? "pulse 1.2s ease-in-out infinite" : "none",
+              animation: autoplayBlocked && !playerError ? "pulse 1.2s ease-in-out infinite" : "none",
             }}
-              onMouseEnter={e => { e.currentTarget.style.transform = "scale(1.1)"; e.currentTarget.style.boxShadow = "0 4px 20px rgba(201,168,76,0.65)"; }}
+              onMouseEnter={e => { if (!playerError) { e.currentTarget.style.transform = "scale(1.1)"; e.currentTarget.style.boxShadow = "0 4px 20px rgba(201,168,76,0.65)"; } }}
               onMouseLeave={e => { e.currentTarget.style.transform = "scale(1)"; e.currentTarget.style.boxShadow = autoplayBlocked ? "0 0 0 3px rgba(201,168,76,0.5), 0 2px 14px rgba(201,168,76,0.45)" : "0 2px 14px rgba(201,168,76,0.45)"; }}>
-              {isPlaying ? "⏸" : "▶"}
+              {playerError ? "⚠" : !playerReady ? <div style={{ width: 14, height: 14, border: "2px solid rgba(5,5,5,0.3)", borderTopColor: "#050505", borderRadius: "50%", animation: "spin 0.7s linear infinite" }} /> : isPlaying ? "⏸" : "▶"}
             </button>
           </div>
           <button onClick={nextTrack} style={btnCtrl}
