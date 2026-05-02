@@ -1688,10 +1688,10 @@ const SYSTEMS = [
   {
     id: "op",
     name: "Ordem Paranormal",
-    subtitle: "Sistema CRIS · 2ª Edição",
+    subtitle: "Ordem Paranormal",
     icon: null,
     svgIcon: (glow) => <OPEnergyIcon size={48} glow={glow} />,
-    desc: "Enfrente o Outro Lado. Investigue o inexplicável. Sobreviva ao horror sobrenatural nas ruas do Brasil.",
+    desc: "Enfrente o Outro Lado. Investigue o inexplicável. Sobreviva ao horror sobrenatural.",
     tags: ["Terror","Investigação","Sobrenatural"],
     accent: "#b030d8",
     accentText: "#d870f8",
