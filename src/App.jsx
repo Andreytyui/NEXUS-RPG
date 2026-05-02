@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
 import { initializeApp } from "firebase/app";
 import {
   getAuth, onAuthStateChanged,
@@ -856,9 +857,9 @@ function Sidebar({ active, onNav, collapsed, setCollapsed, system, onChangeSyste
       )}
 
       {/* Profile edit modal */}
-      {editingProfile && (
+      {editingProfile && createPortal(
         <div onClick={closeEdit} style={{
-          position:"fixed", inset:0, background:"rgba(0,0,0,0.7)", zIndex:1000,
+          position:"fixed", inset:0, background:"rgba(0,0,0,0.7)", zIndex:9999,
           display:"flex", alignItems:"center", justifyContent:"center",
         }}>
           <div onClick={e=>e.stopPropagation()} style={{
@@ -929,7 +930,7 @@ function Sidebar({ active, onNav, collapsed, setCollapsed, system, onChangeSyste
             </div>
           </div>
         </div>
-      )}
+      , document.body)}
     </div>
   );
 }
