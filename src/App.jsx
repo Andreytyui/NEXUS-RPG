@@ -2682,6 +2682,12 @@ function FullSheet({ character, onBack }) {
   const [attacks, setAttacks] = useState([]);
   const [showNewAtk, setShowNewAtk] = useState(false);
   const [newAtk, setNewAtk] = useState({ name:"", dmg:"", crit:"x2" });
+  const [desc, setDesc] = useState({
+    anotacoes: form.anotacoes || "",
+    aparencia: form.aparencia || "",
+    personalidade: form.personalidade || "",
+    historico: form.historico || "",
+  });
 
   useEffect(() => {
     if (rollPopup?.crit) {
@@ -3130,11 +3136,34 @@ function FullSheet({ character, onBack }) {
 
             {/* ── DESCRIÇÃO ── */}
             {activeTab==="descrição" && (
-              <div style={{display:"flex",flexDirection:"column",gap:12}}>
-                {[["Aparência",form.aparencia],["Personalidade",form.personalidade],["Histórico",form.historico],["Objetivo",form.objetivo]].map(([l,v])=>(
-                  <div key={l}>
-                    <div style={{fontFamily:"Cinzel,serif",fontSize:8,letterSpacing:2,color:"var(--gold)",textTransform:"uppercase",marginBottom:4}}>{l}</div>
-                    <div style={{fontFamily:"Crimson Pro,serif",fontSize:13,color:v?"var(--muted2)":"var(--muted)",fontStyle:"italic",lineHeight:1.7}}>{v||"Não preenchido"}</div>
+              <div style={{display:"flex",flexDirection:"column",gap:16}}>
+                {[
+                  ["Anotações","anotacoes",120],
+                  ["Aparência","aparencia",90],
+                  ["Personalidade","personalidade",90],
+                  ["Histórico","historico",90],
+                ].map(([label,key,minH])=>(
+                  <div key={key}>
+                    <div style={{fontFamily:"Cinzel,serif",fontSize:9,letterSpacing:2,color:"#e8e8e8",textTransform:"uppercase",marginBottom:6,fontWeight:700}}>{label}</div>
+                    <textarea
+                      value={desc[key]}
+                      onChange={e=>setDesc(d=>({...d,[key]:e.target.value}))}
+                      style={{
+                        width:"100%",
+                        minHeight:minH,
+                        background:"#1a1a1a",
+                        border:"1px solid rgba(255,255,255,0.15)",
+                        borderRadius:4,
+                        color:"#cccccc",
+                        fontFamily:"Crimson Pro,serif",
+                        fontSize:14,
+                        lineHeight:1.7,
+                        padding:"8px 10px",
+                        resize:"vertical",
+                        boxSizing:"border-box",
+                        outline:"none",
+                      }}
+                    />
                   </div>
                 ))}
               </div>
