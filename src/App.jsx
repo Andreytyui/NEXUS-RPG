@@ -3243,7 +3243,7 @@ function MusicPlayerBar({ nowPlaying, onNowPlaying, ytPlayerRef }) {
   );
 }
 
-function MusicScreen({ nowPlaying, onNowPlaying, musicTokens, onMusicTokens }) {
+function MusicScreen({ nowPlaying, onNowPlaying, musicTokens, onMusicTokens, ytPlayerRef }) {
   const ytToken = musicTokens.yt;
   const spToken = musicTokens.sp;
   const setYtToken = t => onMusicTokens(prev => ({ ...prev, yt: t }));
@@ -3402,6 +3402,12 @@ function MusicScreen({ nowPlaying, onNowPlaying, musicTokens, onMusicTokens }) {
 
   const playTrack = (idx) => {
     const pl = selectedPlaylist;
+    const samePlaylist = nowPlaying?.playlistId === pl.id && nowPlaying?.svc === pl.svc;
+    if (samePlaylist && pl.svc === "youtube" && ytPlayerRef?.current) {
+      ytPlayerRef.current.playVideoAt(idx);
+      onNowPlaying(prev => prev ? { ...prev, startIdx: idx } : prev);
+      return;
+    }
     onNowPlaying({
       svc: pl.svc, playlistId: pl.id, playlistName: pl.name,
       playlistThumb: pl.thumb, trackCount: pl.count,
