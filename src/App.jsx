@@ -682,6 +682,32 @@ const navItems = [
 ];
 
 function Sidebar({ active, onNav, collapsed, setCollapsed, system, onChangeSystem, onLogout }) {
+  const [profilePhoto, setProfilePhoto] = useState(() => localStorage.getItem("nexus_profile_photo") || "");
+  const [profileName, setProfileName] = useState(() => localStorage.getItem("nexus_profile_name") || "Agente");
+  const [editingProfile, setEditingProfile] = useState(false);
+  const [editName, setEditName] = useState("");
+  const fileInputRef = useRef(null);
+  const [pendingPhoto, setPendingPhoto] = useState("");
+
+  const openEdit = () => { setEditName(profileName); setPendingPhoto(profilePhoto); setEditingProfile(true); };
+  const closeEdit = () => setEditingProfile(false);
+  const saveEdit = () => {
+    const name = editName.trim() || "Agente";
+    setProfileName(name);
+    setProfilePhoto(pendingPhoto);
+    localStorage.setItem("nexus_profile_name", name);
+    localStorage.setItem("nexus_profile_photo", pendingPhoto);
+    setEditingProfile(false);
+  };
+  const handlePhotoFile = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => setPendingPhoto(ev.target.result);
+    reader.readAsDataURL(file);
+  };
+  const avatarLetter = profileName.trim().charAt(0).toUpperCase() || "A";
+
   return (
     <div style={{
       width: collapsed ? 60 : 220,
@@ -759,13 +785,22 @@ function Sidebar({ active, onNav, collapsed, setCollapsed, system, onChangeSyste
           padding:"12px 0", borderTop:"1px solid var(--border)",
           display:"flex", flexDirection:"column", alignItems:"center", gap:8,
         }}>
-          <div style={{
-            width:32, height:32, borderRadius:6,
+          <div onClick={openEdit} title="Editar perfil" style={{
+            width:32, height:32, borderRadius:"50%",
             background:"linear-gradient(135deg,rgba(201,168,76,0.3),rgba(201,168,76,0.1))",
-            border:"1px solid var(--border2)",
+            border:"2px solid var(--border2)",
             display:"flex", alignItems:"center", justifyContent:"center",
             fontFamily:"Cinzel,serif", fontSize:13, color:"var(--gold)",
-          }}>A</div>
+            cursor:"pointer", overflow:"hidden", flexShrink:0,
+            transition:"border-color 0.2s",
+          }}
+            onMouseEnter={e=>e.currentTarget.style.borderColor="var(--gold)"}
+            onMouseLeave={e=>e.currentTarget.style.borderColor="var(--border2)"}
+          >
+            {profilePhoto
+              ? <img src={profilePhoto} alt="perfil" style={{width:"100%",height:"100%",objectFit:"cover"}}/>
+              : avatarLetter}
+          </div>
           <button onClick={onLogout} title="Sair da conta" style={{
             background:"none", border:"1px solid rgba(201,168,76,0.2)", borderRadius:6,
             cursor:"pointer", color:"var(--muted2)", padding:"5px",
@@ -785,15 +820,23 @@ function Sidebar({ active, onNav, collapsed, setCollapsed, system, onChangeSyste
           padding:"14px 16px", borderTop:"1px solid var(--border)",
           display:"flex", alignItems:"center", gap:10,
         }}>
-          <div style={{
-            width:32, height:32, borderRadius:6,
+          <div onClick={openEdit} title="Editar perfil" style={{
+            width:34, height:34, borderRadius:"50%",
             background:"linear-gradient(135deg,rgba(201,168,76,0.3),rgba(201,168,76,0.1))",
-            border:"1px solid var(--border2)",
+            border:"2px solid var(--border2)",
             display:"flex", alignItems:"center", justifyContent:"center",
             fontFamily:"Cinzel,serif", fontSize:13, color:"var(--gold)", flexShrink:0,
-          }}>A</div>
-          <div style={{overflow:"hidden", flex:1}}>
-            <div style={{fontFamily:"Cinzel,serif", fontSize:11, color:"var(--text)", whiteSpace:"nowrap"}}>Agente</div>
+            cursor:"pointer", overflow:"hidden", transition:"border-color 0.2s",
+          }}
+            onMouseEnter={e=>e.currentTarget.style.borderColor="var(--gold)"}
+            onMouseLeave={e=>e.currentTarget.style.borderColor="var(--border2)"}
+          >
+            {profilePhoto
+              ? <img src={profilePhoto} alt="perfil" style={{width:"100%",height:"100%",objectFit:"cover"}}/>
+              : avatarLetter}
+          </div>
+          <div style={{overflow:"hidden", flex:1, cursor:"pointer"}} onClick={openEdit} title="Editar perfil">
+            <div style={{fontFamily:"Cinzel,serif", fontSize:11, color:"var(--text)", whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis"}}>{profileName}</div>
             <div style={{fontFamily:"Cinzel,serif", fontSize:8, letterSpacing:1, color:"var(--gold)", textTransform:"uppercase"}}>✦ Pro</div>
           </div>
           <button onClick={onLogout} title="Sair da conta" style={{
@@ -809,6 +852,82 @@ function Sidebar({ active, onNav, collapsed, setCollapsed, system, onChangeSyste
               <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/>
             </svg>
           </button>
+        </div>
+      )}
+
+      {/* Profile edit modal */}
+      {editingProfile && (
+        <div onClick={closeEdit} style={{
+          position:"fixed", inset:0, background:"rgba(0,0,0,0.7)", zIndex:1000,
+          display:"flex", alignItems:"center", justifyContent:"center",
+        }}>
+          <div onClick={e=>e.stopPropagation()} style={{
+            background:"var(--surface)", border:"1px solid var(--border2)",
+            borderRadius:12, padding:"28px 28px 24px", width:300,
+            display:"flex", flexDirection:"column", alignItems:"center", gap:20,
+            boxShadow:"0 20px 60px rgba(0,0,0,0.6)",
+          }}>
+            <div style={{fontFamily:"Cinzel,serif", fontSize:13, letterSpacing:2, color:"var(--muted)", textTransform:"uppercase"}}>Editar Perfil</div>
+
+            {/* Avatar clicável */}
+            <div style={{position:"relative", cursor:"pointer"}} onClick={()=>fileInputRef.current?.click()}>
+              <div style={{
+                width:80, height:80, borderRadius:"50%",
+                background:"linear-gradient(135deg,rgba(201,168,76,0.3),rgba(201,168,76,0.1))",
+                border:"2px solid var(--gold)",
+                display:"flex", alignItems:"center", justifyContent:"center",
+                fontFamily:"Cinzel,serif", fontSize:28, color:"var(--gold)",
+                overflow:"hidden",
+              }}>
+                {pendingPhoto
+                  ? <img src={pendingPhoto} alt="perfil" style={{width:"100%",height:"100%",objectFit:"cover"}}/>
+                  : (editName.trim().charAt(0).toUpperCase() || "A")}
+              </div>
+              <div style={{
+                position:"absolute", inset:0, borderRadius:"50%",
+                background:"rgba(0,0,0,0.45)", display:"flex", alignItems:"center", justifyContent:"center",
+                opacity:0, transition:"opacity 0.2s",
+              }}
+                onMouseEnter={e=>e.currentTarget.style.opacity=1}
+                onMouseLeave={e=>e.currentTarget.style.opacity=0}
+              >
+                <span style={{fontSize:18}}>📷</span>
+              </div>
+              <input ref={fileInputRef} type="file" accept="image/*" style={{display:"none"}} onChange={handlePhotoFile}/>
+            </div>
+            <div style={{fontSize:11, color:"var(--muted)", fontFamily:"Cinzel,serif", letterSpacing:1, marginTop:-12}}>Clique para trocar</div>
+
+            {/* Nome */}
+            <div style={{width:"100%"}}>
+              <div style={{fontFamily:"Cinzel,serif", fontSize:9, letterSpacing:2, color:"var(--muted)", textTransform:"uppercase", marginBottom:6}}>Nome do Agente</div>
+              <input
+                value={editName}
+                onChange={e=>setEditName(e.target.value)}
+                onKeyDown={e=>{ if(e.key==="Enter") saveEdit(); if(e.key==="Escape") closeEdit(); }}
+                maxLength={32}
+                placeholder="Agente"
+                autoFocus
+                style={{
+                  width:"100%", boxSizing:"border-box",
+                  background:"rgba(255,255,255,0.05)", border:"1px solid var(--border2)",
+                  borderRadius:6, padding:"9px 12px",
+                  fontFamily:"Cinzel,serif", fontSize:13, color:"var(--text)",
+                  outline:"none",
+                }}
+              />
+            </div>
+
+            {/* Botões */}
+            <div style={{display:"flex", gap:10, width:"100%"}}>
+              <button onClick={closeEdit} style={{
+                flex:1, padding:"9px 0", borderRadius:6, cursor:"pointer",
+                background:"rgba(255,255,255,0.05)", border:"1px solid var(--border)",
+                fontFamily:"Cinzel,serif", fontSize:10, letterSpacing:1, color:"var(--muted)",
+                transition:"all 0.2s",
+              }}>Cancelar</button>
+              <button onClick={saveEdit} className="btn-gold" style={{flex:1, padding:"9px 0", fontSize:11, letterSpacing:1}}>Salvar</button>
+            </div>
+          </div>
         </div>
       )}
     </div>
