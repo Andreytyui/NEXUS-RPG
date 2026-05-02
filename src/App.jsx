@@ -3088,9 +3088,11 @@ function MusicPlayerBar({ nowPlaying, onNowPlaying, ytPlayerRef }) {
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [seeking, setSeeking] = useState(false);
+  const [autoplayBlocked, setAutoplayBlocked] = useState(false);
   const pollRef = useRef(null);
   const displayIdxRef = useRef(displayIdx);
   const seekingRef = useRef(seeking);
+  const autoplayTimerRef = useRef(null);
   displayIdxRef.current = displayIdx;
   seekingRef.current = seeking;
   const gold = "var(--gold)";
@@ -3100,6 +3102,8 @@ function MusicPlayerBar({ nowPlaying, onNowPlaying, ytPlayerRef }) {
     if (nowPlaying?.svc !== "youtube") return;
     setCurrentTime(0);
     setDuration(0);
+    setAutoplayBlocked(false);
+    if (autoplayTimerRef.current) clearTimeout(autoplayTimerRef.current);
     const create = () => {
       if (ytPlayerRef.current) {
         try { ytPlayerRef.current.destroy(); } catch (_) {}
@@ -3111,15 +3115,27 @@ function MusicPlayerBar({ nowPlaying, onNowPlaying, ytPlayerRef }) {
           listType: "playlist", list: nowPlaying.playlistId,
           index: nowPlaying.startIdx || 0,
           autoplay: 1, controls: 0, fs: 0, rel: 0,
+          origin: window.location.origin,
         },
         events: {
-          onStateChange: e => setYtState(e.data),
-          onReady: e => { e.target.playVideo(); setDisplayIdx(e.target.getPlaylistIndex() || 0); },
+          onStateChange: e => {
+            setYtState(e.data);
+            if (e.data === 1) { setAutoplayBlocked(false); if (autoplayTimerRef.current) clearTimeout(autoplayTimerRef.current); }
+          },
+          onReady: e => {
+            e.target.playVideo();
+            setDisplayIdx(e.target.getPlaylistIndex() || 0);
+            autoplayTimerRef.current = setTimeout(() => {
+              const p = ytPlayerRef.current;
+              if (p && typeof p.getPlayerState === "function" && p.getPlayerState() !== 1) setAutoplayBlocked(true);
+            }, 2500);
+          },
         },
       });
     };
     if (window.YT?.Player) create();
     else { const prev = window.onYouTubeIframeAPIReady; window.onYouTubeIframeAPIReady = () => { if (prev) prev(); create(); }; }
+    return () => { if (autoplayTimerRef.current) clearTimeout(autoplayTimerRef.current); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [nowPlaying?.playlistId]);
 
@@ -3158,7 +3174,7 @@ function MusicPlayerBar({ nowPlaying, onNowPlaying, ytPlayerRef }) {
   const channel = currentTrack?.snippet?.videoOwnerChannelTitle || "";
   const repeat = nowPlaying?.repeat || "none";
 
-  const togglePlay = () => { const p = ytPlayerRef.current; if (!p) return; isPlaying ? p.pauseVideo() : p.playVideo(); };
+  const togglePlay = () => { const p = ytPlayerRef.current; if (!p) return; setAutoplayBlocked(false); isPlaying ? p.pauseVideo() : p.playVideo(); };
   const prevTrack = () => { const p = ytPlayerRef.current; if (!p) return; displayIdx === 0 ? p.playVideoAt(Math.max(0, tracks.length - 1)) : p.previousVideo(); };
   const nextTrack = () => ytPlayerRef.current?.nextVideo();
   const cycleRepeat = () => {
@@ -3243,16 +3259,25 @@ function MusicPlayerBar({ nowPlaying, onNowPlaying, ytPlayerRef }) {
           <button onClick={prevTrack} style={btnCtrl}
             onMouseEnter={e => e.currentTarget.style.color = "var(--text)"}
             onMouseLeave={e => e.currentTarget.style.color = "var(--muted2)"}>⏮</button>
-          <button onClick={togglePlay} style={{
-            width: 42, height: 42, borderRadius: "50%",
-            background: "linear-gradient(135deg,#c9a84c,#e8c96d)", border: "none", cursor: "pointer",
-            fontSize: 16, color: "#050505", display: "flex", alignItems: "center", justifyContent: "center",
-            boxShadow: "0 2px 14px rgba(201,168,76,0.45)", transition: "transform 0.15s, box-shadow 0.15s",
-          }}
-            onMouseEnter={e => { e.currentTarget.style.transform = "scale(1.1)"; e.currentTarget.style.boxShadow = "0 4px 20px rgba(201,168,76,0.65)"; }}
-            onMouseLeave={e => { e.currentTarget.style.transform = "scale(1)"; e.currentTarget.style.boxShadow = "0 2px 14px rgba(201,168,76,0.45)"; }}>
-            {isPlaying ? "⏸" : "▶"}
-          </button>
+          <div style={{ position: "relative", display: "flex", flexDirection: "column", alignItems: "center" }}>
+            {autoplayBlocked && (
+              <div style={{ position: "absolute", bottom: "calc(100% + 6px)", left: "50%", transform: "translateX(-50%)", background: "rgba(201,168,76,0.12)", border: "1px solid var(--border2)", borderRadius: 4, padding: "3px 8px", whiteSpace: "nowrap", fontFamily: "Cinzel,serif", fontSize: 8, color: "var(--gold2)", letterSpacing: 0.5, pointerEvents: "none" }}>
+                Clique para iniciar
+              </div>
+            )}
+            <button onClick={togglePlay} style={{
+              width: 42, height: 42, borderRadius: "50%",
+              background: "linear-gradient(135deg,#c9a84c,#e8c96d)", border: "none", cursor: "pointer",
+              fontSize: 16, color: "#050505", display: "flex", alignItems: "center", justifyContent: "center",
+              boxShadow: autoplayBlocked ? "0 0 0 3px rgba(201,168,76,0.5), 0 2px 14px rgba(201,168,76,0.45)" : "0 2px 14px rgba(201,168,76,0.45)",
+              transition: "transform 0.15s, box-shadow 0.15s",
+              animation: autoplayBlocked ? "pulse 1.2s ease-in-out infinite" : "none",
+            }}
+              onMouseEnter={e => { e.currentTarget.style.transform = "scale(1.1)"; e.currentTarget.style.boxShadow = "0 4px 20px rgba(201,168,76,0.65)"; }}
+              onMouseLeave={e => { e.currentTarget.style.transform = "scale(1)"; e.currentTarget.style.boxShadow = autoplayBlocked ? "0 0 0 3px rgba(201,168,76,0.5), 0 2px 14px rgba(201,168,76,0.45)" : "0 2px 14px rgba(201,168,76,0.45)"; }}>
+              {isPlaying ? "⏸" : "▶"}
+            </button>
+          </div>
           <button onClick={nextTrack} style={btnCtrl}
             onMouseEnter={e => e.currentTarget.style.color = "var(--text)"}
             onMouseLeave={e => e.currentTarget.style.color = "var(--muted2)"}>⏭</button>
