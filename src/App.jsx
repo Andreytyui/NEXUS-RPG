@@ -893,7 +893,15 @@ function Dashboard({ system, onCreateChar, characters, sessions }) {
             background:`linear-gradient(135deg,${accent},#e8c96d)`,
             WebkitBackgroundClip:"text", WebkitTextFillColor:"transparent", backgroundClip:"text"}}>Painel do Agente</h1>
         </div>
-        <button className="btn-gold" style={{fontSize:13, padding:"10px 22px"}} onClick={onCreateChar}>+ Nova Ficha</button>
+        <button
+          className="btn-gold"
+          style={{fontSize:13, padding:"10px 22px", opacity: characters.length >= 5 ? 0.45 : 1, cursor: characters.length >= 5 ? "not-allowed" : "pointer"}}
+          onClick={characters.length < 5 ? onCreateChar : undefined}
+          disabled={characters.length >= 5}
+          title={characters.length >= 5 ? "Limite de 5 fichas atingido" : ""}
+        >
+          {characters.length >= 5 ? "Limite atingido (5/5)" : "+ Nova Ficha"}
+        </button>
       </div>
 
       {/* Stats */}
@@ -1006,17 +1014,19 @@ function SheetList({ characters, system, onCreateChar, onSelectChar }) {
       {/* Header row */}
       <div style={{display:"flex", justifyContent:"space-between", alignItems:"center"}}>
         <h2 style={{fontFamily:"Cinzel,serif", fontSize:20, fontWeight:700, color:"var(--text)", letterSpacing:1}}>
-          Agentes: {characters.length}/{characters.length}
+          Agentes: {characters.length}/5
         </h2>
-        <button onClick={onCreateChar} style={{
+        <button onClick={characters.length < 5 ? onCreateChar : undefined} disabled={characters.length >= 5} style={{
           fontFamily:"Cinzel,serif", fontSize:10, letterSpacing:2, textTransform:"uppercase",
-          padding:"9px 20px", borderRadius:6, cursor:"pointer",
+          padding:"9px 20px", borderRadius:6, cursor: characters.length >= 5 ? "not-allowed" : "pointer",
           background:"rgba(255,255,255,0.07)", border:"1px solid rgba(255,255,255,0.14)",
-          color:"var(--text)", transition:"all 0.2s",
+          color: characters.length >= 5 ? "var(--muted)" : "var(--text)", transition:"all 0.2s",
+          opacity: characters.length >= 5 ? 0.5 : 1,
         }}
-          onMouseEnter={e=>{e.currentTarget.style.background="rgba(255,255,255,0.12)"}}
-          onMouseLeave={e=>{e.currentTarget.style.background="rgba(255,255,255,0.07)"}}>
-          Novo Agente
+          onMouseEnter={e=>{ if(characters.length < 5) e.currentTarget.style.background="rgba(255,255,255,0.12)" }}
+          onMouseLeave={e=>{ if(characters.length < 5) e.currentTarget.style.background="rgba(255,255,255,0.07)" }}
+          title={characters.length >= 5 ? "Limite de 5 fichas atingido" : ""}>
+          {characters.length >= 5 ? "Limite atingido" : "Novo Agente"}
         </button>
       </div>
 
@@ -3925,6 +3935,7 @@ export default function App() {
   };
 
   const handleFinishChar = (char) => {
+    if (characters.length >= 5) return;
     const d = new Date();
     const dateStr = `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${String(d.getFullYear()).slice(-2)}`;
     const charWithDate = { ...char, createdAt: dateStr };
