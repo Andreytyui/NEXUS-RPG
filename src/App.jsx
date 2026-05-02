@@ -3652,8 +3652,10 @@ function MusicScreen({ nowPlaying, onNowPlaying, musicTokens, onMusicTokens }) {
 ═══════════════════════════════ */
 export default function App() {
   const [loggedIn, setLoggedIn] = useState(null); // null = carregando, false = deslogado, true = logado
-  const [activeSystem, setActiveSystem] = useState(null);
-  const [screen, setScreen] = useState("dashboard");
+  const [activeSystem, setActiveSystem] = useState(() => {
+    try { const s = localStorage.getItem('nexus_system'); return s ? JSON.parse(s) : null; } catch { return null; }
+  });
+  const [screen, setScreen] = useState(() => localStorage.getItem('nexus_screen') || "dashboard");
   const [collapsed, setCollapsed] = useState(false);
   const [creatingChar, setCreatingChar] = useState(false);
   const [createdChar, setCreatedChar] = useState(null);
@@ -3668,6 +3670,13 @@ export default function App() {
     return unsub;
   }, []);
 
+  useEffect(() => {
+    if (activeSystem) localStorage.setItem('nexus_system', JSON.stringify(activeSystem));
+    else localStorage.removeItem('nexus_system');
+  }, [activeSystem]);
+
+  useEffect(() => { localStorage.setItem('nexus_screen', screen); }, [screen]);
+
   /* load YouTube IFrame API once */
   useEffect(() => {
     if (document.getElementById("yt-api-script")) return;
@@ -3676,6 +3685,12 @@ export default function App() {
     tag.src = "https://www.youtube.com/iframe_api";
     document.head.appendChild(tag);
   }, []);
+
+  const handleLogout = () => {
+    localStorage.removeItem('nexus_system');
+    localStorage.removeItem('nexus_screen');
+    signOut(auth);
+  };
 
   const handleFinishChar = (char) => {
     const d = new Date();
@@ -3703,7 +3718,7 @@ export default function App() {
 
   if (loggedIn === null) return (<><G/><div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"var(--bg)"}}><div style={{width:32,height:32,border:"2px solid rgba(201,168,76,0.3)",borderTopColor:"var(--gold)",borderRadius:"50%",animation:"spin 0.8s linear infinite"}}/></div></>);
   if (!loggedIn) return (<><G/><Login onLogin={()=>setLoggedIn(true)}/></>);
-  if (!activeSystem) return (<><G/><SystemSelect onSelect={sys => setActiveSystem(sys)} onLogout={()=>signOut(auth)}/></>);
+  if (!activeSystem) return (<><G/><SystemSelect onSelect={sys => setActiveSystem(sys)} onLogout={handleLogout}/></>);
 
   if (creatingChar) return (
     <><G/><CharacterCreator onFinish={handleFinishChar} onCancel={()=>setCreatingChar(false)}/></>
@@ -3714,9 +3729,9 @@ export default function App() {
       <G/>
       <Deco/>
       <div style={{display:"flex", minHeight:"100vh", background:"var(--bg)", position:"relative", zIndex:1}}>
-        <Sidebar active={screen} onNav={setScreen} collapsed={collapsed} setCollapsed={setCollapsed} system={activeSystem} onChangeSystem={()=>setActiveSystem(null)} onLogout={()=>signOut(auth)}/>
+        <Sidebar active={screen} onNav={setScreen} collapsed={collapsed} setCollapsed={setCollapsed} system={activeSystem} onChangeSystem={()=>setActiveSystem(null)} onLogout={handleLogout}/>
         <div style={{flex:1, display:"flex", flexDirection:"column", minWidth:0, overflow:"hidden"}}>
-          <Topbar screen={screen} system={activeSystem} onChangeSystem={()=>setActiveSystem(null)} onLogout={()=>signOut(auth)}/>
+          <Topbar screen={screen} system={activeSystem} onChangeSystem={()=>setActiveSystem(null)} onLogout={handleLogout}/>
           {/* hidden div that hosts the YT IFrame player — never unmounts */}
           <div id="yt-player-host" style={{ position:"fixed", top:-9999, left:-9999, width:1, height:1, pointerEvents:"none" }} />
           <main style={{flex:1, overflowY:"auto", padding:"20px 20px", paddingBottom: nowPlaying ? 112 : 20}}>
