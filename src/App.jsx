@@ -1062,7 +1062,12 @@ function Dashboard({ system, onCreateChar, characters, sessions }) {
                   width:44, height:44, borderRadius:8, flexShrink:0,
                   background:`${accent}18`, border:`1px solid ${accent}30`,
                   display:"flex", alignItems:"center", justifyContent:"center", fontSize:20,
-                }}>🕵️</div>
+                  overflow:"hidden",
+                }}>
+                  {c.form?.avatar
+                    ? <img src={c.form.avatar} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>
+                    : "🕵️"}
+                </div>
                 <div style={{flex:1, minWidth:0}}>
                   <div style={{fontFamily:"Cinzel,serif", fontSize:17, color:"var(--text)", marginBottom:4, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap"}}>
                     {c.form?.personagem || "Sem nome"}
@@ -1200,7 +1205,12 @@ function SheetList({ characters, system, onCreateChar, onSelectChar }) {
                   width:82, height:82, borderRadius:8, flexShrink:0,
                   background:"rgba(124,58,237,0.12)", border:"1px solid rgba(124,58,237,0.25)",
                   display:"flex", alignItems:"center", justifyContent:"center", fontSize:34,
-                }}>🕵️</div>
+                  overflow:"hidden",
+                }}>
+                  {c.form?.avatar
+                    ? <img src={c.form.avatar} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>
+                    : "🕵️"}
+                </div>
 
                 <div style={{flex:1, minWidth:0, paddingRight:24}}>
                   <div style={{fontFamily:"Cinzel,serif", fontSize:17, fontWeight:700, color:"#fff", marginBottom:5, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap"}}>
@@ -2192,7 +2202,15 @@ function CharacterCreator({ onFinish, onCancel }) {
   const [pontos, setPontos] = useState(4);
   const [origem, setOrigem] = useState(null);
   const [classe, setClasse] = useState(null);
-  const [form, setForm] = useState({ personagem:"", jogador:"", aparencia:"", personalidade:"", historico:"", objetivo:"" });
+  const [form, setForm] = useState({ personagem:"", jogador:"", aparencia:"", personalidade:"", historico:"", objetivo:"", avatar:"" });
+  const avatarInputRef = useRef(null);
+  const handleAvatarFile = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => setForm(f => ({ ...f, avatar: ev.target.result }));
+    reader.readAsDataURL(file);
+  };
 
   const totalUsed = Object.values(attrs).reduce((a,b)=>a+b,0) - 5;
   const pontosRestantes = 4 - totalUsed;
@@ -2474,6 +2492,47 @@ function CharacterCreator({ onFinish, onCancel }) {
           Finalizar Ficha
         </button>
       </div>
+
+      {/* Avatar upload */}
+      <div style={{display:"flex", alignItems:"center", gap:20}}>
+        <input ref={avatarInputRef} type="file" accept="image/*" style={{display:"none"}} onChange={handleAvatarFile}/>
+        <div
+          onClick={()=>avatarInputRef.current?.click()}
+          style={{
+            width:100, height:100, borderRadius:10, flexShrink:0,
+            background:"rgba(201,168,76,0.08)", border:"2px dashed rgba(201,168,76,0.35)",
+            display:"flex", alignItems:"center", justifyContent:"center",
+            cursor:"pointer", overflow:"hidden", transition:"border-color 0.2s",
+            position:"relative",
+          }}
+          onMouseEnter={e=>e.currentTarget.style.borderColor="rgba(201,168,76,0.7)"}
+          onMouseLeave={e=>e.currentTarget.style.borderColor="rgba(201,168,76,0.35)"}
+          title="Clique para enviar imagem do personagem"
+        >
+          {form.avatar ? (
+            <img src={form.avatar} alt="avatar" style={{width:"100%",height:"100%",objectFit:"cover"}}/>
+          ) : (
+            <div style={{textAlign:"center"}}>
+              <div style={{fontSize:32}}>🕵️</div>
+              <div style={{fontFamily:"Cinzel,serif",fontSize:9,color:"var(--muted2)",letterSpacing:1,marginTop:4}}>FOTO</div>
+            </div>
+          )}
+        </div>
+        <div>
+          <div style={{fontFamily:"Cinzel,serif",fontSize:13,color:"var(--gold)",marginBottom:4}}>Imagem do Personagem</div>
+          <div style={{fontFamily:"Crimson Pro,serif",fontSize:13,color:"var(--muted2)",marginBottom:10}}>
+            Clique no quadro para enviar uma foto ou ilustração do seu agente.
+          </div>
+          {form.avatar && (
+            <button onClick={()=>setForm(f=>({...f,avatar:""}))} style={{
+              background:"none", border:"1px solid rgba(255,255,255,0.12)", borderRadius:4,
+              color:"var(--muted2)", cursor:"pointer", fontFamily:"Cinzel,serif",
+              fontSize:10, letterSpacing:1, padding:"5px 12px",
+            }}>Remover imagem</button>
+          )}
+        </div>
+      </div>
+
       <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:14}}>
         <div>
           <label style={S.label}>Personagem</label>
@@ -2888,7 +2947,11 @@ function FullSheet({ character, onBack }) {
 
       {/* ── Top header bar ── */}
       <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:12,padding:"8px 12px",background:"var(--card)",border:"1px solid var(--border)",borderRadius:8}}>
-        <div style={{width:44,height:44,borderRadius:6,background:"rgba(201,168,76,0.08)",border:"1px solid var(--border2)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,flexShrink:0,cursor:"pointer"}}>🕵️</div>
+        <div style={{width:44,height:44,borderRadius:6,background:"rgba(201,168,76,0.08)",border:"1px solid var(--border2)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,flexShrink:0,overflow:"hidden"}}>
+          {form.avatar
+            ? <img src={form.avatar} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>
+            : "🕵️"}
+        </div>
         <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:"3px 16px",flex:1,minWidth:0}}>
           {[["PERSONAGEM",form.personagem||"—"],["JOGADOR",form.jogador||"—"],["ORIGEM",origem?.name||"—"],["CLASSE",classe?.name||"—"]].map(([l,v])=>(
             <div key={l}>
