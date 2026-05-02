@@ -5,7 +5,9 @@ import {
   signInWithEmailAndPassword, createUserWithEmailAndPassword,
   signInWithPopup, GoogleAuthProvider, reauthenticateWithPopup,
   sendPasswordResetEmail, updateProfile, signOut,
+  setPersistence, browserLocalPersistence, browserSessionPersistence,
 } from "firebase/auth";
+import { getFirestore, doc, setDoc, getDoc, updateDoc, deleteField } from "firebase/firestore";
 
 const firebaseApp = initializeApp({
   apiKey: "AIzaSyAunCnV2lla9DVIy_4A-ngR1W23dZNRUKU",
@@ -16,7 +18,19 @@ const firebaseApp = initializeApp({
   appId: "1:947645487813:web:ab4b81ff1a37b8b65c2eac",
 });
 const auth = getAuth(firebaseApp);
+const db = getFirestore(firebaseApp);
 const googleProvider = new GoogleAuthProvider();
+
+/* ── Firestore helpers (fail-silent so app still works if Firestore not enabled) ── */
+const fsSetMusicLink = async (uid, svc, data) => {
+  try { await setDoc(doc(db, "users", uid), { musicLinks: { [svc]: data } }, { merge: true }); } catch (_) {}
+};
+const fsDeleteMusicLink = async (uid, svc) => {
+  try { await updateDoc(doc(db, "users", uid), { [`musicLinks.${svc}`]: deleteField() }); } catch (_) {}
+};
+const fsGetMusicLinks = async (uid) => {
+  try { const snap = await getDoc(doc(db, "users", uid)); return snap.exists() ? (snap.data().musicLinks || {}) : {}; } catch (_) { return {}; }
+};
 
 /* ─── FONTS & GLOBAL CSS ─── */
 const G = () => (
@@ -444,6 +458,13 @@ function Login({ onLogin }) {
   const [tab, setTab] = useState("login");
   const [error, setError] = useState("");
   const [resetSent, setResetSent] = useState(false);
+  const [keepLoggedIn, setKeepLoggedIn] = useState(() => localStorage.getItem("nx_keep") !== "0");
+
+  const applyPersistence = () => {
+    const persistence = keepLoggedIn ? browserLocalPersistence : browserSessionPersistence;
+    localStorage.setItem("nx_keep", keepLoggedIn ? "1" : "0");
+    return setPersistence(auth, persistence);
+  };
 
   const friendlyError = (code) => {
     if (["auth/invalid-credential","auth/wrong-password","auth/user-not-found","auth/invalid-login-credentials"].includes(code))
@@ -462,6 +483,7 @@ function Login({ onLogin }) {
     if (!email || !pass) return;
     setLoading(true);
     try {
+      await applyPersistence();
       if (tab === "login") {
         await signInWithEmailAndPassword(auth, email, pass);
       } else {
@@ -481,6 +503,7 @@ function Login({ onLogin }) {
     setError("");
     setLoading(true);
     try {
+      await applyPersistence();
       await signInWithPopup(auth, googleProvider);
       onLogin();
     } catch (e) {
@@ -604,7 +627,20 @@ function Login({ onLogin }) {
                 <input type="password" value={pass} onChange={e=>setPass(e.target.value)} placeholder="••••••••" onKeyDown={e=>e.key==="Enter"&&handle()} />
               </div>
               {tab==="login" && (
-                <div style={{textAlign:"right"}}>
+                <div style={{display:"flex", justifyContent:"space-between", alignItems:"center"}}>
+                  <label style={{display:"flex", alignItems:"center", gap:7, cursor:"pointer", userSelect:"none"}}
+                    onClick={() => setKeepLoggedIn(v => !v)}>
+                    <div style={{
+                      width:16, height:16, borderRadius:3, border:"1.5px solid",
+                      borderColor: keepLoggedIn ? "var(--gold)" : "var(--border2)",
+                      background: keepLoggedIn ? "rgba(201,168,76,0.15)" : "transparent",
+                      display:"flex", alignItems:"center", justifyContent:"center",
+                      flexShrink:0, transition:"all 0.15s",
+                    }}>
+                      {keepLoggedIn && <svg width="10" height="8" viewBox="0 0 10 8" fill="none"><path d="M1 3.5L4 6.5L9 1" stroke="var(--gold)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+                    </div>
+                    <span style={{fontFamily:"Cinzel,serif", fontSize:9, letterSpacing:1, color: keepLoggedIn ? "var(--gold2)" : "var(--muted)"}}>Manter conectado</span>
+                  </label>
                   <span onClick={handleReset} style={{fontFamily:"Cinzel,serif", fontSize:9, letterSpacing:1, color:"var(--muted)", cursor:"pointer", textDecoration:"underline"}}>Esqueci minha senha</span>
                 </div>
               )}
@@ -3293,13 +3329,18 @@ function MusicScreen({ nowPlaying, onNowPlaying, musicTokens, onMusicTokens, ytP
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  /* ── Load Spotify playlists if token exists ── */
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+  /* ── Load playlists on mount if tokens already exist in localStorage ── */
   useEffect(() => {
-    if (!spToken) return;
-    spFetchPlaylists(spToken)
-      .then(items => { setSpPlaylists(items); setTab("spotify"); })
-      .catch(() => { localStorage.removeItem("nx_sp_token"); setSpToken(null); });
+    if (ytToken) {
+      ytFetchPlaylists(ytToken)
+        .then(items => { setYtPlaylists(items); setTab("youtube"); })
+        .catch(() => { localStorage.removeItem("nx_yt_token"); localStorage.removeItem("nx_yt_exp"); setYtToken(null); });
+    }
+    if (spToken) {
+      spFetchPlaylists(spToken)
+        .then(items => { setSpPlaylists(items); if (!ytToken) setTab("spotify"); })
+        .catch(() => { localStorage.removeItem("nx_sp_token"); localStorage.removeItem("nx_sp_exp"); setSpToken(null); });
+    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -3328,6 +3369,8 @@ function MusicScreen({ nowPlaying, onNowPlaying, musicTokens, onMusicTokens, ytP
       const items = await spFetchPlaylists(d.access_token);
       setSpPlaylists(items);
       setTab("spotify");
+      const uid = auth.currentUser?.uid;
+      if (uid) await fsSetMusicLink(uid, "spotify", { clientId: cid, connectedAt: Date.now() });
     } catch (e) {
       setErr("Spotify: " + e.message);
     } finally {
@@ -3350,10 +3393,18 @@ function MusicScreen({ nowPlaying, onNowPlaying, musicTokens, onMusicTokens, ytP
         : await signInWithPopup(auth, prov);
       const cred = GoogleAuthProvider.credentialFromResult(result);
       if (!cred?.accessToken) throw new Error("Token não obtido.");
-      setYtToken(cred.accessToken);
-      const items = await ytFetchPlaylists(cred.accessToken);
+      const token = cred.accessToken;
+      const exp = Date.now() + 3500 * 1000; // ~1h
+      const ytEmail = result.user.email || "";
+      const ytName = result.user.displayName || "";
+      localStorage.setItem("nx_yt_token", token);
+      localStorage.setItem("nx_yt_exp", String(exp));
+      localStorage.setItem("nx_yt_email", ytEmail);
+      setYtToken(token);
+      const items = await ytFetchPlaylists(token);
       setYtPlaylists(items);
       setTab("youtube");
+      if (user?.uid) await fsSetMusicLink(user.uid, "youtube", { email: ytEmail, name: ytName, connectedAt: Date.now() });
     } catch (e) {
       if (e.code !== "auth/popup-closed-by-user" && e.code !== "auth/cancelled-popup-request") {
         setErr("YouTube: " + (e.message || "Tente novamente."));
@@ -3385,15 +3436,20 @@ function MusicScreen({ nowPlaying, onNowPlaying, musicTokens, onMusicTokens, ytP
   };
 
   const disconnectYT = () => {
+    localStorage.removeItem("nx_yt_token"); localStorage.removeItem("nx_yt_exp"); localStorage.removeItem("nx_yt_email");
     setYtToken(null); setYtPlaylists([]);
     if (selectedPlaylist?.svc === "youtube") setSelectedPlaylist(null);
     if (nowPlaying?.svc === "youtube") onNowPlaying(null);
+    const uid = auth.currentUser?.uid;
+    if (uid) fsDeleteMusicLink(uid, "youtube");
   };
   const disconnectSP = () => {
-    localStorage.removeItem("nx_sp_token"); localStorage.removeItem("nx_sp_exp");
+    localStorage.removeItem("nx_sp_token"); localStorage.removeItem("nx_sp_exp"); localStorage.removeItem("nx_sp_email");
     setSpToken(null); setSpPlaylists([]);
     if (selectedPlaylist?.svc === "spotify") setSelectedPlaylist(null);
     if (nowPlaying?.svc === "spotify") onNowPlaying(null);
+    const uid = auth.currentUser?.uid;
+    if (uid) fsDeleteMusicLink(uid, "spotify");
   };
 
   const openPlaylist = async (pl, svc) => {
@@ -3456,6 +3512,8 @@ function MusicScreen({ nowPlaying, onNowPlaying, musicTokens, onMusicTokens, ytP
   const gold = "var(--gold)";
   const card = { background: "var(--card)", border: "1px solid var(--border)", borderRadius: 8 };
   const isPlayingThis = (pl, svc) => nowPlaying?.playlistId === pl.id && nowPlaying?.svc === svc;
+  const ytEmail = localStorage.getItem("nx_yt_email") || "";
+  const ytTokenExpired = !ytToken && !!ytEmail;
 
   return (
     <div className="fade" style={{ maxWidth: 1100, margin: "0 auto" }}>
@@ -3478,17 +3536,41 @@ function MusicScreen({ nowPlaying, onNowPlaying, musicTokens, onMusicTokens, ytP
               : "Vincule YouTube ou Spotify para tocar suas playlists durante a sessão"}
           </div>
         </div>
-        {isConnected && !selectedPlaylist && (
-          <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
-            {[
-              { svc: "youtube", label: "YouTube", connected: !!ytToken, color: "#ff4444", onDisc: disconnectYT },
-              { svc: "spotify", label: "Spotify", connected: !!spToken, color: "#1db954", onDisc: disconnectSP },
-            ].map(({ svc, label, connected, color, onDisc }) => connected && (
-              <div key={svc} onClick={onDisc} title="Clique para desconectar"
-                style={{ display: "flex", alignItems: "center", gap: 5, padding: "4px 12px", borderRadius: 20, cursor: "pointer", border: `1px solid ${color}`, background: svc === "youtube" ? "rgba(255,0,0,0.08)" : "rgba(29,185,84,0.08)", fontSize: 10, fontFamily: "Cinzel,serif", letterSpacing: 1, color, transition: "all 0.2s" }}>
-                {label} <span style={{ fontSize: 8, opacity: 0.7 }}>✕</span>
+        {(isConnected || ytTokenExpired) && !selectedPlaylist && (
+          <div style={{ marginLeft: "auto", display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
+            {/* YouTube badge */}
+            {(ytToken || ytTokenExpired) && (() => {
+              const expired = ytTokenExpired;
+              const color = expired ? "var(--muted)" : "#ff4444";
+              return (
+                <div key="youtube" style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 12px", borderRadius: 20, border: `1px solid ${expired ? "var(--border2)" : "#ff4444"}`, background: expired ? "transparent" : "rgba(255,68,68,0.08)", transition: "all 0.2s" }}>
+                  <svg viewBox="0 0 24 24" width="12" height="12" fill={color}><path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/></svg>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 1 }}>
+                    {ytEmail && <span style={{ fontFamily: "Cinzel,serif", fontSize: 8, color, letterSpacing: 0.5 }}>{ytEmail}</span>}
+                    {expired && <span style={{ fontSize: 9, color: "#e07070", fontFamily: "Cinzel,serif", letterSpacing: 0.5 }}>Sessão expirada</span>}
+                  </div>
+                  {expired ? (
+                    <button onClick={connectYouTube} style={{ background: "rgba(255,68,68,0.12)", border: "1px solid #ff4444", borderRadius: 4, cursor: "pointer", color: "#ff4444", fontSize: 8, fontFamily: "Cinzel,serif", padding: "2px 7px", letterSpacing: 1 }}>
+                      Reconectar
+                    </button>
+                  ) : (
+                    <button onClick={disconnectYT} title="Desconectar YouTube" style={{ background: "transparent", border: "none", cursor: "pointer", color: "rgba(255,68,68,0.5)", fontSize: 14, padding: "0 2px", lineHeight: 1, display: "flex", alignItems: "center" }}
+                      onMouseEnter={e => e.currentTarget.style.color = "#ff4444"}
+                      onMouseLeave={e => e.currentTarget.style.color = "rgba(255,68,68,0.5)"}>✕</button>
+                  )}
+                </div>
+              );
+            })()}
+            {/* Spotify badge */}
+            {spToken && (
+              <div key="spotify" style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 12px", borderRadius: 20, border: "1px solid #1db954", background: "rgba(29,185,84,0.08)", transition: "all 0.2s" }}>
+                <svg viewBox="0 0 24 24" width="12" height="12" fill="#1db954"><path d="M12 0C5.4 0 0 5.4 0 12s5.4 12 12 12 12-5.4 12-12S18.66 0 12 0zm5.521 17.34c-.24.359-.66.48-1.021.24-2.82-1.74-6.36-2.101-10.561-1.141-.418.122-.779-.179-.899-.539-.12-.421.18-.78.54-.9 4.56-1.021 8.52-.6 11.64 1.32.42.18.479.659.301 1.02zm1.44-3.3c-.301.42-.841.6-1.262.3-3.239-1.98-8.159-2.58-11.939-1.38-.479.12-1.02-.12-1.14-.6-.12-.48.12-1.021.6-1.141C9.6 9.9 15 10.561 18.72 12.84c.361.181.54.78.241 1.2zm.12-3.36C15.24 8.4 8.82 8.16 5.16 9.301c-.6.179-1.2-.181-1.38-.721-.18-.601.18-1.2.72-1.381 4.26-1.26 11.28-1.02 15.721 1.621.539.3.719 1.02.419 1.56-.299.421-1.02.599-1.559.3z"/></svg>
+                <span style={{ fontFamily: "Cinzel,serif", fontSize: 9, color: "#1db954", letterSpacing: 0.5 }}>Spotify</span>
+                <button onClick={disconnectSP} title="Desconectar Spotify" style={{ background: "transparent", border: "none", cursor: "pointer", color: "rgba(29,185,84,0.5)", fontSize: 14, padding: "0 2px", lineHeight: 1, display: "flex", alignItems: "center" }}
+                  onMouseEnter={e => e.currentTarget.style.color = "#1db954"}
+                  onMouseLeave={e => e.currentTarget.style.color = "rgba(29,185,84,0.5)"}>✕</button>
               </div>
-            ))}
+            )}
           </div>
         )}
         {selectedPlaylist && (
@@ -3506,7 +3588,7 @@ function MusicScreen({ nowPlaying, onNowPlaying, musicTokens, onMusicTokens, ytP
       )}
 
       {/* ── Connect view ── */}
-      {!isConnected && (
+      {!isConnected && !ytTokenExpired && (
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, maxWidth: 600, margin: "48px auto" }}>
           {[
             { svc: "youtube", label: "YouTube", color: "#ff4444", bg: "rgba(255,68,68,0.06)",
@@ -3722,7 +3804,17 @@ export default function App() {
   const [characters, setCharacters] = useState([]);
   const [sessions] = useState([]);
   const [nowPlaying, setNowPlaying] = useState(null);
-  const [musicTokens, setMusicTokens] = useState({ yt: null, sp: null });
+  const [musicTokens, setMusicTokens] = useState(() => {
+    const now = Date.now();
+    const ytToken = localStorage.getItem("nx_yt_token");
+    const ytExp = Number(localStorage.getItem("nx_yt_exp") || 0);
+    const spToken = localStorage.getItem("nx_sp_token");
+    const spExp = Number(localStorage.getItem("nx_sp_exp") || 0);
+    return {
+      yt: ytToken && now < ytExp ? ytToken : null,
+      sp: spToken && now < spExp ? spToken : null,
+    };
+  });
   const ytPlayerRef = useRef(null);
 
   useEffect(() => {
