@@ -1077,16 +1077,11 @@ function Dashboard({ system, onCreateChar, characters, sessions, onSelectChar })
                     {c.classe?.name || "—"} · {c.origem?.name || "—"} · {system?.name}
                   </div>
                 </div>
-                {/* NEX 5% mini bar */}
+                {/* NEX mini bar */}
                 <div style={{display:"flex", flexDirection:"column", gap:4, minWidth:100}}>
-                  <div style={{display:"flex", justifyContent:"space-between"}}>
-                    <span style={{fontFamily:"Cinzel,serif", fontSize:11, color:"var(--muted)"}}>NEX 5%</span>
-                    <span style={{fontFamily:"Cinzel,serif", fontSize:11, color:"var(--muted)"}}>
-                      AGI {c.attrs?.AGI} · INT {c.attrs?.INT}
-                    </span>
-                  </div>
+                  <span style={{fontFamily:"Cinzel,serif", fontSize:11, color:"var(--muted)"}}>NEX {c.nex ?? 5}%</span>
                   <div style={{height:4, background:"rgba(255,255,255,0.06)", borderRadius:2}}>
-                    <div style={{height:"100%", width:"5%", background:`linear-gradient(90deg,${system?.accent||"var(--gold3)"},var(--gold))`, borderRadius:2}}/>
+                    <div style={{height:"100%", width:`${c.nex ?? 5}%`, background:`linear-gradient(90deg,${system?.accent||"var(--gold3)"},var(--gold))`, borderRadius:2}}/>
                   </div>
                 </div>
                 <span style={{fontFamily:"Cinzel,serif", fontSize:11, color:accent, opacity:0.5, flexShrink:0}}>→</span>
