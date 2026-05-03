@@ -1417,10 +1417,63 @@ function PlaceholderScreen({ icon, title, desc, badge }) {
   );
 }
 
+/* ── Novidades (editado pelos devs) ── */
+const NEWS_ITEMS = [
+  {
+    id: 1, isNew: true,
+    title: "Guilda C.R.I.S. no Portal RPG!",
+    image: null,
+    desc: "Criamos nossa Guilda no Portal RPG! Entre agora para receber skins exclusivas!",
+    link: null, linkLabel: "Veja mais aqui!",
+  },
+  {
+    id: 2, isNew: true,
+    title: "Marcas Fragmentadas está no CRIS!",
+    image: null,
+    desc: "A campanha Marcas Fragmentadas chegou ao CRIS com novos conteúdos exclusivos para os membros.",
+    link: null, linkLabel: "Saiba mais",
+  },
+  {
+    id: 3, isNew: true,
+    title: "@ArquivosConfidenciais vazados no cris!",
+    image: null,
+    desc: "Documentos sigilosos foram vazados nos arquivos do CRIS. Confira o conteúdo exclusivo!",
+    link: null, linkLabel: "Ver arquivos",
+  },
+  {
+    id: 4, isNew: true,
+    title: "O @CultodaCriacao chegou no CRIS!",
+    image: null,
+    desc: "O Culto da Criação fez sua presença marcada no CRIS. Fique atento às novidades.",
+    link: null, linkLabel: "Ver mais",
+  },
+  {
+    id: 5, isNew: true,
+    title: "Novas armas chegaram no CRIS!",
+    image: null,
+    desc: "Um novo arsenal está disponível no CRIS. Confira as armas inéditas que chegaram!",
+    link: null, linkLabel: "Ver arsenal",
+  },
+  {
+    id: 6, isNew: true,
+    title: "A @TocaDosMonstros está no CRIS!",
+    image: null,
+    desc: "A Toca dos Monstros chegou ao CRIS trazendo criaturas e encontros inéditos.",
+    link: null, linkLabel: "Explorar",
+  },
+  {
+    id: 7, isNew: false,
+    title: "Criaturas invadem o CRIS!",
+    image: null,
+    desc: "Uma nova leva de criaturas foi avistada nos arredores do CRIS. Prepare-se, agente.",
+    link: null, linkLabel: "Ver criaturas",
+  },
+];
+
 /* ═══════════════════════════════
    TOPBAR
 ═══════════════════════════════ */
-function Topbar({ screen, system, onChangeSystem, onLogout, notifCount = 0 }) {
+function Topbar({ screen, system, onChangeSystem, onLogout }) {
   const labels = { dashboard:"Painel", sheet:"Fichas de Personagem", map:"Editor de Mapas", master:"Ajudante do Mestre", music:"Trilhas Sonoras", party:"Grupo de Agentes" };
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef(null);
@@ -1431,6 +1484,10 @@ function Topbar({ screen, system, onChangeSystem, onLogout, notifCount = 0 }) {
   const [editingProfile, setEditingProfile] = useState(false);
   const [editName,    setEditName]    = useState("");
   const [pendingPhoto, setPendingPhoto] = useState("");
+
+  const [notifOpen, setNotifOpen] = useState(false);
+  const [selectedNews, setSelectedNews] = useState(NEWS_ITEMS[0]);
+  const notifCount = NEWS_ITEMS.filter(n => n.isNew).length;
 
   const avatarLetter = profileName.trim().charAt(0).toUpperCase() || "A";
 
@@ -1548,7 +1605,7 @@ function Topbar({ screen, system, onChangeSystem, onLogout, notifCount = 0 }) {
             }}>
               {[
                 { icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>, label:"Ver Perfil", badge:0, action: openProfile },
-                { icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>, label:"Notificações", badge:notifCount, action:()=>setMenuOpen(false) },
+                { icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>, label:"Notificações", badge:notifCount, action:()=>{ setMenuOpen(false); setSelectedNews(NEWS_ITEMS[0]); setNotifOpen(true); } },
                 { icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>, label:"Desconectar", badge:0, action:()=>{ setMenuOpen(false); onLogout(); }, danger:true },
               ].map(({ icon, label, badge, action, danger }) => (
                 <button key={label} onClick={action} style={{
@@ -1582,6 +1639,97 @@ function Topbar({ screen, system, onChangeSystem, onLogout, notifCount = 0 }) {
         </div>
       </div>
     </div>
+
+    {/* Notifications modal */}
+    {notifOpen && createPortal(
+      <div onClick={()=>setNotifOpen(false)} style={{
+        position:"fixed", inset:0, background:"rgba(0,0,0,0.8)", zIndex:9999,
+        display:"flex", alignItems:"center", justifyContent:"center",
+      }}>
+        <div onClick={e=>e.stopPropagation()} style={{
+          width:"min(900px, 95vw)", height:"min(560px, 90vh)",
+          background:"#0e0e14", border:"1px solid rgba(140,60,220,0.4)",
+          borderRadius:16, overflow:"hidden", display:"flex",
+          boxShadow:"0 24px 80px rgba(0,0,0,0.8), 0 0 0 1px rgba(255,255,255,0.04)",
+        }}>
+          {/* Left — lista */}
+          <div style={{
+            width:260, borderRight:"1px solid rgba(140,60,220,0.25)",
+            display:"flex", flexDirection:"column", flexShrink:0,
+          }}>
+            <div style={{
+              padding:"20px 20px 14px",
+              borderBottom:"1px solid rgba(140,60,220,0.2)",
+              fontFamily:"Cinzel,serif", fontSize:15, color:"#fff", letterSpacing:1,
+            }}>Novidades</div>
+            <div style={{flex:1, overflowY:"auto", padding:"8px 0"}}>
+              {NEWS_ITEMS.map(item => (
+                <button key={item.id} onClick={()=>setSelectedNews(item)} style={{
+                  width:"100%", padding:"12px 18px",
+                  background: selectedNews?.id===item.id ? "rgba(140,60,220,0.15)" : "none",
+                  border:"none", borderLeft: selectedNews?.id===item.id ? "3px solid rgba(140,60,220,0.8)" : "3px solid transparent",
+                  cursor:"pointer", textAlign:"left",
+                  display:"flex", alignItems:"center", gap:10,
+                  transition:"background 0.15s",
+                }}
+                  onMouseEnter={e=>{ if(selectedNews?.id!==item.id) e.currentTarget.style.background="rgba(255,255,255,0.04)"; }}
+                  onMouseLeave={e=>{ if(selectedNews?.id!==item.id) e.currentTarget.style.background="none"; }}
+                >
+                  <span style={{
+                    fontFamily:"Cinzel,serif", fontSize:11, color: selectedNews?.id===item.id ? "#c8a8f0" : "rgba(255,255,255,0.7)",
+                    lineHeight:1.4, flex:1,
+                  }}>{item.title}</span>
+                  {item.isNew && <span style={{width:8, height:8, borderRadius:"50%", background:"#e05555", flexShrink:0}}/>}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Right — conteúdo */}
+          <div style={{flex:1, display:"flex", flexDirection:"column", overflowY:"auto"}}>
+            {/* Close */}
+            <div style={{display:"flex", justifyContent:"flex-end", padding:"14px 18px 0"}}>
+              <button onClick={()=>setNotifOpen(false)} style={{
+                background:"none", border:"none", cursor:"pointer",
+                color:"rgba(255,255,255,0.4)", fontSize:20, lineHeight:1,
+                transition:"color 0.2s",
+              }}
+                onMouseEnter={e=>e.currentTarget.style.color="#fff"}
+                onMouseLeave={e=>e.currentTarget.style.color="rgba(255,255,255,0.4)"}
+              >✕</button>
+            </div>
+
+            {selectedNews && (
+              <div style={{padding:"0 32px 32px", display:"flex", flexDirection:"column", gap:20}}>
+                <a href={selectedNews.link||"#"} target="_blank" rel="noopener noreferrer" style={{
+                  fontFamily:"Cinzel,serif", fontSize:18, color:"#a070e8",
+                  textDecoration:"underline", textDecorationColor:"rgba(160,112,232,0.4)",
+                  lineHeight:1.3,
+                }}>{selectedNews.title}</a>
+
+                {selectedNews.image && (
+                  <div style={{borderRadius:10, overflow:"hidden", maxWidth:460, alignSelf:"center"}}>
+                    <img src={selectedNews.image} alt={selectedNews.title} style={{width:"100%", display:"block"}}/>
+                  </div>
+                )}
+
+                <p style={{
+                  fontFamily:"Crimson Pro,serif", fontSize:15, color:"rgba(255,255,255,0.85)",
+                  lineHeight:1.7, margin:0,
+                }}>{selectedNews.desc}</p>
+
+                {selectedNews.linkLabel && (
+                  <a href={selectedNews.link||"#"} target="_blank" rel="noopener noreferrer" style={{
+                    fontFamily:"Cinzel,serif", fontSize:13, color:"#a070e8",
+                    textDecoration:"underline",
+                  }}>{selectedNews.linkLabel}</a>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    , document.body)}
 
     {/* Profile modal */}
     {editingProfile && createPortal(
