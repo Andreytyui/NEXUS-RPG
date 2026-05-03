@@ -938,7 +938,7 @@ function Sidebar({ active, onNav, collapsed, setCollapsed, system, onChangeSyste
 /* ═══════════════════════════════
    DASHBOARD
 ═══════════════════════════════ */
-function Dashboard({ system, onCreateChar, characters, sessions }) {
+function Dashboard({ system, onCreateChar, characters, sessions, onSelectChar }) {
   const accent = system?.accent || "var(--gold)";
   const accentText = system?.accentText || system?.accent || "var(--gold)";
 
@@ -1056,7 +1056,8 @@ function Dashboard({ system, onCreateChar, characters, sessions }) {
                 background:"var(--card)", border:"1px solid var(--border)", borderRadius:8,
                 padding:"14px 18px", display:"flex", alignItems:"center", gap:16,
                 cursor:"pointer", transition:"border-color 0.2s",
-              }} onMouseEnter={e=>e.currentTarget.style.borderColor=system?.accent+"60"}
+              }} onClick={()=>onSelectChar && onSelectChar(c)}
+                 onMouseEnter={e=>e.currentTarget.style.borderColor=system?.accent+"60"}
                  onMouseLeave={e=>e.currentTarget.style.borderColor="var(--border)"}>
                 <div style={{
                   width:72, height:72, borderRadius:8, flexShrink:0,
@@ -4144,6 +4145,7 @@ export default function App() {
     if (!activeSystem) return;
     const key = `nexus_characters_${activeSystem.id}`;
     try { setCharacters(JSON.parse(localStorage.getItem(key) || '[]')); } catch { setCharacters([]); }
+    setCreatedChar(null);
   }, [activeSystem?.id]);
 
   /* load YouTube IFrame API once */
@@ -4177,7 +4179,7 @@ export default function App() {
     if (creatingChar) return null;
     if (createdChar && screen === "sheet") return <FullSheet character={createdChar} onBack={()=>setCreatedChar(null)}/>;
     switch(screen){
-      case "dashboard": return <Dashboard system={activeSystem} onCreateChar={()=>setCreatingChar(true)} characters={characters} sessions={sessions}/>;
+      case "dashboard": return <Dashboard system={activeSystem} onCreateChar={()=>setCreatingChar(true)} characters={characters} sessions={sessions} onSelectChar={c=>{ setCreatedChar(c); setScreen("sheet"); }}/>;
       case "sheet":     return <SheetList characters={characters} system={activeSystem} onCreateChar={()=>setCreatingChar(true)} onSelectChar={c=>{ setCreatedChar(c); }}/>;
       case "map":       return <PlaceholderScreen icon="🗺️" title="Editor de Mapas" desc={`Mapas com tiles e névoa de guerra para ${sysName}.`} badge="Em breve" />;
       case "master":    return <PlaceholderScreen icon="🎭" title="Ajudante do Mestre por Voz" desc={`Ajudante inteligente treinado nas regras de ${sysName}.`} badge="Beta · Pro" />;
