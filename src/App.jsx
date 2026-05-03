@@ -2783,13 +2783,14 @@ function stopAuraSound(sound) {
    Layout inspirado no CRIS com
    identidade visual Nexus
 ═══════════════════════════════ */
-function FullSheet({ character, onBack }) {
+function FullSheet({ character, onBack, onUpdate }) {
   const { attrs: initAttrs, origem, classe, form } = character;
   const [attrs, setAttrs] = useState(initAttrs);
   const handleAttrEdit = (key, val) => setAttrs(a => ({ ...a, [key]: val }));
 
-  // ── Base stats at NEX 5%
-  const cs0 = nexStats(5, classe?.id, initAttrs);
+  // ── Base stats at saved NEX (or 5% for new characters)
+  const initNex = character.nex ?? 5;
+  const cs0 = nexStats(initNex, classe?.id, initAttrs);
 
   const [pvMax,  setPvMax]  = useState(cs0.pv);
   const [sanMax, setSanMax] = useState(cs0.san);
@@ -2797,7 +2798,7 @@ function FullSheet({ character, onBack }) {
   const [hp,  setHp]  = useState(cs0.pv);
   const [san, setSan] = useState(cs0.san);
   const [pe,  setPe]  = useState(cs0.pe);
-  const [nex, setNex] = useState(5);
+  const [nex, setNex] = useState(initNex);
   const [showNexMenu, setShowNexMenu] = useState(false);
   const nexBtnRef = useRef(null);
   const auraRef   = useRef(null);
@@ -2828,7 +2829,7 @@ function FullSheet({ character, onBack }) {
   const defesa   = 10 + attrs.AGI;
   const esquiva  = attrs.AGI;
   const bloqueio = 0;
-  const peturno  = 1;
+  const peturno  = 1 + (nex === 99 ? 19 : (nex - 5) / 5);
   const desl     = `${6 + attrs.AGI}m / ${4 + attrs.AGI}q`;
 
   const handleAttrRoll = (key) => {
@@ -2844,6 +2845,7 @@ function FullSheet({ character, onBack }) {
     setPeMax(ns.pe);  setPe(v  => Math.min(v, ns.pe));
     setNex(newNex);
     setShowNexMenu(false);
+    onUpdate?.({ ...character, nex: newNex });
   };
 
   const rollFreeInput = () => {
@@ -4232,7 +4234,7 @@ export default function App() {
     if (characters.length >= 5) return;
     const d = new Date();
     const dateStr = `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${String(d.getFullYear()).slice(-2)}`;
-    const charWithDate = { ...char, createdAt: dateStr };
+    const charWithDate = { ...char, id: Date.now(), nex: 5, createdAt: dateStr };
     setCharacters(prev => [...prev, charWithDate]);
     setCreatedChar(charWithDate);
     setCreatingChar(false);
@@ -4242,7 +4244,7 @@ export default function App() {
   const renderScreen = () => {
     const sysName = activeSystem?.name || "Sistema";
     if (creatingChar) return null;
-    if (createdChar && screen === "sheet") return <FullSheet character={createdChar} onBack={()=>setCreatedChar(null)}/>;
+    if (createdChar && screen === "sheet") return <FullSheet character={createdChar} onBack={()=>setCreatedChar(null)} onUpdate={(updated) => { setCreatedChar(updated); setCharacters(prev => prev.map(c => (c.id && c.id === updated.id) || (!c.id && c.createdAt === updated.createdAt) ? updated : c)); }}/>;
     switch(screen){
       case "dashboard": return <Dashboard system={activeSystem} onCreateChar={()=>setCreatingChar(true)} characters={characters} sessions={sessions} onSelectChar={c=>{ setCreatedChar(c); setScreen("sheet"); }}/>;
       case "sheet":     return <SheetList characters={characters} system={activeSystem} onCreateChar={()=>setCreatingChar(true)} onSelectChar={c=>{ setCreatedChar(c); }}/>;
