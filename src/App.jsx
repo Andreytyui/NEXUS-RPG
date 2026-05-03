@@ -1420,8 +1420,21 @@ function PlaceholderScreen({ icon, title, desc, badge }) {
 /* ═══════════════════════════════
    TOPBAR
 ═══════════════════════════════ */
-function Topbar({ screen, system, onChangeSystem, onLogout }) {
+function Topbar({ screen, system, onChangeSystem, onLogout, notifCount = 0 }) {
   const labels = { dashboard:"Painel", sheet:"Fichas de Personagem", map:"Editor de Mapas", master:"Ajudante do Mestre", music:"Trilhas Sonoras", party:"Grupo de Agentes" };
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef(null);
+  const profilePhoto = localStorage.getItem("nexus_profile_photo") || "";
+  const profileName  = localStorage.getItem("nexus_profile_name")  || "Agente";
+  const avatarLetter = profileName.trim().charAt(0).toUpperCase() || "A";
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    const close = (e) => { if (menuRef.current && !menuRef.current.contains(e.target)) setMenuOpen(false); };
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
+  }, [menuOpen]);
+
   return (
     <div style={{
       height:56, background:"rgba(8,8,8,0.95)", borderBottom:"1px solid var(--border2)",
@@ -1431,7 +1444,6 @@ function Topbar({ screen, system, onChangeSystem, onLogout }) {
       <div style={{fontFamily:"Cinzel,serif", fontSize:13, color:"var(--gold2)", letterSpacing:0.5}}>{labels[screen]}</div>
       <div style={{height:1, flex:1, background:"var(--border2)"}}/>
       <div style={{display:"flex", gap:14, alignItems:"center"}}>
-        {/* Active system badge */}
         {system && (
           <button onClick={onChangeSystem} className="topbar-sys" style={{
             alignItems:"center", gap:8, cursor:"pointer",
@@ -1462,21 +1474,82 @@ function Topbar({ screen, system, onChangeSystem, onLogout }) {
           border:"1px solid var(--border2)",
           fontFamily:"Cinzel,serif", fontSize:8, letterSpacing:2, color:"var(--gold2)", textTransform:"uppercase",
         }}>✦ Plano Pro</div>
-        <button onClick={onLogout} title="Sair da conta" style={{
-          background:"none", border:"1px solid var(--border2)", borderRadius:8,
-          cursor:"pointer", color:"var(--muted2)", padding:"5px 10px",
-          display:"flex", alignItems:"center", gap:6,
-          fontFamily:"Cinzel,serif", fontSize:8, letterSpacing:1, textTransform:"uppercase",
-          transition:"all 0.2s",
-        }}
-          onMouseEnter={e=>{e.currentTarget.style.color="#e07070";e.currentTarget.style.borderColor="rgba(201,100,100,0.5)";}}
-          onMouseLeave={e=>{e.currentTarget.style.color="var(--muted2)";e.currentTarget.style.borderColor="var(--border2)";}}
-        >
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/>
-          </svg>
-          Sair
-        </button>
+
+        {/* Avatar + dropdown */}
+        <div ref={menuRef} style={{position:"relative"}}>
+          <button onClick={()=>setMenuOpen(o=>!o)} style={{
+            width:36, height:36, borderRadius:"50%", padding:0,
+            background:"none", border:"2px solid var(--border2)",
+            cursor:"pointer", overflow:"hidden", position:"relative",
+            transition:"border-color 0.2s",
+          }}
+            onMouseEnter={e=>e.currentTarget.style.borderColor="var(--gold2)"}
+            onMouseLeave={e=>e.currentTarget.style.borderColor="var(--border2)"}
+          >
+            {profilePhoto
+              ? <img src={profilePhoto} alt="avatar" style={{width:"100%",height:"100%",objectFit:"cover"}}/>
+              : <span style={{
+                  display:"flex",alignItems:"center",justifyContent:"center",
+                  width:"100%",height:"100%",
+                  fontFamily:"Cinzel,serif", fontSize:14, fontWeight:700,
+                  background:"linear-gradient(135deg,rgba(140,60,220,0.5),rgba(100,30,180,0.3))",
+                  color:"var(--gold2)",
+                }}>{avatarLetter}</span>
+            }
+            {notifCount > 0 && (
+              <span style={{
+                position:"absolute", top:-4, right:-4,
+                background:"#e05555", color:"#fff",
+                borderRadius:"50%", width:16, height:16,
+                fontSize:9, fontWeight:700, fontFamily:"Cinzel,serif",
+                display:"flex", alignItems:"center", justifyContent:"center",
+                border:"2px solid var(--bg)",
+              }}>{notifCount}</span>
+            )}
+          </button>
+
+          {menuOpen && (
+            <div style={{
+              position:"absolute", top:"calc(100% + 10px)", right:0,
+              background:"rgba(18,12,30,0.97)", border:"1px solid var(--border2)",
+              borderRadius:12, padding:"8px 0", minWidth:200,
+              boxShadow:"0 8px 32px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.04)",
+              backdropFilter:"blur(16px)", zIndex:200,
+            }}>
+              {[
+                { icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>, label:"Ver Perfil", badge:0, action:()=>setMenuOpen(false) },
+                { icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>, label:"Notificações", badge:notifCount, action:()=>setMenuOpen(false) },
+                { icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>, label:"Desconectar", badge:0, action:()=>{ setMenuOpen(false); onLogout(); }, danger:true },
+              ].map(({ icon, label, badge, action, danger }) => (
+                <button key={label} onClick={action} style={{
+                  display:"flex", alignItems:"center", gap:12,
+                  width:"100%", padding:"10px 18px",
+                  background:"none", border:"none", cursor:"pointer",
+                  color: danger ? "#e07070" : "var(--muted2)",
+                  fontFamily:"Cinzel,serif", fontSize:10, letterSpacing:1,
+                  textTransform:"uppercase", textAlign:"left",
+                  transition:"background 0.15s, color 0.15s",
+                }}
+                  onMouseEnter={e=>{ e.currentTarget.style.background="rgba(255,255,255,0.05)"; if(!danger) e.currentTarget.style.color="#fff"; }}
+                  onMouseLeave={e=>{ e.currentTarget.style.background="none"; e.currentTarget.style.color=danger?"#e07070":"var(--muted2)"; }}
+                >
+                  <span style={{
+                    width:30, height:30, borderRadius:"50%",
+                    background: danger ? "rgba(220,80,80,0.15)" : "rgba(140,60,220,0.2)",
+                    display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0,
+                  }}>{icon}</span>
+                  <span style={{flex:1}}>{label}</span>
+                  {badge > 0 && (
+                    <span style={{
+                      background:"#e05555", color:"#fff", borderRadius:10,
+                      padding:"1px 7px", fontSize:9, fontWeight:700,
+                    }}>{badge}</span>
+                  )}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
