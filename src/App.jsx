@@ -1585,7 +1585,7 @@ function Topbar({ screen, system, onChangeSystem, onLogout }) {
             }
             {notifCount > 0 && (
               <span style={{
-                position:"absolute", bottom:-2, right:-2,
+                position:"absolute", bottom:-6, right:-6,
                 background:"#e03333", color:"#fff",
                 borderRadius:"50%", minWidth:18, height:18,
                 padding:"0 3px",
