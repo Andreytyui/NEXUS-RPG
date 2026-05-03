@@ -1424,9 +1424,38 @@ function Topbar({ screen, system, onChangeSystem, onLogout, notifCount = 0 }) {
   const labels = { dashboard:"Painel", sheet:"Fichas de Personagem", map:"Editor de Mapas", master:"Ajudante do Mestre", music:"Trilhas Sonoras", party:"Grupo de Agentes" };
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef(null);
-  const profilePhoto = localStorage.getItem("nexus_profile_photo") || "";
-  const profileName  = localStorage.getItem("nexus_profile_name")  || "Agente";
+  const fileInputRef = useRef(null);
+
+  const [profilePhoto, setProfilePhoto] = useState(() => localStorage.getItem("nexus_profile_photo") || "");
+  const [profileName,  setProfileName]  = useState(() => localStorage.getItem("nexus_profile_name")  || "Agente");
+  const [editingProfile, setEditingProfile] = useState(false);
+  const [editName,    setEditName]    = useState("");
+  const [pendingPhoto, setPendingPhoto] = useState("");
+
   const avatarLetter = profileName.trim().charAt(0).toUpperCase() || "A";
+
+  const openProfile = () => {
+    setEditName(profileName);
+    setPendingPhoto(profilePhoto);
+    setMenuOpen(false);
+    setEditingProfile(true);
+  };
+  const closeProfile = () => setEditingProfile(false);
+  const saveProfile = () => {
+    const name = editName.trim() || "Agente";
+    setProfileName(name);
+    setProfilePhoto(pendingPhoto);
+    localStorage.setItem("nexus_profile_name", name);
+    localStorage.setItem("nexus_profile_photo", pendingPhoto);
+    setEditingProfile(false);
+  };
+  const handlePhotoFile = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => setPendingPhoto(ev.target.result);
+    reader.readAsDataURL(file);
+  };
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -1436,6 +1465,7 @@ function Topbar({ screen, system, onChangeSystem, onLogout, notifCount = 0 }) {
   }, [menuOpen]);
 
   return (
+    <>
     <div style={{
       height:56, background:"rgba(8,8,8,0.95)", borderBottom:"1px solid var(--border2)",
       display:"flex", alignItems:"center", padding:"0 24px", gap:16,
@@ -1517,7 +1547,7 @@ function Topbar({ screen, system, onChangeSystem, onLogout, notifCount = 0 }) {
               backdropFilter:"blur(16px)", zIndex:200,
             }}>
               {[
-                { icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>, label:"Ver Perfil", badge:0, action:()=>setMenuOpen(false) },
+                { icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>, label:"Ver Perfil", badge:0, action: openProfile },
                 { icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>, label:"Notificações", badge:notifCount, action:()=>setMenuOpen(false) },
                 { icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>, label:"Desconectar", badge:0, action:()=>{ setMenuOpen(false); onLogout(); }, danger:true },
               ].map(({ icon, label, badge, action, danger }) => (
@@ -1552,6 +1582,83 @@ function Topbar({ screen, system, onChangeSystem, onLogout, notifCount = 0 }) {
         </div>
       </div>
     </div>
+
+    {/* Profile modal */}
+    {editingProfile && createPortal(
+      <div onClick={closeProfile} style={{
+        position:"fixed", inset:0, background:"rgba(0,0,0,0.75)", zIndex:9999,
+        display:"flex", alignItems:"center", justifyContent:"center",
+      }}>
+        <div onClick={e=>e.stopPropagation()} style={{
+          background:"var(--surface)", border:"1px solid var(--border2)",
+          borderRadius:14, padding:"28px 28px 24px", width:320,
+          display:"flex", flexDirection:"column", alignItems:"center", gap:20,
+          boxShadow:"0 20px 60px rgba(0,0,0,0.7)",
+        }}>
+          <div style={{fontFamily:"Cinzel,serif", fontSize:13, letterSpacing:2, color:"var(--muted)", textTransform:"uppercase"}}>Editar Perfil</div>
+
+          {/* Avatar clicável */}
+          <div style={{position:"relative", cursor:"pointer"}} onClick={()=>fileInputRef.current?.click()}>
+            <div style={{
+              width:88, height:88, borderRadius:"50%",
+              background:"linear-gradient(135deg,rgba(201,168,76,0.3),rgba(201,168,76,0.1))",
+              border:"2px solid var(--gold)",
+              display:"flex", alignItems:"center", justifyContent:"center",
+              fontFamily:"Cinzel,serif", fontSize:30, color:"var(--gold)",
+              overflow:"hidden",
+            }}>
+              {pendingPhoto
+                ? <img src={pendingPhoto} alt="perfil" style={{width:"100%",height:"100%",objectFit:"cover"}}/>
+                : (editName.trim().charAt(0).toUpperCase() || "A")}
+            </div>
+            <div style={{
+              position:"absolute", inset:0, borderRadius:"50%",
+              background:"rgba(0,0,0,0.45)", display:"flex", alignItems:"center", justifyContent:"center",
+              opacity:0, transition:"opacity 0.2s",
+            }}
+              onMouseEnter={e=>e.currentTarget.style.opacity=1}
+              onMouseLeave={e=>e.currentTarget.style.opacity=0}
+            >
+              <span style={{fontSize:20}}>📷</span>
+            </div>
+            <input ref={fileInputRef} type="file" accept="image/*" style={{display:"none"}} onChange={handlePhotoFile}/>
+          </div>
+          <div style={{fontSize:11, color:"var(--muted)", fontFamily:"Cinzel,serif", letterSpacing:1, marginTop:-12}}>Clique para trocar</div>
+
+          {/* Nome */}
+          <div style={{width:"100%"}}>
+            <div style={{fontFamily:"Cinzel,serif", fontSize:9, letterSpacing:2, color:"var(--muted)", textTransform:"uppercase", marginBottom:6}}>Nome do Agente</div>
+            <input
+              value={editName}
+              onChange={e=>setEditName(e.target.value)}
+              onKeyDown={e=>{ if(e.key==="Enter") saveProfile(); if(e.key==="Escape") closeProfile(); }}
+              maxLength={32}
+              placeholder="Agente"
+              autoFocus
+              style={{
+                width:"100%", boxSizing:"border-box",
+                background:"rgba(255,255,255,0.05)", border:"1px solid var(--border2)",
+                borderRadius:6, padding:"9px 12px",
+                fontFamily:"Cinzel,serif", fontSize:13, color:"var(--text)",
+                outline:"none",
+              }}
+            />
+          </div>
+
+          {/* Botões */}
+          <div style={{display:"flex", gap:10, width:"100%"}}>
+            <button onClick={closeProfile} style={{
+              flex:1, padding:"9px 0", borderRadius:6, cursor:"pointer",
+              background:"rgba(255,255,255,0.05)", border:"1px solid var(--border)",
+              fontFamily:"Cinzel,serif", fontSize:10, letterSpacing:1, color:"var(--muted)",
+              transition:"all 0.2s",
+            }}>Cancelar</button>
+            <button onClick={saveProfile} className="btn-gold" style={{flex:1, padding:"9px 0", fontSize:11, letterSpacing:1}}>Salvar</button>
+          </div>
+        </div>
+      </div>
+    , document.body)}
+    </>
   );
 }
 
