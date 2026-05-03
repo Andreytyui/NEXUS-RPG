@@ -2038,22 +2038,37 @@ const AttrDiagram = ({ attrs, onChange, onEdit, onRoll, readOnly = false }) => {
     setEditing(null);
   };
 
+  const RUNES = "ᚠᚢᚦᚨᚱ·ᚲᚷᚹᚺᚾ·ᛁᛃᛇᛈᛉ·ᛊᛏᛒᛖᛗ·ᛚᛜᛞᛟ·";
+  const circPath = (cx, cy, r) =>
+    `M ${cx - r} ${cy} a ${r} ${r} 0 1 1 ${2*r} 0 a ${r} ${r} 0 1 1 ${-2*r} 0`;
+
   return (
-    <svg viewBox="0 0 320 330" style={{display:"block",width:"100%",height:"auto"}}>
+    <svg viewBox="0 -18 320 358" style={{display:"block",width:"100%",height:"auto"}}>
       <defs>
         <radialGradient id="cg2" cx="50%" cy="50%" r="50%">
           <stop offset="0%" stopColor="#c9a84c" stopOpacity="0.22"/>
           <stop offset="100%" stopColor="#c9a84c" stopOpacity="0"/>
         </radialGradient>
         <filter id="ag2"><feGaussianBlur stdDeviation="2.5" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+        {Object.entries(positions).map(([k,p])=>(
+          <path key={k} id={`rp-${k}`} d={circPath(p.x, p.y, 42)} fill="none"/>
+        ))}
+        <path id="rp-center" d={circPath(center.x, center.y, 50)} fill="none"/>
       </defs>
+
+      {/* Connection lines */}
       {Object.entries(positions).map(([k,p])=>(
         <line key={k} x1={center.x} y1={center.y} x2={p.x} y2={p.y}
           stroke="rgba(201,168,76,0.25)" strokeWidth="1.5"/>
       ))}
+
       {/* Center */}
-      <circle cx={center.x} cy={center.y} r="46" fill="url(#cg2)" stroke="rgba(201,168,76,0.35)" strokeWidth="1.5"/>
+      <circle cx={center.x} cy={center.y} r="52" fill="url(#cg2)" stroke="rgba(201,168,76,0.12)" strokeWidth="1"/>
+      <circle cx={center.x} cy={center.y} r="46" fill="rgba(5,5,5,0.92)" stroke="rgba(201,168,76,0.35)" strokeWidth="1.5"/>
       <circle cx={center.x} cy={center.y} r="40" fill="rgba(5,5,5,0.92)" stroke="rgba(201,168,76,0.18)" strokeWidth="1"/>
+      <text fontSize="5" fill="rgba(201,168,76,0.38)" letterSpacing="2">
+        <textPath href="#rp-center">{RUNES.repeat(3)}</textPath>
+      </text>
       <text x={center.x} y={center.y-8} textAnchor="middle" fontFamily="Cinzel,serif" fontSize="10" fill="#c9a84c" letterSpacing="2">ATRIBUTOS</text>
       <text x={center.x} y={center.y+7} textAnchor="middle" fontFamily="Cinzel,serif" fontSize="7.5" fill="#8a7c5c">ORDEM PARANORMAL</text>
       <text x={center.x} y={center.y+20} textAnchor="middle" fontFamily="Cinzel,serif" fontSize="7" fill="#8a7c5c">Clique p/ rolar</text>
@@ -2063,8 +2078,14 @@ const AttrDiagram = ({ attrs, onChange, onEdit, onRoll, readOnly = false }) => {
         const isEditing = editing === key;
         return (
           <g key={key}>
-            <circle cx={p.x} cy={p.y} r="40" fill="none" stroke="rgba(201,168,76,0.1)" strokeWidth="1" strokeDasharray="2,3"/>
-            {/* Outer circle — click to roll */}
+            {/* Outer sigil ring */}
+            <circle cx={p.x} cy={p.y} r="43" fill="none" stroke="rgba(201,168,76,0.18)" strokeWidth="0.75"/>
+            <text fontSize="5" fill="rgba(201,168,76,0.45)" letterSpacing="1.8">
+              <textPath href={`#rp-${key}`}>{RUNES.repeat(2)}</textPath>
+            </text>
+            {/* Inner dashed accent */}
+            <circle cx={p.x} cy={p.y} r="36" fill="none" stroke="rgba(201,168,76,0.22)" strokeWidth="0.75" strokeDasharray="1.5,3.5"/>
+            {/* Main circle — click to roll */}
             <circle cx={p.x} cy={p.y} r="33" fill="rgba(5,5,5,0.95)"
               stroke={isEditing ? "rgba(201,168,76,0.9)" : "rgba(201,168,76,0.5)"}
               strokeWidth={isEditing ? "2" : "1.5"} filter="url(#ag2)"
