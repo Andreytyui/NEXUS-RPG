@@ -1564,38 +1564,41 @@ function Topbar({ screen, system, onChangeSystem, onLogout }) {
 
         {/* Avatar + dropdown */}
         <div ref={menuRef} style={{position:"relative"}}>
-          <button onClick={()=>setMenuOpen(o=>!o)} style={{
-            width:44, height:44, borderRadius:"50%", padding:0,
-            background:"none", border:"2px solid var(--border2)",
-            cursor:"pointer", overflow:"hidden", position:"relative",
-            transition:"border-color 0.2s",
-          }}
-            onMouseEnter={e=>e.currentTarget.style.borderColor="var(--gold2)"}
-            onMouseLeave={e=>e.currentTarget.style.borderColor="var(--border2)"}
-          >
-            {profilePhoto
-              ? <img src={profilePhoto} alt="avatar" style={{width:"100%",height:"100%",objectFit:"cover"}}/>
-              : <span style={{
-                  display:"flex",alignItems:"center",justifyContent:"center",
-                  width:"100%",height:"100%",
-                  fontFamily:"Cinzel,serif", fontSize:14, fontWeight:700,
-                  background:"linear-gradient(135deg,rgba(140,60,220,0.5),rgba(100,30,180,0.3))",
-                  color:"var(--gold2)",
-                }}>{avatarLetter}</span>
-            }
+          <div style={{position:"relative", display:"inline-block"}}>
+            <button onClick={()=>setMenuOpen(o=>!o)} style={{
+              width:44, height:44, borderRadius:"50%", padding:0,
+              background:"none", border:"2px solid var(--border2)",
+              cursor:"pointer", overflow:"hidden", display:"block",
+              transition:"border-color 0.2s",
+            }}
+              onMouseEnter={e=>e.currentTarget.style.borderColor="var(--gold2)"}
+              onMouseLeave={e=>e.currentTarget.style.borderColor="var(--border2)"}
+            >
+              {profilePhoto
+                ? <img src={profilePhoto} alt="avatar" style={{width:"100%",height:"100%",objectFit:"cover"}}/>
+                : <span style={{
+                    display:"flex",alignItems:"center",justifyContent:"center",
+                    width:"100%",height:"100%",
+                    fontFamily:"Cinzel,serif", fontSize:14, fontWeight:700,
+                    background:"linear-gradient(135deg,rgba(140,60,220,0.5),rgba(100,30,180,0.3))",
+                    color:"var(--gold2)",
+                  }}>{avatarLetter}</span>
+              }
+            </button>
             {notifCount > 0 && (
               <span style={{
-                position:"absolute", bottom:-6, right:-6,
+                position:"absolute", bottom:-5, right:-5,
                 background:"#e03333", color:"#fff",
-                borderRadius:"50%", minWidth:18, height:18,
+                borderRadius:"50%", minWidth:20, height:20,
                 padding:"0 3px",
-                fontSize:10, fontWeight:700, fontFamily:"Cinzel,serif",
+                fontSize:11, fontWeight:700, fontFamily:"Cinzel,serif",
                 display:"flex", alignItems:"center", justifyContent:"center",
                 border:"2px solid #0e0e14",
-                boxShadow:"0 0 6px rgba(220,50,50,0.7)",
+                boxShadow:"0 0 8px rgba(220,50,50,0.8)",
+                pointerEvents:"none",
               }}>{notifCount}</span>
             )}
-          </button>
+          </div>
 
           {menuOpen && (
             <div style={{
