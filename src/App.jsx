@@ -1015,12 +1015,12 @@ function Dashboard({ system, onCreateChar, characters, sessions }) {
         </div>
         <button
           className="btn-gold"
-          style={{fontSize:13, padding:"10px 22px", opacity: characters.length >= 5 ? 0.45 : 1, cursor: characters.length >= 5 ? "not-allowed" : "pointer"}}
-          onClick={characters.length < 5 ? onCreateChar : undefined}
-          disabled={characters.length >= 5}
-          title={characters.length >= 5 ? "Limite de 5 fichas atingido" : ""}
+          style={{fontSize:13, padding:"10px 22px", opacity: characters.length >= 15 ? 0.45 : 1, cursor: characters.length >= 15 ? "not-allowed" : "pointer"}}
+          onClick={characters.length < 15 ? onCreateChar : undefined}
+          disabled={characters.length >= 15}
+          title={characters.length >= 15 ? "Limite de 15 fichas atingido" : ""}
         >
-          {characters.length >= 5 ? "Limite atingido (5/5)" : "+ Nova Ficha"}
+          {characters.length >= 15 ? `Limite atingido (15/15)` : "+ Nova Ficha"}
         </button>
       </div>
 
@@ -1139,19 +1139,19 @@ function SheetList({ characters, system, onCreateChar, onSelectChar }) {
       {/* Header row */}
       <div style={{display:"flex", justifyContent:"space-between", alignItems:"center"}}>
         <h2 style={{fontFamily:"Cinzel,serif", fontSize:20, fontWeight:700, color:"var(--text)", letterSpacing:1}}>
-          Agentes: {characters.length}/5
+          Agentes: {characters.length}/15
         </h2>
-        <button onClick={characters.length < 5 ? onCreateChar : undefined} disabled={characters.length >= 5} style={{
+        <button onClick={characters.length < 15 ? onCreateChar : undefined} disabled={characters.length >= 15} style={{
           fontFamily:"Cinzel,serif", fontSize:10, letterSpacing:2, textTransform:"uppercase",
-          padding:"9px 20px", borderRadius:6, cursor: characters.length >= 5 ? "not-allowed" : "pointer",
+          padding:"9px 20px", borderRadius:6, cursor: characters.length >= 15 ? "not-allowed" : "pointer",
           background:"rgba(255,255,255,0.07)", border:"1px solid rgba(255,255,255,0.14)",
-          color: characters.length >= 5 ? "var(--muted)" : "var(--text)", transition:"all 0.2s",
-          opacity: characters.length >= 5 ? 0.5 : 1,
+          color: characters.length >= 15 ? "var(--muted)" : "var(--text)", transition:"all 0.2s",
+          opacity: characters.length >= 15 ? 0.5 : 1,
         }}
-          onMouseEnter={e=>{ if(characters.length < 5) e.currentTarget.style.background="rgba(255,255,255,0.12)" }}
-          onMouseLeave={e=>{ if(characters.length < 5) e.currentTarget.style.background="rgba(255,255,255,0.07)" }}
-          title={characters.length >= 5 ? "Limite de 5 fichas atingido" : ""}>
-          {characters.length >= 5 ? "Limite atingido" : "Novo Agente"}
+          onMouseEnter={e=>{ if(characters.length < 15) e.currentTarget.style.background="rgba(255,255,255,0.12)" }}
+          onMouseLeave={e=>{ if(characters.length < 15) e.currentTarget.style.background="rgba(255,255,255,0.07)" }}
+          title={characters.length >= 15 ? "Limite de 15 fichas atingido" : ""}>
+          {characters.length >= 15 ? "Limite atingido" : "Novo Agente"}
         </button>
       </div>
 
@@ -4103,7 +4103,9 @@ export default function App() {
   const [collapsed, setCollapsed] = useState(false);
   const [creatingChar, setCreatingChar] = useState(false);
   const [createdChar, setCreatedChar] = useState(null);
-  const [characters, setCharacters] = useState([]);
+  const [characters, setCharacters] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('nexus_characters') || '[]'); } catch { return []; }
+  });
   const [sessions] = useState([]);
   const [nowPlaying, setNowPlaying] = useState(null);
   const [musicTokens, setMusicTokens] = useState(() => {
@@ -4130,6 +4132,7 @@ export default function App() {
   }, [activeSystem]);
 
   useEffect(() => { localStorage.setItem('nexus_screen', screen); }, [screen]);
+  useEffect(() => { localStorage.setItem('nexus_characters', JSON.stringify(characters)); }, [characters]);
 
   /* load YouTube IFrame API once */
   useEffect(() => {
@@ -4143,11 +4146,12 @@ export default function App() {
   const handleLogout = () => {
     localStorage.removeItem('nexus_system');
     localStorage.removeItem('nexus_screen');
+    localStorage.removeItem('nexus_characters');
     signOut(auth);
   };
 
   const handleFinishChar = (char) => {
-    if (characters.length >= 5) return;
+    if (characters.length >= 15) return;
     const d = new Date();
     const dateStr = `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${String(d.getFullYear()).slice(-2)}`;
     const charWithDate = { ...char, createdAt: dateStr };
