@@ -2045,7 +2045,7 @@ const AttrDiagram = ({ attrs, onChange, onEdit, onRoll, readOnly = false }) => {
   const pentOrder = ["AGI","INT","VIG","PRE","FOR"];
 
   return (
-    <svg viewBox="0 -18 320 358" style={{display:"block",width:"100%",height:"auto"}}>
+    <svg viewBox="-10 -28 340 390" style={{display:"block",width:"100%",height:"auto"}}>
       <defs>
         <radialGradient id="cg-center" cx="50%" cy="50%" r="50%">
           <stop offset="0%"   stopColor="#f5e07a" stopOpacity="1"/>
@@ -2059,9 +2059,9 @@ const AttrDiagram = ({ attrs, onChange, onEdit, onRoll, readOnly = false }) => {
         <filter id="ag2"><feGaussianBlur stdDeviation="2.5" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
         <filter id="glow-soft"><feGaussianBlur stdDeviation="4" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
         {Object.entries(positions).map(([k,p])=>(
-          <path key={k} id={`rp-${k}`} d={circPath(p.x, p.y, 42)} fill="none"/>
+          <path key={k} id={`rp-${k}`} d={circPath(p.x, p.y, 47)} fill="none"/>
         ))}
-        <path id="rp-center" d={circPath(center.x, center.y, 53)} fill="none"/>
+        <path id="rp-center" d={circPath(center.x, center.y, 59)} fill="none"/>
       </defs>
 
       {/* Pentagon outline between adjacent nodes */}
@@ -2084,8 +2084,8 @@ const AttrDiagram = ({ attrs, onChange, onEdit, onRoll, readOnly = false }) => {
       <circle cx={center.x} cy={center.y} r="49" fill="none"
         stroke="rgba(255,240,160,0.35)" strokeWidth="0.75"/>
       {/* Rune ring just outside the center circle */}
-      <text fontSize="5" fill="rgba(30,18,4,0.55)" letterSpacing="2">
-        <textPath href="#rp-center">{RUNES.repeat(3)}</textPath>
+      <text fontSize="10" fill="rgba(30,18,4,0.7)" letterSpacing="3">
+        <textPath href="#rp-center">{RUNES.repeat(2)}</textPath>
       </text>
       <text x={center.x} y={center.y-5} textAnchor="middle" fontFamily="Cinzel,serif"
         fontSize="11" fill="#1a1004" letterSpacing="2" fontWeight="700">ATRIBUTOS</text>
@@ -2101,10 +2101,10 @@ const AttrDiagram = ({ attrs, onChange, onEdit, onRoll, readOnly = false }) => {
         return (
           <g key={key}>
             {/* Outer sigil ring (solid thin border + rune text) */}
-            <circle cx={p.x} cy={p.y} r="43" fill="none"
-              stroke="rgba(201,168,76,0.30)" strokeWidth="0.75"/>
-            <text fontSize="5" fill="rgba(201,168,76,0.55)" letterSpacing="1.8">
-              <textPath href={`#rp-${key}`}>{RUNES.repeat(2)}</textPath>
+            <circle cx={p.x} cy={p.y} r="56" fill="none"
+              stroke="rgba(201,168,76,0.25)" strokeWidth="0.75"/>
+            <text fontSize="10" fill="rgba(201,168,76,0.7)" letterSpacing="3">
+              <textPath href={`#rp-${key}`}>{RUNES}</textPath>
             </text>
             {/* Inner dashed accent ring */}
             <circle cx={p.x} cy={p.y} r="36" fill="none"
