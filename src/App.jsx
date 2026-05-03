@@ -2064,6 +2064,22 @@ const AttrDiagram = ({ attrs, onChange, onEdit, onRoll, readOnly = false }) => {
         <path id="rp-center" d={circPath(center.x, center.y, 59)} fill="none"/>
       </defs>
 
+      <style>{`
+        @keyframes sigil-pulse {
+          0%, 55%, 100% { fill: rgba(201,168,76,0.60); filter: none; }
+          60%  { fill: rgba(255,235,90,1);   filter: drop-shadow(0 0 7px rgba(255,210,60,1)) drop-shadow(0 0 14px rgba(201,168,76,0.7)); }
+          72%  { fill: rgba(255,215,65,0.85); filter: drop-shadow(0 0 4px rgba(255,190,40,0.6)); }
+          88%  { fill: rgba(201,168,76,0.65); filter: none; }
+        }
+        .sigil-ring { animation: sigil-pulse 8s ease-in-out infinite; }
+        @keyframes sigil-center-pulse {
+          0%, 60%, 100% { fill: rgba(30,18,4,0.65); }
+          65%  { fill: rgba(80,45,5,1); filter: drop-shadow(0 0 5px rgba(180,120,20,0.6)); }
+          80%  { fill: rgba(30,18,4,0.65); filter: none; }
+        }
+        .sigil-center { animation: sigil-center-pulse 10s ease-in-out infinite; }
+      `}</style>
+
       {/* Pentagon outline between adjacent nodes */}
       <polygon
         points={pentOrder.map(k=>`${positions[k].x},${positions[k].y}`).join(" ")}
@@ -2084,8 +2100,8 @@ const AttrDiagram = ({ attrs, onChange, onEdit, onRoll, readOnly = false }) => {
       <circle cx={center.x} cy={center.y} r="49" fill="none"
         stroke="rgba(255,240,160,0.35)" strokeWidth="0.75"/>
       {/* Rune ring just outside the center circle */}
-      <text fontSize="10" fill="rgba(30,18,4,0.7)" letterSpacing="3">
-        <textPath href="#rp-center">{RUNES.repeat(2)}</textPath>
+      <text fontSize="10" className="sigil-center" letterSpacing="2.5">
+        <textPath href="#rp-center">{RUNES.repeat(3)}</textPath>
       </text>
       <text x={center.x} y={center.y-5} textAnchor="middle" fontFamily="Cinzel,serif"
         fontSize="11" fill="#1a1004" letterSpacing="2" fontWeight="700">ATRIBUTOS</text>
@@ -2095,16 +2111,17 @@ const AttrDiagram = ({ attrs, onChange, onEdit, onRoll, readOnly = false }) => {
         fontSize="6.5" fill="#3a2808">Clique p/ rolar</text>
 
       {/* Attribute nodes */}
-      {Object.entries(positions).map(([key,p])=>{
+      {Object.entries(positions).map(([key,p], i)=>{
         const val = attrs[key];
         const isEditing = editing === key;
         return (
           <g key={key}>
             {/* Outer sigil ring (solid thin border + rune text) */}
             <circle cx={p.x} cy={p.y} r="56" fill="none"
-              stroke="rgba(201,168,76,0.25)" strokeWidth="0.75"/>
-            <text fontSize="10" fill="rgba(201,168,76,0.7)" letterSpacing="3">
-              <textPath href={`#rp-${key}`}>{RUNES}</textPath>
+              stroke="rgba(201,168,76,0.20)" strokeWidth="0.75"/>
+            <text fontSize="10" className="sigil-ring"
+              style={{animationDelay:`${i * 1.6}s`}} letterSpacing="2.5">
+              <textPath href={`#rp-${key}`}>{RUNES.repeat(2)}</textPath>
             </text>
             {/* Inner dashed accent ring */}
             <circle cx={p.x} cy={p.y} r="36" fill="none"
