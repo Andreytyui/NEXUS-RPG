@@ -1478,7 +1478,7 @@ function Topbar({ screen, system, onChangeSystem, onLogout, notifCount = 0 }) {
         {/* Avatar + dropdown */}
         <div ref={menuRef} style={{position:"relative"}}>
           <button onClick={()=>setMenuOpen(o=>!o)} style={{
-            width:36, height:36, borderRadius:"50%", padding:0,
+            width:44, height:44, borderRadius:"50%", padding:0,
             background:"none", border:"2px solid var(--border2)",
             cursor:"pointer", overflow:"hidden", position:"relative",
             transition:"border-color 0.2s",
