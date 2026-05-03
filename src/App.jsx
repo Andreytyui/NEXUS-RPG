@@ -1585,12 +1585,14 @@ function Topbar({ screen, system, onChangeSystem, onLogout }) {
             }
             {notifCount > 0 && (
               <span style={{
-                position:"absolute", top:-4, right:-4,
-                background:"#e05555", color:"#fff",
-                borderRadius:"50%", width:16, height:16,
-                fontSize:9, fontWeight:700, fontFamily:"Cinzel,serif",
+                position:"absolute", bottom:-2, right:-2,
+                background:"#e03333", color:"#fff",
+                borderRadius:"50%", minWidth:18, height:18,
+                padding:"0 3px",
+                fontSize:10, fontWeight:700, fontFamily:"Cinzel,serif",
                 display:"flex", alignItems:"center", justifyContent:"center",
-                border:"2px solid var(--bg)",
+                border:"2px solid #0e0e14",
+                boxShadow:"0 0 6px rgba(220,50,50,0.7)",
               }}>{notifCount}</span>
             )}
           </button>
