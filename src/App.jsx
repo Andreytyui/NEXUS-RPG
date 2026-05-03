@@ -2041,67 +2041,90 @@ const AttrDiagram = ({ attrs, onChange, onEdit, onRoll, readOnly = false }) => {
   const RUNES = "ᚠᚢᚦᚨᚱ·ᚲᚷᚹᚺᚾ·ᛁᛃᛇᛈᛉ·ᛊᛏᛒᛖᛗ·ᛚᛜᛞᛟ·";
   const circPath = (cx, cy, r) =>
     `M ${cx - r} ${cy} a ${r} ${r} 0 1 1 ${2*r} 0 a ${r} ${r} 0 1 1 ${-2*r} 0`;
+  /* Pentagon order: AGI → INT → VIG → PRE → FOR (clockwise) */
+  const pentOrder = ["AGI","INT","VIG","PRE","FOR"];
 
   return (
     <svg viewBox="0 -18 320 358" style={{display:"block",width:"100%",height:"auto"}}>
       <defs>
-        <radialGradient id="cg2" cx="50%" cy="50%" r="50%">
-          <stop offset="0%" stopColor="#c9a84c" stopOpacity="0.22"/>
+        <radialGradient id="cg-center" cx="50%" cy="50%" r="50%">
+          <stop offset="0%"   stopColor="#f5e07a" stopOpacity="1"/>
+          <stop offset="55%"  stopColor="#c9a84c" stopOpacity="1"/>
+          <stop offset="100%" stopColor="#7a5c18" stopOpacity="1"/>
+        </radialGradient>
+        <radialGradient id="cg-glow" cx="50%" cy="50%" r="50%">
+          <stop offset="0%"   stopColor="#c9a84c" stopOpacity="0.35"/>
           <stop offset="100%" stopColor="#c9a84c" stopOpacity="0"/>
         </radialGradient>
         <filter id="ag2"><feGaussianBlur stdDeviation="2.5" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+        <filter id="glow-soft"><feGaussianBlur stdDeviation="4" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
         {Object.entries(positions).map(([k,p])=>(
           <path key={k} id={`rp-${k}`} d={circPath(p.x, p.y, 42)} fill="none"/>
         ))}
-        <path id="rp-center" d={circPath(center.x, center.y, 50)} fill="none"/>
+        <path id="rp-center" d={circPath(center.x, center.y, 53)} fill="none"/>
       </defs>
 
-      {/* Connection lines */}
+      {/* Pentagon outline between adjacent nodes */}
+      <polygon
+        points={pentOrder.map(k=>`${positions[k].x},${positions[k].y}`).join(" ")}
+        fill="none" stroke="rgba(201,168,76,0.28)" strokeWidth="1.2"/>
+
+      {/* Radial spokes from center to each node */}
       {Object.entries(positions).map(([k,p])=>(
         <line key={k} x1={center.x} y1={center.y} x2={p.x} y2={p.y}
-          stroke="rgba(201,168,76,0.25)" strokeWidth="1.5"/>
+          stroke="rgba(201,168,76,0.32)" strokeWidth="1.2"/>
       ))}
 
-      {/* Center */}
-      <circle cx={center.x} cy={center.y} r="52" fill="url(#cg2)" stroke="rgba(201,168,76,0.12)" strokeWidth="1"/>
-      <circle cx={center.x} cy={center.y} r="46" fill="rgba(5,5,5,0.92)" stroke="rgba(201,168,76,0.35)" strokeWidth="1.5"/>
-      <circle cx={center.x} cy={center.y} r="40" fill="rgba(5,5,5,0.92)" stroke="rgba(201,168,76,0.18)" strokeWidth="1"/>
-      <text fontSize="5" fill="rgba(201,168,76,0.38)" letterSpacing="2">
+      {/* Center glow halo */}
+      <circle cx={center.x} cy={center.y} r="66" fill="url(#cg-glow)"/>
+
+      {/* Center — bright golden fill like the reference image */}
+      <circle cx={center.x} cy={center.y} r="52" fill="url(#cg-center)"
+        stroke="rgba(201,168,76,0.9)" strokeWidth="1.5" filter="url(#glow-soft)"/>
+      <circle cx={center.x} cy={center.y} r="49" fill="none"
+        stroke="rgba(255,240,160,0.35)" strokeWidth="0.75"/>
+      {/* Rune ring just outside the center circle */}
+      <text fontSize="5" fill="rgba(30,18,4,0.55)" letterSpacing="2">
         <textPath href="#rp-center">{RUNES.repeat(3)}</textPath>
       </text>
-      <text x={center.x} y={center.y-8} textAnchor="middle" fontFamily="Cinzel,serif" fontSize="10" fill="#c9a84c" letterSpacing="2">ATRIBUTOS</text>
-      <text x={center.x} y={center.y+7} textAnchor="middle" fontFamily="Cinzel,serif" fontSize="7.5" fill="#8a7c5c">ORDEM PARANORMAL</text>
-      <text x={center.x} y={center.y+20} textAnchor="middle" fontFamily="Cinzel,serif" fontSize="7" fill="#8a7c5c">Clique p/ rolar</text>
+      <text x={center.x} y={center.y-5} textAnchor="middle" fontFamily="Cinzel,serif"
+        fontSize="11" fill="#1a1004" letterSpacing="2" fontWeight="700">ATRIBUTOS</text>
+      <text x={center.x} y={center.y+10} textAnchor="middle" fontFamily="Cinzel,serif"
+        fontSize="7" fill="#3a2808" letterSpacing="1">ORDEM PARANORMAL</text>
+      <text x={center.x} y={center.y+22} textAnchor="middle" fontFamily="Cinzel,serif"
+        fontSize="6.5" fill="#3a2808">Clique p/ rolar</text>
 
+      {/* Attribute nodes */}
       {Object.entries(positions).map(([key,p])=>{
         const val = attrs[key];
         const isEditing = editing === key;
         return (
           <g key={key}>
-            {/* Outer sigil ring */}
-            <circle cx={p.x} cy={p.y} r="43" fill="none" stroke="rgba(201,168,76,0.18)" strokeWidth="0.75"/>
-            <text fontSize="5" fill="rgba(201,168,76,0.45)" letterSpacing="1.8">
+            {/* Outer sigil ring (solid thin border + rune text) */}
+            <circle cx={p.x} cy={p.y} r="43" fill="none"
+              stroke="rgba(201,168,76,0.30)" strokeWidth="0.75"/>
+            <text fontSize="5" fill="rgba(201,168,76,0.55)" letterSpacing="1.8">
               <textPath href={`#rp-${key}`}>{RUNES.repeat(2)}</textPath>
             </text>
-            {/* Inner dashed accent */}
-            <circle cx={p.x} cy={p.y} r="36" fill="none" stroke="rgba(201,168,76,0.22)" strokeWidth="0.75" strokeDasharray="1.5,3.5"/>
-            {/* Main circle — click to roll */}
-            <circle cx={p.x} cy={p.y} r="33" fill="rgba(5,5,5,0.95)"
-              stroke={isEditing ? "rgba(201,168,76,0.9)" : "rgba(201,168,76,0.5)"}
+            {/* Inner dashed accent ring */}
+            <circle cx={p.x} cy={p.y} r="36" fill="none"
+              stroke="rgba(201,168,76,0.30)" strokeWidth="0.75" strokeDasharray="1.5,3.5"/>
+            {/* Main dark circle */}
+            <circle cx={p.x} cy={p.y} r="33" fill="rgba(5,5,5,0.97)"
+              stroke={isEditing ? "rgba(201,168,76,0.9)" : "rgba(201,168,76,0.6)"}
               strokeWidth={isEditing ? "2" : "1.5"} filter="url(#ag2)"
               style={{cursor: onRoll && !isEditing ? "pointer" : "default"}}
               onClick={()=> !isEditing && onRoll && onRoll(key)}/>
-            <circle cx={p.x} cy={p.y} r="28" fill="#080808" stroke="rgba(201,168,76,0.25)" strokeWidth="1"
+            <circle cx={p.x} cy={p.y} r="27" fill="#060606"
+              stroke="rgba(201,168,76,0.2)" strokeWidth="1"
               style={{cursor: onRoll && !isEditing ? "pointer" : "default"}}
               onClick={()=> !isEditing && onRoll && onRoll(key)}/>
-            {/* Value — click to edit if onEdit provided, else roll */}
+            {/* Value */}
             {isEditing ? (
               <foreignObject x={p.x-21} y={p.y-19} width="42" height="26">
                 <input
                   ref={inputRef}
-                  type="number"
-                  min="0"
-                  max="99"
+                  type="number" min="0" max="99"
                   value={inputVal}
                   onChange={e => setInputVal(e.target.value)}
                   onBlur={commitEdit}
@@ -2123,16 +2146,20 @@ const AttrDiagram = ({ attrs, onChange, onEdit, onRoll, readOnly = false }) => {
                 />
               </foreignObject>
             ) : (
-              <text x={p.x} y={p.y-2} textAnchor="middle" fontFamily="Cinzel Decorative,serif" fontSize="20" fill="#e8c96d" fontWeight="700"
+              <text x={p.x} y={p.y-2} textAnchor="middle"
+                fontFamily="Cinzel Decorative,serif" fontSize="20"
+                fill="#e8c96d" fontWeight="700"
                 style={{cursor: onEdit ? "text" : onRoll ? "pointer" : "default"}}
                 onClick={e => { e.stopPropagation(); onEdit ? startEdit(key) : onRoll && onRoll(key); }}>
                 {val}
               </text>
             )}
-            <text x={p.x} y={p.y+11} textAnchor="middle" fontFamily="Cinzel,serif" fontSize="6.5" fill="#b0a07a" letterSpacing="1"
+            <text x={p.x} y={p.y+11} textAnchor="middle" fontFamily="Cinzel,serif"
+              fontSize="6.5" fill="#b0a07a" letterSpacing="1"
               style={{cursor: onRoll && !isEditing ? "pointer" : "default"}}
               onClick={()=> !isEditing && onRoll && onRoll(key)}>{LABELS[key]}</text>
-            <text x={p.x} y={p.y+21} textAnchor="middle" fontFamily="Cinzel,serif" fontSize="10" fill="#c9a84c" fontWeight="600"
+            <text x={p.x} y={p.y+21} textAnchor="middle" fontFamily="Cinzel,serif"
+              fontSize="10" fill="#c9a84c" fontWeight="600"
               style={{cursor: onRoll && !isEditing ? "pointer" : "default"}}
               onClick={()=> !isEditing && onRoll && onRoll(key)}>{key}</text>
             {/* +/- only in creator mode */}
