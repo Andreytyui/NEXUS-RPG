@@ -1059,9 +1059,9 @@ function Dashboard({ system, onCreateChar, characters, sessions }) {
               }} onMouseEnter={e=>e.currentTarget.style.borderColor=system?.accent+"60"}
                  onMouseLeave={e=>e.currentTarget.style.borderColor="var(--border)"}>
                 <div style={{
-                  width:44, height:44, borderRadius:8, flexShrink:0,
+                  width:72, height:72, borderRadius:8, flexShrink:0,
                   background:`${accent}18`, border:`1px solid ${accent}30`,
-                  display:"flex", alignItems:"center", justifyContent:"center", fontSize:20,
+                  display:"flex", alignItems:"center", justifyContent:"center", fontSize:30,
                   overflow:"hidden",
                 }}>
                   {c.form?.avatar
@@ -2947,7 +2947,7 @@ function FullSheet({ character, onBack }) {
 
       {/* ── Top header bar ── */}
       <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:12,padding:"8px 12px",background:"var(--card)",border:"1px solid var(--border)",borderRadius:8}}>
-        <div style={{width:44,height:44,borderRadius:6,background:"rgba(201,168,76,0.08)",border:"1px solid var(--border2)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,flexShrink:0,overflow:"hidden"}}>
+        <div style={{width:72,height:72,borderRadius:8,background:"rgba(201,168,76,0.08)",border:"1px solid var(--border2)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:32,flexShrink:0,overflow:"hidden"}}>
           {form.avatar
             ? <img src={form.avatar} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>
             : "🕵️"}
