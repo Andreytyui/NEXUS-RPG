@@ -3117,6 +3117,7 @@ function FullSheet({ character, onBack, onUpdate }) {
   const [origem, setOrigem] = useState(character.origem ?? null);
   const [classe, setClasse] = useState(character.classe ?? null);
   const [form,   setForm]   = useState(character.form   ?? {});
+  const [skillTreino, setSkillTreino] = useState(character.skillTreino ?? {});
   const handleAttrEdit = (key, val) => setAttrs(a => ({ ...a, [key]: val }));
 
   // ── Base stats at saved NEX (or 5% for new characters)
@@ -3210,7 +3211,9 @@ function FullSheet({ character, onBack, onUpdate }) {
   ]);
   const getT = (n) => {
     const base = n.replace(/[*+]/g,"");
-    return trainedSkills.has(base) ? { bonus:5, color:"#7a5fd4" } : { bonus:0, color:"var(--muted)" };
+    const defaultVal = trainedSkills.has(base) ? 5 : 0;
+    const val = skillTreino[base] ?? defaultVal;
+    return val > 0 ? { bonus: val, color:"#7a5fd4" } : { bonus:0, color:"var(--muted)" };
   };
 
   // ── Bar component with fill + darkening
@@ -3538,7 +3541,19 @@ function FullSheet({ character, onBack, onUpdate }) {
                   <span style={{fontFamily:"Crimson Pro,serif",fontSize:15,color:isTrained?"#b89cf0":"var(--text)",userSelect:"none"}}>{p.n}</span>
                   <span style={{fontFamily:"Cinzel,serif",fontSize:10,color:"var(--muted2)",textAlign:"center"}}>({p.attr})</span>
                   <span style={{fontFamily:"Cinzel,serif",fontSize:11,color:"var(--text)",textAlign:"center"}}>({bonus})</span>
-                  <span style={{fontFamily:"Cinzel,serif",fontSize:11,textAlign:"center",color:isTrained?"#9b80e8":"var(--muted)",fontWeight:isTrained?"700":"400",textDecoration:isTrained?"underline":"none"}}>{isTrained?5:0}</span>
+                  <span
+                    onClick={e=>{
+                      e.stopPropagation();
+                      const base=p.n.replace(/[*+]/g,"");
+                      const defaultVal=trainedSkills.has(base)?5:0;
+                      const cur=skillTreino[base]??defaultVal;
+                      const nxt=cur===0?5:cur===5?10:cur===10?15:0;
+                      const updated={...skillTreino,[base]:nxt};
+                      setSkillTreino(updated);
+                      onUpdate?.({...character,form,origem,classe,skillTreino:updated});
+                    }}
+                    style={{fontFamily:"Cinzel,serif",fontSize:11,textAlign:"center",color:isTrained?"#9b80e8":"var(--muted)",fontWeight:isTrained?"700":"400",textDecoration:isTrained?"underline":"none",cursor:"pointer",userSelect:"none"}}
+                  >{t.bonus}</span>
                   <span style={{fontFamily:"Cinzel,serif",fontSize:11,color:"var(--muted)",textAlign:"center"}}>0</span>
                 </div>
               );
