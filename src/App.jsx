@@ -3553,8 +3553,8 @@ function FullSheet({ character, onBack, onUpdate }) {
                   }}>
                   <span style={{fontSize:11,color:treinoColor(cur),textAlign:"center"}}>⬡</span>
                   <span style={{fontFamily:"Crimson Pro,serif",fontSize:15,color:cur>0?treinoColor(cur):"var(--text)",userSelect:"none"}}>{p.n}</span>
-                  <span style={{fontFamily:"Cinzel,serif",fontSize:10,color:"var(--muted2)",textAlign:"center"}}>({p.attr})</span>
-                  <span style={{fontFamily:"Cinzel,serif",fontSize:11,color:totalBonus>0?"var(--text)":"var(--muted)",textAlign:"center"}}>{totalBonus}</span>
+                  <span style={{fontFamily:"Cinzel,serif",fontSize:10,color:cur>0?treinoColor(cur):"var(--muted2)",textAlign:"center"}}>({p.attr})</span>
+                  <span style={{fontFamily:"Cinzel,serif",fontSize:11,color:cur>0?treinoColor(cur):"var(--muted)",textAlign:"center"}}>{totalBonus}</span>
                   {(()=>{
                     const isOpen=treinoOpen===base;
                     return (
@@ -3585,7 +3585,7 @@ function FullSheet({ character, onBack, onUpdate }) {
                     );
                   })()}
                   {(()=>{
-                    const cur = skillOutros[base] ?? 0;
+                    const outrosVal = skillOutros[base] ?? 0;
                     const isEditing = outrosEditing === base;
                     const saveOutros = (raw) => {
                       const v = Math.max(0, Math.min(99, parseInt(raw)||0));
@@ -3597,17 +3597,17 @@ function FullSheet({ character, onBack, onUpdate }) {
                     return isEditing ? (
                       <input
                         autoFocus type="number" min={0} max={99}
-                        defaultValue={cur}
+                        defaultValue={outrosVal}
                         onClick={e=>e.stopPropagation()}
                         onBlur={e=>saveOutros(e.target.value)}
                         onKeyDown={e=>{if(e.key==="Enter"||e.key==="Escape")saveOutros(e.target.value);}}
-                        style={{width:"100%",background:"transparent",border:"none",borderBottom:"1px solid var(--gold)",textAlign:"center",fontFamily:"Cinzel,serif",fontSize:11,color:"var(--text)",padding:"0 2px",outline:"none",MozAppearance:"textfield"}}
+                        style={{width:"100%",background:"transparent",border:"none",borderBottom:`1px solid ${treinoColor(cur)}`,textAlign:"center",fontFamily:"Cinzel,serif",fontSize:11,color:cur>0?treinoColor(cur):"var(--text)",padding:"0 2px",outline:"none",MozAppearance:"textfield"}}
                       />
                     ) : (
                       <span
                         onClick={e=>{e.stopPropagation();setOutrosEditing(base);}}
-                        style={{fontFamily:"Cinzel,serif",fontSize:11,color:cur>0?"var(--text)":"var(--muted)",textAlign:"center",cursor:"pointer",userSelect:"none",display:"block"}}
-                      >{cur}</span>
+                        style={{fontFamily:"Cinzel,serif",fontSize:11,color:cur>0?treinoColor(cur):"var(--muted)",textAlign:"center",cursor:"pointer",userSelect:"none",display:"block"}}
+                      >{outrosVal}</span>
                     );
                   })()}
                 </div>
