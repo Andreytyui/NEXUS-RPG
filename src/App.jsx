@@ -3266,53 +3266,59 @@ function FullSheet({ character, onBack, onUpdate }) {
       return () => cancelAnimationFrame(animRef.current);
     }, [val]);
 
-    const commitVal = () => {
-      const v = parseInt(valInp);
-      if (!isNaN(v) && v >= 0) set(Math.min(v, max));
+    const commitVal = (raw) => {
+      const v = parseInt(raw ?? valInp);
+      if (!isNaN(v) && v >= 0) set(v);
       else setValInp(String(val));
       setEditVal(false);
     };
 
+    const commitMax = (raw) => {
+      const v = parseInt(raw ?? maxInp);
+      if (!isNaN(v) && v > 0) { setMax(v); } else setMaxInp(String(max));
+      setEditMax(false);
+    };
+
+    const inpStyle = {textAlign:"center",fontFamily:"Cinzel,serif",fontSize:13,fontWeight:700,color:"white",background:"transparent",border:"none",outline:"2px solid rgba(255,255,255,0.4)",borderRadius:2,height:"70%",minWidth:0,MozAppearance:"textfield"};
     const pct = max>0 ? val/max : 0;
     const fill = pct>0.6?color : pct>0.3?color+"aa" : pct>0.1?color+"66" : color+"33";
     return (
       <div style={{marginBottom:10}}>
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:3}}>
+        <div style={{display:"flex",justifyContent:"center",alignItems:"center",marginBottom:3}}>
           <span style={{fontFamily:"Cinzel,serif",fontSize:10,letterSpacing:2,color:"var(--muted2)",textTransform:"uppercase"}}>{label}</span>
-          <span style={{display:"flex",alignItems:"center",gap:4}}>
-            {editMax ? (
-              <input value={maxInp} onChange={e=>setMaxInp(e.target.value)}
-                onBlur={()=>{ const v=parseInt(maxInp); if(!isNaN(v)&&v>0){setMax(v);if(val>v)set(v);} else setMaxInp(String(max)); setEditMax(false); }}
-                onKeyDown={e=>{if(e.key==="Enter")e.target.blur();if(e.key==="Escape"){setMaxInp(String(max));setEditMax(false);}}}
-                autoFocus style={{width:40,padding:"1px 4px",fontFamily:"Cinzel,serif",fontSize:10,textAlign:"center",background:"var(--card2)",border:"1px solid rgba(201,168,76,0.5)",borderRadius:3,color:"var(--gold)"}}/>
-            ) : (
-              <span onClick={()=>{setMaxInp(String(max));setEditMax(true);}} style={{fontFamily:"Cinzel,serif",fontSize:9,color:"rgba(201,168,76,0.5)",cursor:"pointer"}} title="Editar máximo">Máx:{max} ✎</span>
-            )}
-          </span>
         </div>
         <div style={{position:"relative",height:34,borderRadius:4,overflow:"hidden",background:"rgba(0,0,0,0.6)",border:"1px solid rgba(255,255,255,0.05)"}}>
           <div style={{position:"absolute",left:0,top:0,bottom:0,width:`${pct*100}%`,background:fill,transition:"width 0.3s ease, background 0.4s ease",minWidth:val>0?3:0}}/>
           <div style={{position:"relative",zIndex:1,display:"flex",alignItems:"center",height:"100%"}}>
-            <button onClick={()=>set(v=>Math.max(0,v-5))} style={{background:"rgba(0,0,0,0.3)",border:"none",borderRight:"1px solid rgba(255,255,255,0.06)",color:"white",cursor:"pointer",padding:"0 8px",height:"100%",fontSize:13,flexShrink:0}}>‹‹</button>
+            <button onClick={()=>set(v=>Math.max(0,v-5))} style={{background:"rgba(0,0,0,0.3)",border:"none",borderRight:"1px solid rgba(255,255,255,0.06)",color:"white",cursor:"pointer",padding:"0 8px",height:"100%",fontSize:13,flexShrink:0}}>«</button>
             <button onClick={()=>set(v=>Math.max(0,v-1))} style={{background:"rgba(0,0,0,0.2)",border:"none",borderRight:"1px solid rgba(255,255,255,0.04)",color:"white",cursor:"pointer",padding:"0 8px",height:"100%",fontSize:13,flexShrink:0}}>‹</button>
-            {editVal ? (
-              <input
-                value={valInp}
-                onChange={e=>setValInp(e.target.value)}
-                onBlur={commitVal}
-                onKeyDown={e=>{if(e.key==="Enter")e.target.blur();if(e.key==="Escape"){setValInp(String(val));setEditVal(false);}}}
-                autoFocus
-                style={{flex:1,textAlign:"center",fontFamily:"Cinzel,serif",fontSize:13,fontWeight:700,color:"white",background:"transparent",border:"none",outline:"2px solid rgba(255,255,255,0.4)",borderRadius:2,height:"70%",minWidth:0}}
-              />
-            ) : (
-              <div
-                onDoubleClick={()=>{setValInp(String(val));setEditVal(true);}}
-                title="Clique duplo para editar"
-                style={{flex:1,textAlign:"center",fontFamily:"Cinzel,serif",fontSize:13,fontWeight:700,color:"white",textShadow:"0 1px 4px rgba(0,0,0,0.9)",cursor:"text",userSelect:"none"}}
-              >{displayVal} / {max}</div>
-            )}
+            <div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",height:"100%",gap:2}}>
+              {editVal ? (
+                <input autoFocus type="number" value={valInp}
+                  onChange={e=>setValInp(e.target.value)}
+                  onBlur={e=>commitVal(e.target.value)}
+                  onKeyDown={e=>{if(e.key==="Enter")commitVal(e.target.value);if(e.key==="Escape"){setValInp(String(val));setEditVal(false);}}}
+                  style={{...inpStyle,width:60}}/>
+              ) : (
+                <span onClick={()=>{setValInp(String(val));setEditVal(true);}}
+                  style={{fontFamily:"Cinzel,serif",fontSize:13,fontWeight:700,color:"white",textShadow:"0 1px 4px rgba(0,0,0,0.9)",cursor:"pointer",userSelect:"none",borderBottom:"1px dashed rgba(255,255,255,0.3)",lineHeight:1.2}}
+                >{displayVal}</span>
+              )}
+              <span style={{fontFamily:"Cinzel,serif",fontSize:13,fontWeight:700,color:"rgba(255,255,255,0.5)",userSelect:"none"}}>/</span>
+              {editMax ? (
+                <input autoFocus type="number" value={maxInp}
+                  onChange={e=>setMaxInp(e.target.value)}
+                  onBlur={e=>commitMax(e.target.value)}
+                  onKeyDown={e=>{if(e.key==="Enter")commitMax(e.target.value);if(e.key==="Escape"){setMaxInp(String(max));setEditMax(false);}}}
+                  style={{...inpStyle,width:60}}/>
+              ) : (
+                <span onClick={()=>{setMaxInp(String(max));setEditMax(true);}}
+                  style={{fontFamily:"Cinzel,serif",fontSize:13,fontWeight:700,color:"rgba(255,255,255,0.75)",textShadow:"0 1px 4px rgba(0,0,0,0.9)",cursor:"pointer",userSelect:"none",borderBottom:"1px dashed rgba(255,255,255,0.3)",lineHeight:1.2}}
+                >{max}</span>
+              )}
+            </div>
             <button onClick={()=>set(v=>Math.min(max,v+1))} style={{background:"rgba(0,0,0,0.2)",border:"none",borderLeft:"1px solid rgba(255,255,255,0.04)",color:"white",cursor:"pointer",padding:"0 8px",height:"100%",fontSize:13,flexShrink:0}}>›</button>
-            <button onClick={()=>set(v=>Math.min(max,v+5))} style={{background:"rgba(0,0,0,0.3)",border:"none",borderLeft:"1px solid rgba(255,255,255,0.06)",color:"white",cursor:"pointer",padding:"0 8px",height:"100%",fontSize:13,flexShrink:0}}>››</button>
+            <button onClick={()=>set(v=>Math.min(max,v+5))} style={{background:"rgba(0,0,0,0.3)",border:"none",borderLeft:"1px solid rgba(255,255,255,0.06)",color:"white",cursor:"pointer",padding:"0 8px",height:"100%",fontSize:13,flexShrink:0}}>»</button>
           </div>
         </div>
       </div>
