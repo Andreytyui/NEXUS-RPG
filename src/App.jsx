@@ -3238,110 +3238,142 @@ function FullSheet({ character, onBack, onUpdate }) {
     return () => document.removeEventListener("click", close);
   }, [attrOpen]);
 
-  // ── Bar component with fill + darkening
-  const Bar = ({val,set,max,setMax,color,label}) => {
-    const [editMax, setEditMax] = useState(false);
-    const [maxInp, setMaxInp] = useState(String(max));
-    const [editVal, setEditVal] = useState(false);
-    const [valInp, setValInp] = useState(String(val));
+  // ── Bar component — dual-layer animation (lead fast + trail ghost with delay)
+  const Bar = ({val, set, max, setMax, color, label}) => {
+    const [editVal,  setEditVal]  = useState(false);
+    const [editMax,  setEditMax]  = useState(false);
+    const [valInp,   setValInp]   = useState(String(val));
+    const [maxInp,   setMaxInp]   = useState(String(max));
     const [displayVal, setDisplayVal] = useState(val);
-    const [displayPct, setDisplayPct] = useState(max>0?val/max:0);
-    const animRef = useRef(null);
-    const barAnimRef = useRef(null);
-    const prevValRef = useRef(val);
-    const prevPctRef = useRef(max>0?val/max:0);
+    const [leadPct,  setLeadPct]  = useState(max > 0 ? val / max : 0);
+    const [trailPct, setTrailPct] = useState(max > 0 ? val / max : 0);
+
+    // Refs hold live animated values so new animations start from current position
+    const curLeadRef  = useRef(max > 0 ? val / max : 0);
+    const curTrailRef = useRef(max > 0 ? val / max : 0);
+    const curNumRef   = useRef(val);
+    const leadRaf     = useRef(null);
+    const trailRaf    = useRef(null);
+    const numRaf      = useRef(null);
 
     useEffect(() => {
-      if (val === prevValRef.current) return;
-      const start = prevValRef.current;
-      const end = val;
-      const duration = 250;
-      const startTime = performance.now();
-      cancelAnimationFrame(animRef.current);
-      const animate = (now) => {
-        const t = Math.min((now - startTime) / duration, 1);
-        const eased = t < 0.5 ? 2*t*t : -1+(4-2*t)*t;
-        setDisplayVal(Math.round(start + (end - start) * eased));
-        if (t < 1) { animRef.current = requestAnimationFrame(animate); }
-        else { prevValRef.current = end; }
-      };
-      animRef.current = requestAnimationFrame(animate);
-      return () => cancelAnimationFrame(animRef.current);
-    }, [val]);
+      const target = max > 0 ? val / max : 0;
+      const isDamage = target < curLeadRef.current - 0.001;
 
-    useEffect(() => {
-      const targetPct = max > 0 ? val / max : 0;
-      if (targetPct === prevPctRef.current) return;
-      const start = prevPctRef.current;
-      const end = targetPct;
-      const duration = 700;
-      const startTime = performance.now();
-      cancelAnimationFrame(barAnimRef.current);
-      const animate = (now) => {
-        const t = Math.min((now - startTime) / duration, 1);
-        const eased = 1 - Math.pow(1 - t, 3);
-        setDisplayPct(start + (end - start) * eased);
-        if (t < 1) { barAnimRef.current = requestAnimationFrame(animate); }
-        else { prevPctRef.current = end; }
+      // ── Lead bar: fast ease-out-cubic (responsive feel)
+      cancelAnimationFrame(leadRaf.current);
+      const lFrom = curLeadRef.current;
+      const lDur  = 380;
+      const lT0   = performance.now();
+      const animLead = (now) => {
+        const t = Math.min((now - lT0) / lDur, 1);
+        const e = 1 - Math.pow(1 - t, 3);
+        const v = lFrom + (target - lFrom) * e;
+        curLeadRef.current = v;
+        setLeadPct(v);
+        if (t < 1) leadRaf.current = requestAnimationFrame(animLead);
       };
-      barAnimRef.current = requestAnimationFrame(animate);
-      return () => cancelAnimationFrame(barAnimRef.current);
+      leadRaf.current = requestAnimationFrame(animLead);
+
+      // ── Trail bar: delayed on damage, ease-in-out-cubic (organic drain)
+      cancelAnimationFrame(trailRaf.current);
+      const tFrom  = curTrailRef.current;
+      const delay  = isDamage ? 520 : 0;
+      const tDur   = isDamage ? 950 : 420;
+      const tT0    = performance.now();
+      const animTrail = (now) => {
+        const elapsed = now - tT0;
+        if (elapsed < delay) { trailRaf.current = requestAnimationFrame(animTrail); return; }
+        const t = Math.min((elapsed - delay) / tDur, 1);
+        const e = t < 0.5 ? 4*t*t*t : 1 - Math.pow(-2*t + 2, 3) / 2;
+        const v = tFrom + (target - tFrom) * e;
+        curTrailRef.current = v;
+        setTrailPct(v);
+        if (t < 1) trailRaf.current = requestAnimationFrame(animTrail);
+      };
+      trailRaf.current = requestAnimationFrame(animTrail);
+
+      // ── Number: synced with lead bar speed
+      cancelAnimationFrame(numRaf.current);
+      const nFrom = curNumRef.current;
+      const nT0   = performance.now();
+      const animNum = (now) => {
+        const t = Math.min((now - nT0) / lDur, 1);
+        const e = 1 - Math.pow(1 - t, 3);
+        const v = nFrom + (val - nFrom) * e;
+        curNumRef.current = v;
+        setDisplayVal(Math.round(v));
+        if (t < 1) numRaf.current = requestAnimationFrame(animNum);
+      };
+      numRaf.current = requestAnimationFrame(animNum);
+
+      return () => {
+        cancelAnimationFrame(leadRaf.current);
+        cancelAnimationFrame(trailRaf.current);
+        cancelAnimationFrame(numRaf.current);
+      };
     }, [val, max]);
 
     const commitVal = (raw) => {
-      const v = parseInt(raw ?? valInp);
-      if (!isNaN(v) && v >= 0) set(v);
-      else setValInp(String(val));
+      const v = parseInt(raw);
+      if (!isNaN(v) && v >= 0) set(v); else setValInp(String(val));
       setEditVal(false);
     };
-
     const commitMax = (raw) => {
-      const v = parseInt(raw ?? maxInp);
-      if (!isNaN(v) && v > 0) { setMax(v); } else setMaxInp(String(max));
+      const v = parseInt(raw);
+      if (!isNaN(v) && v > 0) setMax(v); else setMaxInp(String(max));
       setEditMax(false);
     };
 
-    const inpStyle = {textAlign:"center",fontFamily:"Cinzel,serif",fontSize:13,fontWeight:700,color:"white",background:"transparent",border:"none",outline:"2px solid rgba(255,255,255,0.4)",borderRadius:2,height:"70%",minWidth:0,MozAppearance:"textfield"};
-    const pct = max>0 ? val/max : 0;
-    const fill = pct>0.6?color : pct>0.3?color+"aa" : pct>0.1?color+"66" : color+"33";
-    const fillAnim = displayPct>0.6?color : displayPct>0.3?color+"aa" : displayPct>0.1?color+"66" : color+"33";
+    const leadFill  = leadPct  > 0.6 ? color : leadPct  > 0.3 ? color+"bb" : leadPct  > 0.1 ? color+"77" : color+"44";
+    const trailFill = color + "44";
+    const inpStyle  = {textAlign:"center",fontFamily:"Cinzel,serif",fontSize:13,fontWeight:700,color:"white",background:"transparent",border:"none",outline:"2px solid rgba(255,255,255,0.35)",borderRadius:2,height:"70%",minWidth:0,MozAppearance:"textfield"};
+    const btnL      = {background:"rgba(0,0,0,0.3)",border:"none",borderRight:"1px solid rgba(255,255,255,0.06)",color:"white",cursor:"pointer",padding:"0 8px",height:"100%",fontSize:13,flexShrink:0};
+    const btnR      = {background:"rgba(0,0,0,0.3)",border:"none",borderLeft:"1px solid rgba(255,255,255,0.06)",color:"white",cursor:"pointer",padding:"0 8px",height:"100%",fontSize:13,flexShrink:0};
+
     return (
       <div style={{marginBottom:10}}>
-        <div style={{display:"flex",justifyContent:"center",alignItems:"center",marginBottom:3}}>
+        <div style={{display:"flex",justifyContent:"center",marginBottom:3}}>
           <span style={{fontFamily:"Cinzel,serif",fontSize:10,letterSpacing:2,color:"var(--muted2)",textTransform:"uppercase"}}>{label}</span>
         </div>
         <div style={{position:"relative",height:34,borderRadius:4,overflow:"hidden",background:"rgba(0,0,0,0.6)",border:"1px solid rgba(255,255,255,0.05)"}}>
-          <div style={{position:"absolute",left:0,top:0,bottom:0,width:`${displayPct*100}%`,background:fillAnim,transition:"background 0.4s ease",minWidth:val>0?3:0}}/>
+          {/* Ghost / trail layer — sits behind, drains slowly on damage */}
+          <div style={{position:"absolute",inset:0,width:`${trailPct*100}%`,background:trailFill,transition:"background 0.4s"}}/>
+          {/* Lead layer — fast, sits in front */}
+          <div style={{position:"absolute",inset:0,width:`${leadPct*100}%`,background:leadFill,transition:"background 0.4s",minWidth:val>0?3:0}}/>
+          {/* Controls overlay */}
           <div style={{position:"relative",zIndex:1,display:"flex",alignItems:"center",height:"100%"}}>
-            <button onClick={()=>set(v=>Math.max(0,v-5))} style={{background:"rgba(0,0,0,0.3)",border:"none",borderRight:"1px solid rgba(255,255,255,0.06)",color:"white",cursor:"pointer",padding:"0 8px",height:"100%",fontSize:13,flexShrink:0}}>«</button>
-            <button onClick={()=>set(v=>Math.max(0,v-1))} style={{background:"rgba(0,0,0,0.2)",border:"none",borderRight:"1px solid rgba(255,255,255,0.04)",color:"white",cursor:"pointer",padding:"0 8px",height:"100%",fontSize:13,flexShrink:0}}>‹</button>
-            <div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",height:"100%",gap:2}}>
+            <button onClick={()=>set(v=>Math.max(0,v-5))} style={btnL}>«</button>
+            <button onClick={()=>set(v=>Math.max(0,v-1))} style={{...btnL,borderRight:"1px solid rgba(255,255,255,0.04)"}}>‹</button>
+            <div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",gap:4,height:"100%"}}>
               {editVal ? (
-                <input autoFocus type="number" value={valInp}
-                  onChange={e=>setValInp(e.target.value)}
+                <input autoFocus type="number" defaultValue={val}
                   onBlur={e=>commitVal(e.target.value)}
-                  onKeyDown={e=>{if(e.key==="Enter")commitVal(e.target.value);if(e.key==="Escape"){setValInp(String(val));setEditVal(false);}}}
+                  onKeyDown={e=>{if(e.key==="Enter")commitVal(e.target.value);if(e.key==="Escape")setEditVal(false);}}
+                  onClick={e=>e.stopPropagation()}
                   style={{...inpStyle,width:60}}/>
               ) : (
-                <span onClick={()=>{setValInp(String(val));setEditVal(true);}}
-                  style={{fontFamily:"Cinzel,serif",fontSize:13,fontWeight:700,color:"white",textShadow:"0 1px 4px rgba(0,0,0,0.9)",cursor:"pointer",userSelect:"none",borderBottom:"1px dashed rgba(255,255,255,0.3)",lineHeight:1.2}}
-                >{displayVal}</span>
+                <span onClick={()=>setEditVal(true)}
+                  style={{fontFamily:"Cinzel,serif",fontSize:13,fontWeight:700,color:"white",textShadow:"0 1px 6px rgba(0,0,0,0.9)",cursor:"pointer",userSelect:"none",borderBottom:"1px dashed rgba(255,255,255,0.35)",lineHeight:1.3}}>
+                  {displayVal}
+                </span>
               )}
-              <span style={{fontFamily:"Cinzel,serif",fontSize:13,fontWeight:700,color:"rgba(255,255,255,0.5)",userSelect:"none"}}>/</span>
+              <span style={{fontFamily:"Cinzel,serif",fontSize:13,fontWeight:700,color:"rgba(255,255,255,0.45)",userSelect:"none"}}>/</span>
               {editMax ? (
-                <input autoFocus type="number" value={maxInp}
-                  onChange={e=>setMaxInp(e.target.value)}
+                <input autoFocus type="number" defaultValue={max}
                   onBlur={e=>commitMax(e.target.value)}
-                  onKeyDown={e=>{if(e.key==="Enter")commitMax(e.target.value);if(e.key==="Escape"){setMaxInp(String(max));setEditMax(false);}}}
+                  onKeyDown={e=>{if(e.key==="Enter")commitMax(e.target.value);if(e.key==="Escape")setEditMax(false);}}
+                  onClick={e=>e.stopPropagation()}
                   style={{...inpStyle,width:60}}/>
               ) : (
-                <span onClick={()=>{setMaxInp(String(max));setEditMax(true);}}
-                  style={{fontFamily:"Cinzel,serif",fontSize:13,fontWeight:700,color:"rgba(255,255,255,0.75)",textShadow:"0 1px 4px rgba(0,0,0,0.9)",cursor:"pointer",userSelect:"none",borderBottom:"1px dashed rgba(255,255,255,0.3)",lineHeight:1.2}}
-                >{max}</span>
+                <span onClick={()=>setEditMax(true)}
+                  style={{fontFamily:"Cinzel,serif",fontSize:13,fontWeight:700,color:"rgba(255,255,255,0.7)",textShadow:"0 1px 6px rgba(0,0,0,0.9)",cursor:"pointer",userSelect:"none",borderBottom:"1px dashed rgba(255,255,255,0.25)",lineHeight:1.3}}>
+                  {max}
+                </span>
               )}
             </div>
-            <button onClick={()=>set(v=>Math.min(max,v+1))} style={{background:"rgba(0,0,0,0.2)",border:"none",borderLeft:"1px solid rgba(255,255,255,0.04)",color:"white",cursor:"pointer",padding:"0 8px",height:"100%",fontSize:13,flexShrink:0}}>›</button>
-            <button onClick={()=>set(v=>Math.min(max,v+5))} style={{background:"rgba(0,0,0,0.3)",border:"none",borderLeft:"1px solid rgba(255,255,255,0.06)",color:"white",cursor:"pointer",padding:"0 8px",height:"100%",fontSize:13,flexShrink:0}}>»</button>
+            <button onClick={()=>set(v=>Math.min(max,v+1))} style={{...btnR,borderLeft:"1px solid rgba(255,255,255,0.04)"}}>›</button>
+            <button onClick={()=>set(v=>Math.min(max,v+5))} style={btnR}>»</button>
           </div>
         </div>
       </div>
