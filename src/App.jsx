@@ -3118,7 +3118,9 @@ function FullSheet({ character, onBack, onUpdate }) {
   const [classe, setClasse] = useState(character.classe ?? null);
   const [form,   setForm]   = useState(character.form   ?? {});
   const [skillTreino, setSkillTreino] = useState(character.skillTreino ?? {});
+  const [skillOutros, setSkillOutros] = useState(character.skillOutros ?? {});
   const [treinoOpen, setTreinoOpen] = useState(null);
+  const [outrosEditing, setOutrosEditing] = useState(null);
   const handleAttrEdit = (key, val) => setAttrs(a => ({ ...a, [key]: val }));
 
   // ── Base stats at saved NEX (or 5% for new characters)
@@ -3533,8 +3535,10 @@ function FullSheet({ character, onBack, onUpdate }) {
           {/* Rows */}
           <div>
             {pericias.map((p,i)=>{
+              const base = p.n.replace(/[*+]/g,"");
               const t = getT(p.n);
-              const bonus = attrs[p.attr]-1;
+              const outros = skillOutros[base] ?? 0;
+              const totalBonus = t.bonus + outros;
               const isTrained = t.bonus>0;
               return (
                 <div key={p.n}
@@ -3543,15 +3547,14 @@ function FullSheet({ character, onBack, onUpdate }) {
                   onMouseLeave={e=>e.currentTarget.style.background=i%2===0?"transparent":"rgba(255,255,255,0.018)"}
                   onClick={()=>{
                     const res=rollOP(attrs[p.attr]);
-                    const total=res.result+t.bonus;
-                    setRollPopup({attr:`${p.n.replace(/[*+]/g,"")} (${p.attr})`,rolls:res.rolls,result:total,worst:res.worst,crit:res.crit,dice:res.dice});
+                    const total=res.result+totalBonus;
+                    setRollPopup({attr:`${base} (${p.attr})`,rolls:res.rolls,result:total,worst:res.worst,crit:res.crit,dice:res.dice});
                   }}>
                   <span style={{fontSize:11,color:isTrained?"#9b80e8":"var(--muted)",textAlign:"center"}}>⬡</span>
                   <span style={{fontFamily:"Crimson Pro,serif",fontSize:15,color:isTrained?"#b89cf0":"var(--text)",userSelect:"none"}}>{p.n}</span>
                   <span style={{fontFamily:"Cinzel,serif",fontSize:10,color:"var(--muted2)",textAlign:"center"}}>({p.attr})</span>
-                  <span style={{fontFamily:"Cinzel,serif",fontSize:11,color:"var(--text)",textAlign:"center"}}>({bonus})</span>
+                  <span style={{fontFamily:"Cinzel,serif",fontSize:11,color:totalBonus>0?"var(--text)":"var(--muted)",textAlign:"center"}}>{totalBonus}</span>
                   {(()=>{
-                    const base=p.n.replace(/[*+]/g,"");
                     const defaultVal=trainedSkills.has(base)?5:0;
                     const cur=skillTreino[base]??defaultVal;
                     const isOpen=treinoOpen===base;
@@ -3569,7 +3572,7 @@ function FullSheet({ character, onBack, onUpdate }) {
                                   e.stopPropagation();
                                   const updated={...skillTreino,[base]:v};
                                   setSkillTreino(updated);
-                                  onUpdate?.({...character,form,origem,classe,skillTreino:updated});
+                                  onUpdate?.({...character,form,origem,classe,skillTreino:updated,skillOutros});
                                   setTreinoOpen(null);
                                 }}
                                 onMouseEnter={e=>e.currentTarget.style.background="rgba(255,255,255,0.12)"}
@@ -3582,7 +3585,32 @@ function FullSheet({ character, onBack, onUpdate }) {
                       </div>
                     );
                   })()}
-                  <span style={{fontFamily:"Cinzel,serif",fontSize:11,color:"var(--muted)",textAlign:"center"}}>0</span>
+                  {(()=>{
+                    const cur = skillOutros[base] ?? 0;
+                    const isEditing = outrosEditing === base;
+                    const saveOutros = (raw) => {
+                      const v = Math.max(0, Math.min(99, parseInt(raw)||0));
+                      const updated = {...skillOutros, [base]: v};
+                      setSkillOutros(updated);
+                      onUpdate?.({...character,form,origem,classe,skillTreino,skillOutros:updated});
+                      setOutrosEditing(null);
+                    };
+                    return isEditing ? (
+                      <input
+                        autoFocus type="number" min={0} max={99}
+                        defaultValue={cur}
+                        onClick={e=>e.stopPropagation()}
+                        onBlur={e=>saveOutros(e.target.value)}
+                        onKeyDown={e=>{if(e.key==="Enter"||e.key==="Escape")saveOutros(e.target.value);}}
+                        style={{width:"100%",background:"transparent",border:"none",borderBottom:"1px solid var(--gold)",textAlign:"center",fontFamily:"Cinzel,serif",fontSize:11,color:"var(--text)",padding:"0 2px",outline:"none",MozAppearance:"textfield"}}
+                      />
+                    ) : (
+                      <span
+                        onClick={e=>{e.stopPropagation();setOutrosEditing(base);}}
+                        style={{fontFamily:"Cinzel,serif",fontSize:11,color:cur>0?"var(--text)":"var(--muted)",textAlign:"center",cursor:"pointer",userSelect:"none",display:"block"}}
+                      >{cur}</span>
+                    );
+                  })()}
                 </div>
               );
             })}
