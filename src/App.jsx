@@ -3554,7 +3554,7 @@ function FullSheet({ character, onBack, onUpdate }) {
                   <span style={{fontSize:11,color:treinoColor(cur),textAlign:"center"}}>⬡</span>
                   <span style={{fontFamily:"Crimson Pro,serif",fontSize:15,color:cur>0?treinoColor(cur):"var(--text)",userSelect:"none"}}>{p.n}</span>
                   <span style={{fontFamily:"Cinzel,serif",fontSize:10,color:cur>0?treinoColor(cur):"var(--muted2)",textAlign:"center"}}>({p.attr})</span>
-                  <span style={{fontFamily:"Cinzel,serif",fontSize:11,color:cur>0?treinoColor(cur):"var(--muted)",textAlign:"center"}}>{totalBonus}</span>
+                  <span style={{fontFamily:"Cinzel,serif",fontSize:11,color:cur>0?treinoColor(cur):"var(--muted)",textAlign:"center"}}>({totalBonus})</span>
                   {(()=>{
                     const isOpen=treinoOpen===base;
                     return (
