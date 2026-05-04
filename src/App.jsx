@@ -3118,6 +3118,7 @@ function FullSheet({ character, onBack, onUpdate }) {
   const [classe, setClasse] = useState(character.classe ?? null);
   const [form,   setForm]   = useState(character.form   ?? {});
   const [skillTreino, setSkillTreino] = useState(character.skillTreino ?? {});
+  const [treinoOpen, setTreinoOpen] = useState(null);
   const handleAttrEdit = (key, val) => setAttrs(a => ({ ...a, [key]: val }));
 
   // ── Base stats at saved NEX (or 5% for new characters)
@@ -3209,12 +3210,20 @@ function FullSheet({ character, onBack, onUpdate }) {
         classe?.id==="especialista"?["Investigação","Ciências","Tecnologia","Percepção"]:
         ["Ocultismo","Vontade","Religião","Intuição"]),
   ]);
+  const treinoColor = v => v===5?"#4ade80":v===10?"#60a5fa":v===15?"#c9a84c":"var(--muted)";
   const getT = (n) => {
     const base = n.replace(/[*+]/g,"");
     const defaultVal = trainedSkills.has(base) ? 5 : 0;
     const val = skillTreino[base] ?? defaultVal;
     return val > 0 ? { bonus: val, color:"#7a5fd4" } : { bonus:0, color:"var(--muted)" };
   };
+
+  useEffect(() => {
+    if (!treinoOpen) return;
+    const close = () => setTreinoOpen(null);
+    document.addEventListener("click", close);
+    return () => document.removeEventListener("click", close);
+  }, [treinoOpen]);
 
   // ── Bar component with fill + darkening
   const Bar = ({val,set,max,setMax,color,label}) => {
@@ -3541,19 +3550,38 @@ function FullSheet({ character, onBack, onUpdate }) {
                   <span style={{fontFamily:"Crimson Pro,serif",fontSize:15,color:isTrained?"#b89cf0":"var(--text)",userSelect:"none"}}>{p.n}</span>
                   <span style={{fontFamily:"Cinzel,serif",fontSize:10,color:"var(--muted2)",textAlign:"center"}}>({p.attr})</span>
                   <span style={{fontFamily:"Cinzel,serif",fontSize:11,color:"var(--text)",textAlign:"center"}}>({bonus})</span>
-                  <span
-                    onClick={e=>{
-                      e.stopPropagation();
-                      const base=p.n.replace(/[*+]/g,"");
-                      const defaultVal=trainedSkills.has(base)?5:0;
-                      const cur=skillTreino[base]??defaultVal;
-                      const nxt=cur===0?5:cur===5?10:cur===10?15:0;
-                      const updated={...skillTreino,[base]:nxt};
-                      setSkillTreino(updated);
-                      onUpdate?.({...character,form,origem,classe,skillTreino:updated});
-                    }}
-                    style={{fontFamily:"Cinzel,serif",fontSize:11,textAlign:"center",color:isTrained?"#9b80e8":"var(--muted)",fontWeight:isTrained?"700":"400",textDecoration:isTrained?"underline":"none",cursor:"pointer",userSelect:"none"}}
-                  >{t.bonus}</span>
+                  {(()=>{
+                    const base=p.n.replace(/[*+]/g,"");
+                    const defaultVal=trainedSkills.has(base)?5:0;
+                    const cur=skillTreino[base]??defaultVal;
+                    const isOpen=treinoOpen===base;
+                    return (
+                      <div style={{position:"relative",textAlign:"center"}}>
+                        <span
+                          onClick={e=>{e.stopPropagation();setTreinoOpen(isOpen?null:base);}}
+                          style={{fontFamily:"Cinzel,serif",fontSize:11,color:treinoColor(cur),fontWeight:cur>0?"700":"400",cursor:"pointer",userSelect:"none"}}
+                        >{cur}</span>
+                        {isOpen&&(
+                          <div onClick={e=>e.stopPropagation()} style={{position:"absolute",zIndex:200,left:"50%",transform:"translateX(-50%)",top:"100%",marginTop:4,background:"var(--card)",border:"1px solid var(--border)",borderRadius:6,overflow:"hidden",minWidth:44,boxShadow:"0 4px 16px rgba(0,0,0,0.5)"}}>
+                            {[0,5,10,15].map(v=>(
+                              <div key={v}
+                                onClick={e=>{
+                                  e.stopPropagation();
+                                  const updated={...skillTreino,[base]:v};
+                                  setSkillTreino(updated);
+                                  onUpdate?.({...character,form,origem,classe,skillTreino:updated});
+                                  setTreinoOpen(null);
+                                }}
+                                onMouseEnter={e=>e.currentTarget.style.background="rgba(255,255,255,0.12)"}
+                                onMouseLeave={e=>e.currentTarget.style.background=cur===v?"rgba(255,255,255,0.07)":"transparent"}
+                                style={{padding:"6px 0",textAlign:"center",fontFamily:"Cinzel,serif",fontSize:11,color:treinoColor(v),fontWeight:v>0?"700":"400",cursor:"pointer",background:cur===v?"rgba(255,255,255,0.07)":"transparent",borderBottom:v!==15?"1px solid var(--border)":"none"}}
+                              >{v}</div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
                   <span style={{fontFamily:"Cinzel,serif",fontSize:11,color:"var(--muted)",textAlign:"center"}}>0</span>
                 </div>
               );
