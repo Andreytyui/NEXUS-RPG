@@ -3121,6 +3121,8 @@ function FullSheet({ character, onBack, onUpdate }) {
   const [skillOutros, setSkillOutros] = useState(character.skillOutros ?? {});
   const [treinoOpen, setTreinoOpen] = useState(null);
   const [outrosEditing, setOutrosEditing] = useState(null);
+  const [skillAttr, setSkillAttr] = useState(character.skillAttr ?? {});
+  const [attrOpen, setAttrOpen] = useState(null);
   const handleAttrEdit = (key, val) => setAttrs(a => ({ ...a, [key]: val }));
 
   // ── Base stats at saved NEX (or 5% for new characters)
@@ -3226,6 +3228,13 @@ function FullSheet({ character, onBack, onUpdate }) {
     document.addEventListener("click", close);
     return () => document.removeEventListener("click", close);
   }, [treinoOpen]);
+
+  useEffect(() => {
+    if (!attrOpen) return;
+    const close = () => setAttrOpen(null);
+    document.addEventListener("click", close);
+    return () => document.removeEventListener("click", close);
+  }, [attrOpen]);
 
   // ── Bar component with fill + darkening
   const Bar = ({val,set,max,setMax,color,label}) => {
@@ -3537,6 +3546,7 @@ function FullSheet({ character, onBack, onUpdate }) {
             {pericias.map((p,i)=>{
               const base = p.n.replace(/[*+]/g,"");
               const cur = skillTreino[base] ?? (trainedSkills.has(base)?5:0);
+              const attrKey = skillAttr[base] ?? p.attr;
               const t = getT(p.n);
               const outros = skillOutros[base] ?? 0;
               const totalBonus = t.bonus + outros;
@@ -3547,13 +3557,41 @@ function FullSheet({ character, onBack, onUpdate }) {
                   onMouseEnter={e=>e.currentTarget.style.background="rgba(201,168,76,0.08)"}
                   onMouseLeave={e=>e.currentTarget.style.background=i%2===0?"transparent":"rgba(255,255,255,0.018)"}
                   onClick={()=>{
-                    const res=rollOP(attrs[p.attr]);
+                    const res=rollOP(attrs[attrKey]);
                     const total=res.result+totalBonus;
-                    setRollPopup({attr:`${base} (${p.attr})`,rolls:res.rolls,result:total,worst:res.worst,crit:res.crit,dice:res.dice});
+                    setRollPopup({attr:`${base} (${attrKey})`,rolls:res.rolls,result:total,worst:res.worst,crit:res.crit,dice:res.dice});
                   }}>
                   <span style={{fontSize:11,color:treinoColor(cur),textAlign:"center"}}>⬡</span>
                   <span style={{fontFamily:"Crimson Pro,serif",fontSize:15,color:cur>0?treinoColor(cur):"var(--text)",userSelect:"none"}}>{p.n}</span>
-                  <span style={{fontFamily:"Cinzel,serif",fontSize:10,color:cur>0?treinoColor(cur):"var(--muted2)",textAlign:"center"}}>({p.attr})</span>
+                  {(()=>{
+                    const isOpen=attrOpen===base;
+                    return (
+                      <div style={{position:"relative",textAlign:"center"}}>
+                        <span
+                          onClick={e=>{e.stopPropagation();setAttrOpen(isOpen?null:base);}}
+                          style={{fontFamily:"Cinzel,serif",fontSize:10,color:cur>0?treinoColor(cur):"var(--muted2)",cursor:"pointer",userSelect:"none"}}
+                        >({attrKey})</span>
+                        {isOpen&&(
+                          <div onClick={e=>e.stopPropagation()} style={{position:"absolute",zIndex:200,left:"50%",transform:"translateX(-50%)",top:"100%",marginTop:4,background:"var(--card)",border:"1px solid var(--border)",borderRadius:6,overflow:"hidden",minWidth:52,boxShadow:"0 4px 16px rgba(0,0,0,0.5)"}}>
+                            {["AGI","FOR","INT","PRE","VIG"].map(a=>(
+                              <div key={a}
+                                onClick={e=>{
+                                  e.stopPropagation();
+                                  const updated={...skillAttr,[base]:a};
+                                  setSkillAttr(updated);
+                                  onUpdate?.({...character,form,origem,classe,skillTreino,skillOutros,skillAttr:updated});
+                                  setAttrOpen(null);
+                                }}
+                                onMouseEnter={e=>e.currentTarget.style.background="rgba(255,255,255,0.12)"}
+                                onMouseLeave={e=>e.currentTarget.style.background=attrKey===a?"rgba(255,255,255,0.07)":"transparent"}
+                                style={{padding:"6px 0",textAlign:"center",fontFamily:"Cinzel,serif",fontSize:10,color:attrKey===a?(cur>0?treinoColor(cur):"var(--gold)"):"var(--muted2)",fontWeight:attrKey===a?"700":"400",cursor:"pointer",background:attrKey===a?"rgba(255,255,255,0.07)":"transparent",borderBottom:a!=="VIG"?"1px solid var(--border)":"none"}}
+                              >{a}</div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
                   <span style={{fontFamily:"Cinzel,serif",fontSize:11,color:cur>0?treinoColor(cur):"var(--muted)",textAlign:"center"}}>({totalBonus})</span>
                   {(()=>{
                     const isOpen=treinoOpen===base;
