@@ -3536,6 +3536,7 @@ function FullSheet({ character, onBack, onUpdate }) {
           <div>
             {pericias.map((p,i)=>{
               const base = p.n.replace(/[*+]/g,"");
+              const cur = skillTreino[base] ?? (trainedSkills.has(base)?5:0);
               const t = getT(p.n);
               const outros = skillOutros[base] ?? 0;
               const totalBonus = t.bonus + outros;
@@ -3550,13 +3551,11 @@ function FullSheet({ character, onBack, onUpdate }) {
                     const total=res.result+totalBonus;
                     setRollPopup({attr:`${base} (${p.attr})`,rolls:res.rolls,result:total,worst:res.worst,crit:res.crit,dice:res.dice});
                   }}>
-                  <span style={{fontSize:11,color:isTrained?"#9b80e8":"var(--muted)",textAlign:"center"}}>⬡</span>
-                  <span style={{fontFamily:"Crimson Pro,serif",fontSize:15,color:isTrained?"#b89cf0":"var(--text)",userSelect:"none"}}>{p.n}</span>
+                  <span style={{fontSize:11,color:treinoColor(cur),textAlign:"center"}}>⬡</span>
+                  <span style={{fontFamily:"Crimson Pro,serif",fontSize:15,color:cur>0?treinoColor(cur):"var(--text)",userSelect:"none"}}>{p.n}</span>
                   <span style={{fontFamily:"Cinzel,serif",fontSize:10,color:"var(--muted2)",textAlign:"center"}}>({p.attr})</span>
                   <span style={{fontFamily:"Cinzel,serif",fontSize:11,color:totalBonus>0?"var(--text)":"var(--muted)",textAlign:"center"}}>{totalBonus}</span>
                   {(()=>{
-                    const defaultVal=trainedSkills.has(base)?5:0;
-                    const cur=skillTreino[base]??defaultVal;
                     const isOpen=treinoOpen===base;
                     return (
                       <div style={{position:"relative",textAlign:"center"}}>
