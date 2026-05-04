@@ -3112,8 +3112,11 @@ function stopAuraSound(sound) {
    identidade visual Nexus
 ═══════════════════════════════ */
 function FullSheet({ character, onBack, onUpdate }) {
-  const { attrs: initAttrs, origem, classe, form } = character;
-  const [attrs, setAttrs] = useState(initAttrs);
+  const { attrs: initAttrs } = character;
+  const [attrs,  setAttrs]  = useState(initAttrs);
+  const [origem, setOrigem] = useState(character.origem ?? null);
+  const [classe, setClasse] = useState(character.classe ?? null);
+  const [form,   setForm]   = useState(character.form   ?? {});
   const handleAttrEdit = (key, val) => setAttrs(a => ({ ...a, [key]: val }));
 
   // ── Base stats at saved NEX (or 5% for new characters)
@@ -3349,12 +3352,86 @@ function FullSheet({ character, onBack, onUpdate }) {
             : "🕵️"}
         </div>
         <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:"3px 16px",flex:1,minWidth:0}}>
-          {[["PERSONAGEM",form.personagem||"—"],["JOGADOR",form.jogador||"—"],["ORIGEM",origem?.name||"—"],["CLASSE",classe?.name||"—"]].map(([l,v])=>(
-            <div key={l}>
-              <div style={{fontFamily:"Cinzel,serif",fontSize:8,color:"var(--muted2)",letterSpacing:2,textTransform:"uppercase",marginBottom:2}}>{l}</div>
-              <div style={{fontFamily:"Cinzel,serif",fontSize:13,color:"var(--gold)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{v}</div>
-            </div>
-          ))}
+          {/* PERSONAGEM */}
+          <div>
+            <div style={{fontFamily:"Cinzel,serif",fontSize:8,color:"var(--muted2)",letterSpacing:2,textTransform:"uppercase",marginBottom:2}}>Personagem</div>
+            <input
+              value={form.personagem}
+              onChange={e=>{ const f={...form,personagem:e.target.value}; setForm(f); onUpdate?.({...character,form:f,origem,classe}); }}
+              placeholder="—"
+              style={{
+                width:"100%", boxSizing:"border-box",
+                background:"transparent", border:"none", borderBottom:"1px solid transparent",
+                fontFamily:"Cinzel,serif", fontSize:13, color:"var(--gold)",
+                outline:"none", padding:"1px 0", cursor:"text",
+                transition:"border-color 0.2s",
+              }}
+              onFocus={e=>e.target.style.borderBottomColor="rgba(201,168,76,0.5)"}
+              onBlur={e=>e.target.style.borderBottomColor="transparent"}
+            />
+          </div>
+          {/* JOGADOR */}
+          <div>
+            <div style={{fontFamily:"Cinzel,serif",fontSize:8,color:"var(--muted2)",letterSpacing:2,textTransform:"uppercase",marginBottom:2}}>Jogador</div>
+            <input
+              value={form.jogador}
+              onChange={e=>{ const f={...form,jogador:e.target.value}; setForm(f); onUpdate?.({...character,form:f,origem,classe}); }}
+              placeholder="—"
+              style={{
+                width:"100%", boxSizing:"border-box",
+                background:"transparent", border:"none", borderBottom:"1px solid transparent",
+                fontFamily:"Cinzel,serif", fontSize:13, color:"var(--gold)",
+                outline:"none", padding:"1px 0", cursor:"text",
+                transition:"border-color 0.2s",
+              }}
+              onFocus={e=>e.target.style.borderBottomColor="rgba(201,168,76,0.5)"}
+              onBlur={e=>e.target.style.borderBottomColor="transparent"}
+            />
+          </div>
+          {/* ORIGEM */}
+          <div>
+            <div style={{fontFamily:"Cinzel,serif",fontSize:8,color:"var(--muted2)",letterSpacing:2,textTransform:"uppercase",marginBottom:2}}>Origem</div>
+            <select
+              value={origem?.id || ""}
+              onChange={e=>{ const o=ORIGENS.find(o=>o.id===e.target.value)||null; setOrigem(o); onUpdate?.({...character,form,origem:o,classe}); }}
+              style={{
+                width:"100%", background:"transparent", border:"none",
+                borderBottom:"1px solid transparent",
+                fontFamily:"Cinzel,serif", fontSize:13, color:"var(--gold)",
+                outline:"none", padding:"1px 0", cursor:"pointer",
+                transition:"border-color 0.2s", appearance:"none",
+              }}
+              onFocus={e=>e.target.style.borderBottomColor="rgba(201,168,76,0.5)"}
+              onBlur={e=>e.target.style.borderBottomColor="transparent"}
+            >
+              <option value="" style={{background:"#1a1a2e",color:"#aaa"}}>—</option>
+              {ORIGENS.map(o=>(
+                <option key={o.id} value={o.id} style={{background:"#1a1a2e",color:"var(--gold)"}}>{o.name}</option>
+              ))}
+            </select>
+          </div>
+          {/* CLASSE */}
+          <div>
+            <div style={{fontFamily:"Cinzel,serif",fontSize:8,color:"var(--muted2)",letterSpacing:2,textTransform:"uppercase",marginBottom:2}}>Classe</div>
+            <select
+              value={classe?.id || ""}
+              onChange={e=>{ const c=CLASSES.find(c=>c.id===e.target.value)||null; setClasse(c); onUpdate?.({...character,form,origem,classe:c}); }}
+              style={{
+                width:"100%", background:"transparent", border:"none",
+                borderBottom:"1px solid transparent",
+                fontFamily:"Cinzel,serif", fontSize:13, color:"var(--gold)",
+                outline:"none", padding:"1px 0", cursor:"pointer",
+                transition:"border-color 0.2s", appearance:"none",
+              }}
+              onFocus={e=>e.target.style.borderBottomColor="rgba(201,168,76,0.5)"}
+              onBlur={e=>e.target.style.borderBottomColor="transparent"}
+            >
+              <option value="" style={{background:"#1a1a2e",color:"#aaa"}}>—</option>
+              {CLASSES.map(c=>(
+                <option key={c.id} value={c.id} style={{background:"#1a1a2e",color:"var(--gold)"}}>{c.name}</option>
+              ))}
+            </select>
+          </div>
         </div>
         <button onClick={onBack} className="btn-ghost" style={{fontSize:8,padding:"5px 12px",flexShrink:0}}>← Voltar</button>
       </div>
