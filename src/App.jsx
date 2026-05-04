@@ -3123,7 +3123,7 @@ function FullSheet({ character, onBack, onUpdate }) {
   const [outrosEditing, setOutrosEditing] = useState(null);
   const [skillAttr, setSkillAttr] = useState(character.skillAttr ?? {});
   const [attrOpen, setAttrOpen] = useState(null);
-  const [pdOverride, setPdOverride] = useState(character.pdTurno ?? null);
+  const [pdBonus, setPdBonus] = useState(character.pdBonus ?? 0);
   const [pdEditing, setPdEditing] = useState(false);
   const handleAttrEdit = (key, val) => setAttrs(a => ({ ...a, [key]: val }));
 
@@ -3484,14 +3484,14 @@ function FullSheet({ character, onBack, onUpdate }) {
                 <div style={{fontFamily:"Cinzel,serif",fontSize:8,color:"var(--muted2)",letterSpacing:1,textTransform:"uppercase"}}>PD / TURNO</div>
                 {pdEditing ? (
                   <input
-                    autoFocus type="number" min={0} max={99}
-                    defaultValue={pdOverride??peturno}
-                    onBlur={e=>{const v=Math.max(0,Math.min(99,parseInt(e.target.value)||0));setPdOverride(v);onUpdate?.({...character,form,origem,classe,skillTreino,skillOutros,skillAttr,pdTurno:v});setPdEditing(false);}}
-                    onKeyDown={e=>{if(e.key==="Enter"||e.key==="Escape"){const v=Math.max(0,Math.min(99,parseInt(e.target.value)||0));setPdOverride(v);onUpdate?.({...character,form,origem,classe,skillTreino,skillOutros,skillAttr,pdTurno:v});setPdEditing(false);}}}
+                    autoFocus type="number" min={0} max={999}
+                    defaultValue={pdBonus}
+                    onBlur={e=>{const v=Math.max(0,Math.min(999,parseInt(e.target.value)||0));setPdBonus(v);onUpdate?.({...character,form,origem,classe,skillTreino,skillOutros,skillAttr,pdBonus:v});setPdEditing(false);}}
+                    onKeyDown={e=>{if(e.key==="Enter"||e.key==="Escape"){const v=Math.max(0,Math.min(999,parseInt(e.target.value)||0));setPdBonus(v);onUpdate?.({...character,form,origem,classe,skillTreino,skillOutros,skillAttr,pdBonus:v});setPdEditing(false);}}}
                     style={{width:"100%",background:"transparent",border:"none",borderBottom:"1px solid var(--gold)",textAlign:"center",fontFamily:"Cinzel,serif",fontSize:13,color:"var(--gold)",fontWeight:600,padding:0,outline:"none",MozAppearance:"textfield"}}
                   />
                 ) : (
-                  <div onClick={()=>setPdEditing(true)} style={{fontFamily:"Cinzel,serif",fontSize:13,color:"var(--gold)",fontWeight:600,cursor:"pointer",userSelect:"none"}}>{pdOverride??peturno}</div>
+                  <div onClick={()=>setPdEditing(true)} style={{fontFamily:"Cinzel,serif",fontSize:13,color:"var(--gold)",fontWeight:600,cursor:"pointer",userSelect:"none"}}>{peturno+pdBonus}</div>
                 )}
               </div>
               <div style={{background:"var(--card2)",border:"1px solid var(--border)",borderRadius:4,padding:"7px 4px",textAlign:"center"}}>
