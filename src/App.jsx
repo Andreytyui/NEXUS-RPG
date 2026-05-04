@@ -3245,8 +3245,11 @@ function FullSheet({ character, onBack, onUpdate }) {
     const [editVal, setEditVal] = useState(false);
     const [valInp, setValInp] = useState(String(val));
     const [displayVal, setDisplayVal] = useState(val);
+    const [displayPct, setDisplayPct] = useState(max>0?val/max:0);
     const animRef = useRef(null);
+    const barAnimRef = useRef(null);
     const prevValRef = useRef(val);
+    const prevPctRef = useRef(max>0?val/max:0);
 
     useEffect(() => {
       if (val === prevValRef.current) return;
@@ -3266,6 +3269,25 @@ function FullSheet({ character, onBack, onUpdate }) {
       return () => cancelAnimationFrame(animRef.current);
     }, [val]);
 
+    useEffect(() => {
+      const targetPct = max > 0 ? val / max : 0;
+      if (targetPct === prevPctRef.current) return;
+      const start = prevPctRef.current;
+      const end = targetPct;
+      const duration = 700;
+      const startTime = performance.now();
+      cancelAnimationFrame(barAnimRef.current);
+      const animate = (now) => {
+        const t = Math.min((now - startTime) / duration, 1);
+        const eased = 1 - Math.pow(1 - t, 3);
+        setDisplayPct(start + (end - start) * eased);
+        if (t < 1) { barAnimRef.current = requestAnimationFrame(animate); }
+        else { prevPctRef.current = end; }
+      };
+      barAnimRef.current = requestAnimationFrame(animate);
+      return () => cancelAnimationFrame(barAnimRef.current);
+    }, [val, max]);
+
     const commitVal = (raw) => {
       const v = parseInt(raw ?? valInp);
       if (!isNaN(v) && v >= 0) set(v);
@@ -3282,13 +3304,14 @@ function FullSheet({ character, onBack, onUpdate }) {
     const inpStyle = {textAlign:"center",fontFamily:"Cinzel,serif",fontSize:13,fontWeight:700,color:"white",background:"transparent",border:"none",outline:"2px solid rgba(255,255,255,0.4)",borderRadius:2,height:"70%",minWidth:0,MozAppearance:"textfield"};
     const pct = max>0 ? val/max : 0;
     const fill = pct>0.6?color : pct>0.3?color+"aa" : pct>0.1?color+"66" : color+"33";
+    const fillAnim = displayPct>0.6?color : displayPct>0.3?color+"aa" : displayPct>0.1?color+"66" : color+"33";
     return (
       <div style={{marginBottom:10}}>
         <div style={{display:"flex",justifyContent:"center",alignItems:"center",marginBottom:3}}>
           <span style={{fontFamily:"Cinzel,serif",fontSize:10,letterSpacing:2,color:"var(--muted2)",textTransform:"uppercase"}}>{label}</span>
         </div>
         <div style={{position:"relative",height:34,borderRadius:4,overflow:"hidden",background:"rgba(0,0,0,0.6)",border:"1px solid rgba(255,255,255,0.05)"}}>
-          <div style={{position:"absolute",left:0,top:0,bottom:0,width:`${pct*100}%`,background:fill,transition:"width 0.3s ease, background 0.4s ease",minWidth:val>0?3:0}}/>
+          <div style={{position:"absolute",left:0,top:0,bottom:0,width:`${displayPct*100}%`,background:fillAnim,transition:"background 0.4s ease",minWidth:val>0?3:0}}/>
           <div style={{position:"relative",zIndex:1,display:"flex",alignItems:"center",height:"100%"}}>
             <button onClick={()=>set(v=>Math.max(0,v-5))} style={{background:"rgba(0,0,0,0.3)",border:"none",borderRight:"1px solid rgba(255,255,255,0.06)",color:"white",cursor:"pointer",padding:"0 8px",height:"100%",fontSize:13,flexShrink:0}}>«</button>
             <button onClick={()=>set(v=>Math.max(0,v-1))} style={{background:"rgba(0,0,0,0.2)",border:"none",borderRight:"1px solid rgba(255,255,255,0.04)",color:"white",cursor:"pointer",padding:"0 8px",height:"100%",fontSize:13,flexShrink:0}}>‹</button>
