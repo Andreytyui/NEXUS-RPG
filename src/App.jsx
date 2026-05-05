@@ -3106,6 +3106,52 @@ function stopAuraSound(sound) {
   setTimeout(() => { oscs.forEach(o => { try { o.stop(); } catch {} }); try { lfo.stop(); } catch {} ctx.close(); }, 900);
 }
 
+/* ── Dice rolling sound (Web Audio API) ── */
+function playDiceRollSound() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    // Simulate multiple dice hits: 6 impacts, decreasing in volume and spacing
+    const hitTimes   = [0, 0.07, 0.16, 0.27, 0.37, 0.46];
+    const hitVolumes = [0.55, 0.48, 0.38, 0.28, 0.18, 0.10];
+
+    hitTimes.forEach((t, i) => {
+      const bufLen = Math.floor(ctx.sampleRate * 0.055);
+      const buf    = ctx.createBuffer(1, bufLen, ctx.sampleRate);
+      const data   = buf.getChannelData(0);
+      for (let j = 0; j < bufLen; j++) {
+        // White noise with fast exponential decay
+        data[j] = (Math.random() * 2 - 1) * Math.exp(-j / (bufLen * 0.18));
+      }
+
+      const src = ctx.createBufferSource();
+      src.buffer = buf;
+
+      // Bandpass filter — gives each hit a slightly different "body"
+      const bp = ctx.createBiquadFilter();
+      bp.type = "bandpass";
+      bp.frequency.value = 900 + Math.random() * 900;
+      bp.Q.value = 1.8;
+
+      // High-shelf adds the hard "click" of dice on table
+      const shelf = ctx.createBiquadFilter();
+      shelf.type = "highshelf";
+      shelf.frequency.value = 4000;
+      shelf.gain.value = 6;
+
+      const gain = ctx.createGain();
+      gain.gain.setValueAtTime(hitVolumes[i], ctx.currentTime + t);
+
+      src.connect(bp);
+      bp.connect(shelf);
+      shelf.connect(gain);
+      gain.connect(ctx.destination);
+      src.start(ctx.currentTime + t);
+    });
+
+    setTimeout(() => ctx.close(), 1200);
+  } catch {}
+}
+
 // ── Dual-layer animated bar: lead (fast) + ghost trail (delayed on damage)
 function Bar({val, set, max, setMax, color, label}) {
   const [editVal,    setEditVal]    = useState(false);
@@ -3268,6 +3314,12 @@ function FullSheet({ character, onBack, onUpdate }) {
     }
     return () => { stopAuraSound(auraRef.current); auraRef.current = null; };
   }, [rollPopup?.crit]);
+
+  useEffect(() => {
+    if (rollPopup?.rolls?.length && !rollPopup.crit) {
+      playDiceRollSound();
+    }
+  }, [rollPopup]);
 
   // derived
   const defesa   = 10 + attrs.AGI;
