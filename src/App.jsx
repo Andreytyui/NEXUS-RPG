@@ -3974,6 +3974,251 @@ function fmtSeconds(s) {
   return `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
 }
 
+/* ── IndexedDB helpers for local audio storage ── */
+function openAudioDB() {
+  return new Promise((res, rej) => {
+    const req = indexedDB.open("nexus_audio", 1);
+    req.onupgradeneeded = e => {
+      const db = e.target.result;
+      if (!db.objectStoreNames.contains("files")) db.createObjectStore("files", { keyPath: "id" });
+    };
+    req.onsuccess = e => res(e.target.result);
+    req.onerror = e => rej(e.target.error);
+  });
+}
+async function audioDBSave(id, name, buf) {
+  const db = await openAudioDB();
+  return new Promise((res, rej) => {
+    const tx = db.transaction("files", "readwrite");
+    tx.objectStore("files").put({ id, name, buf });
+    tx.oncomplete = res;
+    tx.onerror = e => rej(e.target.error);
+  });
+}
+async function audioDBGet(id) {
+  const db = await openAudioDB();
+  return new Promise((res, rej) => {
+    const tx = db.transaction("files", "readonly");
+    const req = tx.objectStore("files").get(id);
+    req.onsuccess = e => res(e.target.result);
+    req.onerror = e => rej(e.target.error);
+  });
+}
+async function audioDBDelete(id) {
+  const db = await openAudioDB();
+  return new Promise((res, rej) => {
+    const tx = db.transaction("files", "readwrite");
+    tx.objectStore("files").delete(id);
+    tx.oncomplete = res;
+    tx.onerror = e => rej(e.target.error);
+  });
+}
+async function audioDBGetMeta() {
+  const db = await openAudioDB();
+  return new Promise((res, rej) => {
+    const tx = db.transaction("files", "readonly");
+    const req = tx.objectStore("files").getAll();
+    req.onsuccess = e => res((e.target.result || []).map(f => ({ id: f.id, name: f.name })));
+    req.onerror = e => rej(e.target.error);
+  });
+}
+function localHue(str) {
+  let h = 0;
+  for (let i = 0; i < (str || "").length; i++) h = ((h << 5) - h + str.charCodeAt(i)) & 0xffffffff;
+  return Math.abs(h) % 360;
+}
+function localGradient(name) {
+  const hue = localHue(name || "playlist");
+  return `linear-gradient(135deg, hsl(${hue},55%,20%), hsl(${(hue + 55) % 360},65%,36%))`;
+}
+function localAccent(name) {
+  const hue = localHue(name || "playlist");
+  return `hsl(${hue},65%,62%)`;
+}
+
+/* ── Local MP3 Player Bar ── */
+function LocalMusicBar({ nowPlaying, onNowPlaying }) {
+  const audioRef = useRef(null);
+  const blobUrlRef = useRef(null);
+  const nowPlayingRef = useRef(nowPlaying);
+  const currentIdxRef = useRef(nowPlaying?.startIdx || 0);
+  const seekingRef = useRef(false);
+  const onNowPlayingRef = useRef(onNowPlaying);
+  const loadTrackRef = useRef(null);
+
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [seeking, setSeeking] = useState(false);
+  const [currentIdx, setCurrentIdx] = useState(nowPlaying?.startIdx || 0);
+
+  useEffect(() => { nowPlayingRef.current = nowPlaying; }, [nowPlaying]);
+  useEffect(() => { onNowPlayingRef.current = onNowPlaying; }, [onNowPlaying]);
+  useEffect(() => { currentIdxRef.current = currentIdx; }, [currentIdx]);
+  seekingRef.current = seeking;
+
+  loadTrackRef.current = async (idx) => {
+    const tr = nowPlayingRef.current?.tracks || [];
+    if (!tr[idx]) return;
+    try {
+      const file = await audioDBGet(tr[idx].id);
+      if (!file?.buf) return;
+      if (blobUrlRef.current) URL.revokeObjectURL(blobUrlRef.current);
+      const blob = new Blob([file.buf], { type: "audio/mpeg" });
+      blobUrlRef.current = URL.createObjectURL(blob);
+      if (!audioRef.current) audioRef.current = new Audio();
+      audioRef.current.src = blobUrlRef.current;
+      setCurrentTime(0);
+      audioRef.current.play().catch(() => {});
+    } catch (_) {}
+  };
+
+  useEffect(() => {
+    if (!audioRef.current) audioRef.current = new Audio();
+    const a = audioRef.current;
+    const onTime = () => { if (!seekingRef.current) setCurrentTime(a.currentTime); };
+    const onDur = () => setDuration(isFinite(a.duration) ? a.duration : 0);
+    const onPlay = () => setIsPlaying(true);
+    const onPause = () => setIsPlaying(false);
+    const onEnded = () => {
+      const rep = nowPlayingRef.current?.repeat || "none";
+      const tr = nowPlayingRef.current?.tracks || [];
+      const idx = currentIdxRef.current;
+      if (rep === "one") { a.currentTime = 0; a.play().catch(() => {}); return; }
+      if (idx + 1 < tr.length) {
+        const next = idx + 1;
+        setCurrentIdx(next); currentIdxRef.current = next;
+        onNowPlayingRef.current(prev => prev ? { ...prev, startIdx: next } : prev);
+        loadTrackRef.current(next);
+      } else if (rep === "all" && tr.length > 0) {
+        setCurrentIdx(0); currentIdxRef.current = 0;
+        onNowPlayingRef.current(prev => prev ? { ...prev, startIdx: 0 } : prev);
+        loadTrackRef.current(0);
+      } else {
+        setIsPlaying(false);
+      }
+    };
+    a.addEventListener("timeupdate", onTime);
+    a.addEventListener("durationchange", onDur);
+    a.addEventListener("play", onPlay);
+    a.addEventListener("pause", onPause);
+    a.addEventListener("ended", onEnded);
+    return () => {
+      a.removeEventListener("timeupdate", onTime);
+      a.removeEventListener("durationchange", onDur);
+      a.removeEventListener("play", onPlay);
+      a.removeEventListener("pause", onPause);
+      a.removeEventListener("ended", onEnded);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    const idx = nowPlaying?.startIdx ?? 0;
+    setCurrentIdx(idx); currentIdxRef.current = idx;
+    setCurrentTime(0); setDuration(0);
+    loadTrackRef.current && loadTrackRef.current(idx);
+    return () => {
+      if (audioRef.current) { audioRef.current.pause(); audioRef.current.src = ""; }
+      if (blobUrlRef.current) { URL.revokeObjectURL(blobUrlRef.current); blobUrlRef.current = null; }
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nowPlaying?.playlistId]);
+
+  const tracks = nowPlaying?.tracks || [];
+  const repeat = nowPlaying?.repeat || "none";
+  const track = tracks[currentIdx];
+  const plName = nowPlaying?.playlistName || "";
+  const accent = localAccent(plName);
+  const progress = duration > 0 ? (currentTime / duration) * 100 : 0;
+  const gold = "var(--gold)";
+  const btnCtrl = { background: "transparent", border: "none", cursor: "pointer", color: "var(--muted2)", fontSize: 20, padding: "4px 8px", lineHeight: 1, display: "flex", alignItems: "center", justifyContent: "center", transition: "color 0.15s" };
+
+  const togglePlay = () => { const a = audioRef.current; if (!a) return; isPlaying ? a.pause() : a.play().catch(() => {}); };
+  const prevTrack = () => {
+    if (currentIdx === 0) return;
+    const idx = currentIdx - 1;
+    setCurrentIdx(idx); currentIdxRef.current = idx;
+    onNowPlaying(prev => prev ? { ...prev, startIdx: idx } : prev);
+    loadTrackRef.current(idx);
+  };
+  const nextTrack = () => {
+    if (currentIdx + 1 >= tracks.length) return;
+    const idx = currentIdx + 1;
+    setCurrentIdx(idx); currentIdxRef.current = idx;
+    onNowPlaying(prev => prev ? { ...prev, startIdx: idx } : prev);
+    loadTrackRef.current(idx);
+  };
+  const cycleRepeat = () => {
+    const modes = ["none", "all", "one"];
+    const next = modes[(modes.indexOf(repeat) + 1) % 3];
+    onNowPlaying(prev => ({ ...prev, repeat: next }));
+  };
+  const stop = () => {
+    if (audioRef.current) { audioRef.current.pause(); audioRef.current.src = ""; }
+    if (blobUrlRef.current) { URL.revokeObjectURL(blobUrlRef.current); blobUrlRef.current = null; }
+    onNowPlaying(null);
+  };
+
+  return (
+    <div style={{ background: "rgba(8,8,8,0.97)", borderTop: "1px solid var(--border2)", padding: "8px 24px 10px", backdropFilter: "blur(16px)" }}>
+      <div style={{ display: "flex", gap: 16, alignItems: "center" }}>
+        <div style={{ width: 42, height: 42, borderRadius: 6, flexShrink: 0, background: localGradient(plName), display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20 }}>🎵</div>
+        <div style={{ minWidth: 0, width: 200, flexShrink: 0 }}>
+          <div style={{ fontFamily: "Cinzel,serif", fontSize: 9, color: "var(--text)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+            {track?.name?.replace(/\.[^.]+$/, "") || plName}
+          </div>
+          <div style={{ fontSize: 11, color: accent, marginTop: 2 }}>♪ Local</div>
+          {tracks.length > 0 && <div style={{ fontSize: 10, color: "var(--muted)", marginTop: 1 }}>{currentIdx + 1} / {tracks.length}</div>}
+        </div>
+        <div style={{ display: "flex", gap: 4, alignItems: "center", margin: "0 auto" }}>
+          <button onClick={cycleRepeat} title="Repetição" style={{ ...btnCtrl, color: repeat !== "none" ? gold : "var(--muted)", padding: "4px 6px" }}>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="17 1 21 5 17 9" /><path d="M3 11V9a4 4 0 0 1 4-4h14" />
+              <polyline points="7 23 3 19 7 15" /><path d="M21 13v2a4 4 0 0 1-4 4H3" />
+              {repeat === "one" && <line x1="12" y1="12" x2="12" y2="12" strokeWidth="3.5" />}
+            </svg>
+          </button>
+          <button onClick={prevTrack} disabled={currentIdx === 0} style={{ ...btnCtrl, opacity: currentIdx === 0 ? 0.35 : 1 }}
+            onMouseEnter={e => { if (currentIdx > 0) e.currentTarget.style.color = "var(--text)"; }}
+            onMouseLeave={e => e.currentTarget.style.color = "var(--muted2)"}>⏮</button>
+          <button onClick={togglePlay} style={{ width: 42, height: 42, borderRadius: "50%", background: "linear-gradient(135deg,#c9a84c,#e8c96d)", border: "none", cursor: "pointer", fontSize: 16, color: "#050505", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 2px 14px rgba(201,168,76,0.45)", transition: "transform 0.15s, box-shadow 0.15s" }}
+            onMouseEnter={e => { e.currentTarget.style.transform = "scale(1.1)"; e.currentTarget.style.boxShadow = "0 4px 20px rgba(201,168,76,0.65)"; }}
+            onMouseLeave={e => { e.currentTarget.style.transform = "scale(1)"; e.currentTarget.style.boxShadow = "0 2px 14px rgba(201,168,76,0.45)"; }}>
+            {isPlaying ? "⏸" : "▶"}
+          </button>
+          <button onClick={nextTrack} disabled={currentIdx + 1 >= tracks.length} style={{ ...btnCtrl, opacity: currentIdx + 1 >= tracks.length ? 0.35 : 1 }}
+            onMouseEnter={e => { if (currentIdx + 1 < tracks.length) e.currentTarget.style.color = "var(--text)"; }}
+            onMouseLeave={e => e.currentTarget.style.color = "var(--muted2)"}>⏭</button>
+        </div>
+        <button onClick={stop} style={{ ...btnCtrl, border: "1px solid var(--border)", width: 30, height: 30, borderRadius: 4, fontSize: 14, color: "var(--muted)" }}
+          onMouseEnter={e => { e.currentTarget.style.borderColor = "var(--border2)"; e.currentTarget.style.color = "var(--text)"; }}
+          onMouseLeave={e => { e.currentTarget.style.borderColor = "var(--border)"; e.currentTarget.style.color = "var(--muted)"; }}>✕</button>
+      </div>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 6 }}>
+        <span style={{ fontSize: 10, color: "var(--muted)", flexShrink: 0, fontVariantNumeric: "tabular-nums", minWidth: 32, textAlign: "right" }}>{fmtSeconds(currentTime)}</span>
+        <div style={{ flex: 1, position: "relative", height: 16, display: "flex", alignItems: "center", cursor: "pointer" }}
+          onClick={e => {
+            if (!audioRef.current || !duration) return;
+            const rect = e.currentTarget.getBoundingClientRect();
+            const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+            const t = ratio * duration;
+            audioRef.current.currentTime = t; setCurrentTime(t);
+          }}>
+          <div style={{ position: "absolute", inset: "6px 0", borderRadius: 3, background: "rgba(255,255,255,0.1)" }} />
+          <div style={{ position: "absolute", left: 0, top: 6, bottom: 6, width: `${progress}%`, borderRadius: 3, background: "linear-gradient(90deg,#a07830,#e8c96d)", transition: seeking ? "none" : "width 0.3s linear" }} />
+          <div style={{ position: "absolute", left: `${progress}%`, top: "50%", transform: "translate(-50%,-50%)", width: 12, height: 12, borderRadius: "50%", background: gold, boxShadow: "0 0 6px rgba(201,168,76,0.7)", transition: seeking ? "none" : "left 0.3s linear", pointerEvents: "none" }} />
+          <input type="range" min={0} max={duration || 1} value={currentTime} step={0.1}
+            onChange={e => { const v = Number(e.target.value); setCurrentTime(v); if (audioRef.current) audioRef.current.currentTime = v; }}
+            onMouseDown={() => setSeeking(true)} onMouseUp={() => setSeeking(false)}
+            style={{ position: "absolute", inset: 0, opacity: 0, cursor: "pointer", width: "100%", margin: 0 }} />
+        </div>
+        <span style={{ fontSize: 10, color: "var(--muted)", flexShrink: 0, fontVariantNumeric: "tabular-nums", minWidth: 32 }}>{fmtSeconds(duration)}</span>
+      </div>
+    </div>
+  );
+}
+
 /* ── Persistent Music Player Bar ── */
 function MusicPlayerBar({ nowPlaying, onNowPlaying, ytPlayerRef }) {
   const [ytState, setYtState] = useState(-1);
@@ -4135,6 +4380,9 @@ function MusicPlayerBar({ nowPlaying, onNowPlaying, ytPlayerRef }) {
     display: "flex", alignItems: "center", justifyContent: "center", transition: "color 0.15s",
   };
 
+  /* Local MP3 */
+  if (nowPlaying?.svc === "local") return <LocalMusicBar nowPlaying={nowPlaying} onNowPlaying={onNowPlaying} />;
+
   /* Spotify: embed iframe (no SDK without Premium) */
   if (nowPlaying?.svc === "spotify") {
     return (
@@ -4287,6 +4535,29 @@ function MusicScreen({ nowPlaying, onNowPlaying, musicTokens, onMusicTokens, ytP
   const dragRef = useRef(null);
   const dragOverRef = useRef(null);
 
+  /* ── Local MP3 state ── */
+  const [localPlaylists, setLocalPlaylists] = useState(() => {
+    try { return JSON.parse(localStorage.getItem("nx_local_playlists") || "[]"); } catch { return []; }
+  });
+  const [importedFiles, setImportedFiles] = useState([]);
+  const [createPlOpen, setCreatePlOpen] = useState(false);
+  const [newPlName, setNewPlName] = useState("");
+  const [selectedFileIds, setSelectedFileIds] = useState(new Set());
+  const [localDragging, setLocalDragging] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [editingPl, setEditingPl] = useState(null);
+  const fileInputRef = useRef(null);
+
+  /* ── Persist local playlists ── */
+  useEffect(() => {
+    localStorage.setItem("nx_local_playlists", JSON.stringify(localPlaylists));
+  }, [localPlaylists]);
+
+  /* ── Load imported file metadata from IndexedDB on mount ── */
+  useEffect(() => {
+    audioDBGetMeta().then(setImportedFiles).catch(() => {});
+  }, []);
+
   /* ── Spotify OAuth callback handler ── */
   useEffect(() => {
     const p = new URLSearchParams(window.location.search);
@@ -4425,6 +4696,77 @@ function MusicScreen({ nowPlaying, onNowPlaying, musicTokens, onMusicTokens, ytP
     if (uid) fsDeleteMusicLink(uid, "spotify");
   };
 
+  /* ── Local MP3 functions ── */
+  const importMp3Files = async (files) => {
+    setImporting(true);
+    try {
+      for (const file of Array.from(files)) {
+        if (!file.type.startsWith("audio/") && !/\.(mp3|wav|ogg|flac|m4a|aac|opus)$/i.test(file.name)) continue;
+        const id = `lf_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+        const buf = await file.arrayBuffer();
+        await audioDBSave(id, file.name, buf);
+      }
+      const meta = await audioDBGetMeta();
+      setImportedFiles(meta);
+    } catch (_) {} finally {
+      setImporting(false);
+    }
+  };
+
+  const createLocalPlaylist = () => {
+    if (!newPlName.trim() || selectedFileIds.size === 0) return;
+    const id = editingPl ? editingPl.id : `lpl_${Date.now()}`;
+    const trackIds = [...selectedFileIds];
+    if (editingPl) {
+      setLocalPlaylists(prev => prev.map(pl => pl.id === id ? { ...pl, name: newPlName.trim(), trackIds } : pl));
+    } else {
+      setLocalPlaylists(prev => [...prev, { id, name: newPlName.trim(), trackIds }]);
+    }
+    setCreatePlOpen(false); setNewPlName(""); setSelectedFileIds(new Set()); setEditingPl(null);
+  };
+
+  const deleteLocalPlaylist = (plId) => {
+    setLocalPlaylists(prev => prev.filter(pl => pl.id !== plId));
+    if (nowPlaying?.playlistId === plId) onNowPlaying(null);
+    if (selectedPlaylist?.id === plId) { setSelectedPlaylist(null); setTracks([]); }
+  };
+
+  const deleteImportedFile = async (fileId) => {
+    await audioDBDelete(fileId);
+    setImportedFiles(prev => prev.filter(f => f.id !== fileId));
+    setLocalPlaylists(prev =>
+      prev.map(pl => ({ ...pl, trackIds: pl.trackIds.filter(id => id !== fileId) }))
+          .filter(pl => pl.trackIds.length > 0)
+    );
+  };
+
+  const openLocalPlaylist = (pl) => {
+    const tracks = pl.trackIds.map(id => importedFiles.find(f => f.id === id)).filter(Boolean);
+    setSelectedPlaylist({ id: pl.id, name: pl.name, svc: "local", count: tracks.length });
+    setTracks(tracks);
+  };
+
+  const playLocalPlaylist = (pl, startIdx = 0) => {
+    const tracks = pl.trackIds.map(id => importedFiles.find(f => f.id === id)).filter(Boolean);
+    if (tracks.length === 0) return;
+    onNowPlaying({ svc: "local", playlistId: pl.id, playlistName: pl.name, startIdx, tracks, repeat: nowPlaying?.repeat || "none" });
+  };
+
+  const playLocalTrack = (idx) => {
+    if (!selectedPlaylist || selectedPlaylist.svc !== "local") return;
+    const pl = localPlaylists.find(p => p.id === selectedPlaylist.id);
+    if (!pl) return;
+    const allTracks = pl.trackIds.map(id => importedFiles.find(f => f.id === id)).filter(Boolean);
+    onNowPlaying({ svc: "local", playlistId: pl.id, playlistName: pl.name, startIdx: idx, tracks: allTracks, repeat: nowPlaying?.repeat || "none" });
+  };
+
+  const openEditPlaylist = (pl) => {
+    setEditingPl(pl);
+    setNewPlName(pl.name);
+    setSelectedFileIds(new Set(pl.trackIds));
+    setCreatePlOpen(true);
+  };
+
   const openPlaylist = async (pl, svc) => {
     const name = svc === "youtube" ? pl.snippet?.title : pl.name;
     const thumb = svc === "youtube"
@@ -4480,8 +4822,8 @@ function MusicScreen({ nowPlaying, onNowPlaying, musicTokens, onMusicTokens, ytP
   };
 
   const isConnected = ytToken || spToken;
-  const currentList = tab === "youtube" ? ytPlaylists : spPlaylists;
-  const isTabConnected = tab === "youtube" ? !!ytToken : !!spToken;
+  const currentList = tab === "youtube" ? ytPlaylists : tab === "spotify" ? spPlaylists : localPlaylists;
+  const isTabConnected = tab === "youtube" ? !!ytToken : tab === "spotify" ? !!spToken : true;
   const gold = "var(--gold)";
   const card = { background: "var(--card)", border: "1px solid var(--border)", borderRadius: 8 };
   const isPlayingThis = (pl, svc) => nowPlaying?.playlistId === pl.id && nowPlaying?.svc === svc;
@@ -4505,8 +4847,8 @@ function MusicScreen({ nowPlaying, onNowPlaying, musicTokens, onMusicTokens, ytP
           </div>
           <div style={{ color: "var(--muted)", fontSize: 12, marginTop: 2 }}>
             {selectedPlaylist
-              ? `${tracks.length || selectedPlaylist.count || 0} faixas · ${selectedPlaylist.svc === "youtube" ? "YouTube" : "Spotify"}`
-              : "Vincule YouTube ou Spotify para tocar suas playlists durante a sessão"}
+              ? `${tracks.length || selectedPlaylist.count || 0} faixas · ${selectedPlaylist.svc === "youtube" ? "YouTube" : selectedPlaylist.svc === "spotify" ? "Spotify" : "Local"}`
+              : "Vincule YouTube ou Spotify, ou importe seus próprios arquivos MP3"}
           </div>
         </div>
         {(isConnected || ytTokenExpired) && !selectedPlaylist && (
@@ -4548,7 +4890,7 @@ function MusicScreen({ nowPlaying, onNowPlaying, musicTokens, onMusicTokens, ytP
         )}
         {selectedPlaylist && (
           <button className="btn-gold" style={{ marginLeft: "auto", padding: "8px 18px", fontSize: 10 }}
-            onClick={() => playTrack(0)}>
+            onClick={() => selectedPlaylist.svc === "local" ? playLocalTrack(0) : playTrack(0)}>
             ▶ Tocar tudo
           </button>
         )}
@@ -4561,7 +4903,7 @@ function MusicScreen({ nowPlaying, onNowPlaying, musicTokens, onMusicTokens, ytP
       )}
 
       {/* ── Connect view ── */}
-      {!isConnected && !ytTokenExpired && (
+      {!isConnected && !ytTokenExpired && tab !== "local" && (
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, maxWidth: 600, margin: "48px auto" }}>
           {[
             { svc: "youtube", label: "YouTube", color: "#ff4444", bg: "rgba(255,68,68,0.06)",
@@ -4587,19 +4929,130 @@ function MusicScreen({ nowPlaying, onNowPlaying, musicTokens, onMusicTokens, ytP
       )}
 
       {/* ── Playlist grid ── */}
-      {isConnected && !selectedPlaylist && (
+      {(isConnected || tab === "local") && !selectedPlaylist && (
         <div>
-          <div style={{ display: "flex", gap: 8, marginBottom: 20, borderBottom: "1px solid var(--border)", paddingBottom: 12, alignItems: "center" }}>
-            {[{ id: "youtube", label: "▶ YouTube", connected: !!ytToken, color: "#ff4444" }, { id: "spotify", label: "● Spotify", connected: !!spToken, color: "#1db954" }].map(t => (
-              <div key={t.id} onClick={() => t.connected ? setTab(t.id) : (t.id === "youtube" ? connectYouTube() : connectSpotify())}
-                style={{ padding: "6px 18px", borderRadius: 20, cursor: "pointer", fontFamily: "Cinzel,serif", fontSize: 11, letterSpacing: 1, border: `1px solid ${tab === t.id && t.connected ? t.color : "var(--border)"}`, background: tab === t.id && t.connected ? (t.id === "youtube" ? "rgba(255,68,68,0.08)" : "rgba(29,185,84,0.08)") : "transparent", color: t.connected ? (tab === t.id ? t.color : "var(--muted2)") : "var(--muted)", transition: "all 0.2s" }}>
+          <div style={{ display: "flex", gap: 8, marginBottom: 20, borderBottom: "1px solid var(--border)", paddingBottom: 12, alignItems: "center", flexWrap: "wrap" }}>
+            {[
+              { id: "youtube", label: "▶ YouTube", connected: !!ytToken, color: "#ff4444", bg: "rgba(255,68,68,0.08)" },
+              { id: "spotify", label: "● Spotify", connected: !!spToken, color: "#1db954", bg: "rgba(29,185,84,0.08)" },
+              { id: "local", label: "♪ Local", connected: true, color: "var(--gold)", bg: "rgba(201,168,76,0.08)" },
+            ].map(t => (
+              <div key={t.id}
+                onClick={() => {
+                  if (t.id === "local") { setTab("local"); setSelectedPlaylist(null); setTracks([]); }
+                  else if (t.connected) { setTab(t.id); setSelectedPlaylist(null); setTracks([]); }
+                  else t.id === "youtube" ? connectYouTube() : connectSpotify();
+                }}
+                style={{ padding: "6px 18px", borderRadius: 20, cursor: "pointer", fontFamily: "Cinzel,serif", fontSize: 11, letterSpacing: 1, border: `1px solid ${tab === t.id ? t.color : "var(--border)"}`, background: tab === t.id ? t.bg : "transparent", color: t.connected ? (tab === t.id ? t.color : "var(--muted2)") : "var(--muted)", transition: "all 0.2s" }}>
                 {t.label}{!t.connected && <span style={{ fontSize: 9, marginLeft: 4 }}>(conectar)</span>}
               </div>
             ))}
             {loading && <div style={{ display: "flex", alignItems: "center", gap: 6, color: "var(--muted)", fontSize: 12, marginLeft: 8 }}><div style={{ width: 12, height: 12, border: "1.5px solid var(--border)", borderTopColor: gold, borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />Carregando...</div>}
-            <div style={{ marginLeft: "auto", fontSize: 12, color: "var(--muted)" }}>{currentList.length > 0 && `${currentList.length} playlist${currentList.length !== 1 ? "s" : ""}`}</div>
+            {importing && <div style={{ display: "flex", alignItems: "center", gap: 6, color: "var(--muted)", fontSize: 12, marginLeft: 8 }}><div style={{ width: 12, height: 12, border: "1.5px solid var(--border)", borderTopColor: gold, borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />Importando...</div>}
+            <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
+              {tab === "local" && (
+                <>
+                  <input ref={fileInputRef} type="file" accept="audio/*,.mp3,.wav,.ogg,.flac,.m4a,.aac,.opus" multiple style={{ display: "none" }}
+                    onChange={e => { if (e.target.files?.length) importMp3Files(e.target.files); e.target.value = ""; }} />
+                  <button className="btn-ghost" style={{ fontSize: 10, padding: "5px 14px", display: "flex", alignItems: "center", gap: 6 }}
+                    onClick={() => fileInputRef.current?.click()}>
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                    Importar MP3
+                  </button>
+                  <button className="btn-gold" style={{ fontSize: 10, padding: "5px 14px" }}
+                    onClick={() => { setEditingPl(null); setNewPlName(""); setSelectedFileIds(new Set()); setCreatePlOpen(true); }}>
+                    + Criar Playlist
+                  </button>
+                </>
+              )}
+              <div style={{ fontSize: 12, color: "var(--muted)" }}>{currentList.length > 0 && `${currentList.length} playlist${currentList.length !== 1 ? "s" : ""}`}</div>
+            </div>
           </div>
-          {!isTabConnected ? (
+          {tab === "local" ? (
+            /* ── Local tab content ── */
+            <div>
+              {/* Drag & drop import zone */}
+              <div
+                onDragOver={e => { e.preventDefault(); setLocalDragging(true); }}
+                onDragLeave={() => setLocalDragging(false)}
+                onDrop={e => { e.preventDefault(); setLocalDragging(false); if (e.dataTransfer.files?.length) importMp3Files(e.dataTransfer.files); }}
+                style={{ border: `2px dashed ${localDragging ? "var(--gold)" : "var(--border2)"}`, borderRadius: 12, padding: "28px 20px", textAlign: "center", marginBottom: 24, background: localDragging ? "rgba(201,168,76,0.06)" : "transparent", transition: "all 0.2s", cursor: "pointer" }}
+                onClick={() => fileInputRef.current?.click()}>
+                <div style={{ fontSize: 32, marginBottom: 8 }}>🎵</div>
+                <div style={{ fontFamily: "Cinzel,serif", fontSize: 11, color: "var(--gold2)", letterSpacing: 1, marginBottom: 4 }}>
+                  {localDragging ? "Solte os arquivos aqui!" : "Arraste arquivos de áudio ou clique para importar"}
+                </div>
+                <div style={{ fontSize: 11, color: "var(--muted)" }}>MP3, WAV, OGG, FLAC, M4A, AAC</div>
+              </div>
+
+              {/* Imported files summary */}
+              {importedFiles.length > 0 && (
+                <div style={{ marginBottom: 20, padding: "10px 14px", ...card, display: "flex", alignItems: "center", gap: 10 }}>
+                  <span style={{ fontSize: 18 }}>🎶</span>
+                  <div>
+                    <div style={{ fontFamily: "Cinzel,serif", fontSize: 10, color: "var(--gold2)", letterSpacing: 1 }}>Biblioteca Local</div>
+                    <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 1 }}>{importedFiles.length} arquivo{importedFiles.length !== 1 ? "s" : ""} importado{importedFiles.length !== 1 ? "s" : ""}</div>
+                  </div>
+                  <button className="btn-ghost" style={{ marginLeft: "auto", fontSize: 10, padding: "4px 12px" }}
+                    onClick={() => { setEditingPl(null); setNewPlName(""); setSelectedFileIds(new Set()); setCreatePlOpen(true); }}>
+                    + Nova Playlist
+                  </button>
+                </div>
+              )}
+
+              {/* Local playlists grid */}
+              {localPlaylists.length === 0 ? (
+                <div style={{ textAlign: "center", padding: "40px 20px", color: "var(--muted)" }}>
+                  <div style={{ fontSize: 28, marginBottom: 10 }}>🎼</div>
+                  <div style={{ marginBottom: 8, fontFamily: "Cinzel,serif", fontSize: 11, color: "var(--muted2)", letterSpacing: 1 }}>Nenhuma playlist local ainda</div>
+                  <div style={{ fontSize: 12, marginBottom: 16 }}>Importe arquivos de áudio e crie sua primeira playlist</div>
+                  {importedFiles.length > 0 && (
+                    <button className="btn-gold" style={{ fontSize: 10 }}
+                      onClick={() => { setEditingPl(null); setNewPlName(""); setSelectedFileIds(new Set()); setCreatePlOpen(true); }}>
+                      + Criar Playlist
+                    </button>
+                  )}
+                </div>
+              ) : (
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(160px,1fr))", gap: 12 }}>
+                  {localPlaylists.map(pl => {
+                    const playing = nowPlaying?.playlistId === pl.id && nowPlaying?.svc === "local";
+                    const accentColor = localAccent(pl.name);
+                    const trackCount = pl.trackIds.length;
+                    return (
+                      <div key={pl.id} onClick={() => openLocalPlaylist(pl)}
+                        style={{ ...card, padding: 10, cursor: "pointer", transition: "all 0.2s", border: `1px solid ${playing ? accentColor : "var(--border)"}`, background: playing ? "rgba(201,168,76,0.05)" : "var(--card)", position: "relative" }}
+                        onMouseEnter={e => { e.currentTarget.style.borderColor = accentColor; e.currentTarget.style.transform = "translateY(-2px)"; }}
+                        onMouseLeave={e => { e.currentTarget.style.borderColor = playing ? accentColor : "var(--border)"; e.currentTarget.style.transform = "none"; }}>
+                        {/* Cover art */}
+                        <div style={{ width: "100%", aspectRatio: "1", borderRadius: 6, marginBottom: 8, background: localGradient(pl.name), display: "flex", alignItems: "center", justifyContent: "center", fontSize: 32, position: "relative" }}>
+                          🎵
+                          {playing && <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.45)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 28, borderRadius: 6 }}>▶</div>}
+                        </div>
+                        <div style={{ fontFamily: "Cinzel,serif", fontSize: 9, color: "var(--text)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", marginBottom: 3 }}>{pl.name}</div>
+                        <div style={{ fontSize: 11, color: "var(--muted)" }}>{trackCount} faixa{trackCount !== 1 ? "s" : ""}</div>
+                        {/* Action buttons */}
+                        <div style={{ display: "flex", gap: 4, marginTop: 6 }}>
+                          <button style={{ flex: 1, background: "rgba(201,168,76,0.12)", border: "1px solid rgba(201,168,76,0.3)", borderRadius: 4, cursor: "pointer", color: "var(--gold2)", fontSize: 9, fontFamily: "Cinzel,serif", padding: "3px 0" }}
+                            onClick={e => { e.stopPropagation(); playLocalPlaylist(pl); }}
+                            onMouseEnter={e => { e.currentTarget.style.background = "rgba(201,168,76,0.22)"; }}
+                            onMouseLeave={e => { e.currentTarget.style.background = "rgba(201,168,76,0.12)"; }}>▶ Tocar</button>
+                          <button style={{ background: "transparent", border: "1px solid var(--border)", borderRadius: 4, cursor: "pointer", color: "var(--muted)", fontSize: 10, padding: "3px 6px" }}
+                            onClick={e => { e.stopPropagation(); openEditPlaylist(pl); }}
+                            onMouseEnter={e => { e.currentTarget.style.borderColor = "var(--border2)"; e.currentTarget.style.color = "var(--text)"; }}
+                            onMouseLeave={e => { e.currentTarget.style.borderColor = "var(--border)"; e.currentTarget.style.color = "var(--muted)"; }}>✎</button>
+                          <button style={{ background: "transparent", border: "1px solid var(--border)", borderRadius: 4, cursor: "pointer", color: "var(--muted)", fontSize: 10, padding: "3px 6px" }}
+                            onClick={e => { e.stopPropagation(); if (window.confirm(`Excluir "${pl.name}"?`)) deleteLocalPlaylist(pl.id); }}
+                            onMouseEnter={e => { e.currentTarget.style.borderColor = "rgba(139,32,32,0.5)"; e.currentTarget.style.color = "#e07070"; }}
+                            onMouseLeave={e => { e.currentTarget.style.borderColor = "var(--border)"; e.currentTarget.style.color = "var(--muted)"; }}>✕</button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          ) : !isTabConnected ? (
             <div style={{ textAlign: "center", padding: "60px 20px", color: "var(--muted)" }}>
               <div style={{ fontSize: 32, marginBottom: 12 }}>♪</div>
               <div style={{ marginBottom: 16 }}>Conecte sua conta para ver as playlists</div>
@@ -4636,7 +5089,7 @@ function MusicScreen({ nowPlaying, onNowPlaying, musicTokens, onMusicTokens, ytP
       )}
 
       {/* ── Track list ── */}
-      {isConnected && selectedPlaylist && (
+      {(isConnected || tab === "local") && selectedPlaylist && (
         <div>
           {tracksLoading ? (
             <div style={{ textAlign: "center", padding: "60px 20px", color: "var(--muted)" }}>
@@ -4645,7 +5098,55 @@ function MusicScreen({ nowPlaying, onNowPlaying, musicTokens, onMusicTokens, ytP
             </div>
           ) : tracks.length === 0 ? (
             <div style={{ textAlign: "center", padding: "60px 20px", color: "var(--muted)" }}><div style={{ fontSize: 32, marginBottom: 12 }}>♪</div><div>Nenhuma faixa encontrada.</div></div>
+          ) : selectedPlaylist.svc === "local" ? (
+            /* ── Local track list ── */
+            <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+              {tracks.map((item, idx) => {
+                const nowLocalIdx = nowPlaying?.playlistId === selectedPlaylist.id && nowPlaying?.svc === "local" ? (nowPlaying?.startIdx ?? -1) : -1;
+                const isCurrentTrack = nowLocalIdx === idx;
+                const accentColor = localAccent(selectedPlaylist.name);
+                return (
+                  <div key={item.id || idx}
+                    draggable
+                    onDragStart={e => { dragRef.current = idx; e.dataTransfer.effectAllowed = "move"; }}
+                    onDragEnter={() => { dragOverRef.current = idx; }}
+                    onDragOver={e => e.preventDefault()}
+                    onDragEnd={() => {
+                      const from = dragRef.current; const to = dragOverRef.current;
+                      dragRef.current = null; dragOverRef.current = null;
+                      if (from !== null && to !== null && from !== to) reorderTracks(from, to);
+                    }}
+                    onClick={() => playLocalTrack(idx)}
+                    style={{ display: "flex", alignItems: "center", gap: 12, padding: "8px 10px", borderRadius: 6, cursor: "pointer", transition: "background 0.15s", background: isCurrentTrack ? "rgba(201,168,76,0.08)" : "transparent" }}
+                    onMouseEnter={e => { if (!isCurrentTrack) e.currentTarget.style.background = "var(--card)"; }}
+                    onMouseLeave={e => { if (!isCurrentTrack) e.currentTarget.style.background = "transparent"; }}>
+                    <div style={{ width: 14, flexShrink: 0, display: "flex", flexDirection: "column", gap: 3, alignItems: "center", justifyContent: "center", cursor: "grab", opacity: 0.35 }}
+                      onMouseEnter={e => e.currentTarget.style.opacity = "1"} onMouseLeave={e => e.currentTarget.style.opacity = "0.35"}>
+                      <div style={{ width: 10, height: 1.5, borderRadius: 1, background: "var(--gold)" }} />
+                      <div style={{ width: 10, height: 1.5, borderRadius: 1, background: "var(--gold)" }} />
+                      <div style={{ width: 10, height: 1.5, borderRadius: 1, background: "var(--gold)" }} />
+                    </div>
+                    <div style={{ width: 24, textAlign: "center", flexShrink: 0, fontSize: 12, color: isCurrentTrack ? accentColor : "var(--muted)", fontFamily: "Cinzel,serif" }}>
+                      {isCurrentTrack ? "▶" : idx + 1}
+                    </div>
+                    <div style={{ width: 40, height: 40, borderRadius: 6, flexShrink: 0, background: localGradient(selectedPlaylist.name), display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18 }}>🎵</div>
+                    <div style={{ minWidth: 0, flex: 1 }}>
+                      <div style={{ fontSize: 13, color: isCurrentTrack ? accentColor : "var(--text)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                        {item.name?.replace(/\.[^.]+$/, "") || "Sem nome"}
+                      </div>
+                      <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 2 }}>Arquivo local</div>
+                    </div>
+                    <button style={{ background: "transparent", border: "none", cursor: "pointer", color: "var(--muted)", fontSize: 14, padding: "2px 6px", flexShrink: 0 }}
+                      title="Remover da biblioteca"
+                      onClick={e => { e.stopPropagation(); if (window.confirm(`Remover "${item.name}" da biblioteca?`)) deleteImportedFile(item.id); }}
+                      onMouseEnter={e => e.currentTarget.style.color = "#e07070"}
+                      onMouseLeave={e => e.currentTarget.style.color = "var(--muted)"}>✕</button>
+                  </div>
+                );
+              })}
+            </div>
           ) : (
+            /* ── YouTube / Spotify track list ── */
             <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
               {tracks.map((item, idx) => {
                 const isYt = selectedPlaylist.svc === "youtube";
@@ -4678,7 +5179,6 @@ function MusicScreen({ nowPlaying, onNowPlaying, musicTokens, onMusicTokens, ytP
                     style={{ display: "flex", alignItems: "center", gap: 12, padding: "8px 10px", borderRadius: 6, cursor: "pointer", transition: "background 0.15s", background: isCurrentTrack ? (isYt ? "rgba(255,68,68,0.07)" : "rgba(29,185,84,0.07)") : "transparent" }}
                     onMouseEnter={e => { if (!isCurrentTrack) e.currentTarget.style.background = "var(--card)"; }}
                     onMouseLeave={e => { if (!isCurrentTrack) e.currentTarget.style.background = "transparent"; }}>
-                    {/* Drag handle */}
                     <div style={{ width: 14, flexShrink: 0, display: "flex", flexDirection: "column", gap: 3, alignItems: "center", justifyContent: "center", cursor: "grab", opacity: 0.35 }}
                       onMouseEnter={e => e.currentTarget.style.opacity = "1"}
                       onMouseLeave={e => e.currentTarget.style.opacity = "0.35"}>
@@ -4686,15 +5186,12 @@ function MusicScreen({ nowPlaying, onNowPlaying, musicTokens, onMusicTokens, ytP
                       <div style={{ width: 10, height: 1.5, borderRadius: 1, background: "var(--gold)" }} />
                       <div style={{ width: 10, height: 1.5, borderRadius: 1, background: "var(--gold)" }} />
                     </div>
-                    {/* Number / play indicator */}
                     <div style={{ width: 24, textAlign: "center", flexShrink: 0, fontSize: 12, color: isCurrentTrack ? accent : "var(--muted)", fontFamily: "Cinzel,serif" }}>
                       {isCurrentTrack ? "▶" : idx + 1}
                     </div>
-                    {/* Thumb */}
                     <div style={{ width: 40, height: 40, borderRadius: 4, overflow: "hidden", flexShrink: 0, background: "var(--card2)", display: "flex", alignItems: "center", justifyContent: "center" }}>
                       {thumb ? <img src={thumb} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <span style={{ fontSize: 16, color: "var(--muted)" }}>♪</span>}
                     </div>
-                    {/* Info */}
                     <div style={{ minWidth: 0, flex: 1 }}>
                       <div style={{ fontSize: 13, color: isCurrentTrack ? accent : "var(--text)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{title}</div>
                       {sub && <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{sub}</div>}
@@ -4705,6 +5202,87 @@ function MusicScreen({ nowPlaying, onNowPlaying, musicTokens, onMusicTokens, ytP
               })}
             </div>
           )}
+        </div>
+      )}
+
+      {/* ── Criar / Editar Playlist Local Modal ── */}
+      {createPlOpen && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.88)", zIndex: 300, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}
+          onClick={e => { if (e.target === e.currentTarget) { setCreatePlOpen(false); setEditingPl(null); } }}>
+          <div style={{ ...card, padding: 0, maxWidth: 560, width: "100%", background: "var(--surface)", borderRadius: 12, overflow: "hidden", display: "flex", flexDirection: "column", maxHeight: "85vh" }}>
+            {/* Header */}
+            <div style={{ padding: "20px 24px 16px", borderBottom: "1px solid var(--border)", display: "flex", alignItems: "center", gap: 12 }}>
+              <div style={{ width: 36, height: 36, borderRadius: 8, background: newPlName ? localGradient(newPlName) : "var(--card2)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, transition: "background 0.3s" }}>🎵</div>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontFamily: "Cinzel,serif", fontSize: 13, color: gold, letterSpacing: 2 }}>{editingPl ? "Editar Playlist" : "Nova Playlist"}</div>
+                <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 2 }}>{selectedFileIds.size} faixa{selectedFileIds.size !== 1 ? "s" : ""} selecionada{selectedFileIds.size !== 1 ? "s" : ""}</div>
+              </div>
+              <button style={{ background: "transparent", border: "none", cursor: "pointer", color: "var(--muted)", fontSize: 20, padding: "2px 6px" }}
+                onClick={() => { setCreatePlOpen(false); setEditingPl(null); }}>✕</button>
+            </div>
+            {/* Name input */}
+            <div style={{ padding: "16px 24px 0" }}>
+              <input value={newPlName} onChange={e => setNewPlName(e.target.value)}
+                placeholder="Nome da playlist..."
+                style={{ width: "100%", boxSizing: "border-box", fontFamily: "Cinzel,serif", fontSize: 13 }}
+                onKeyDown={e => { if (e.key === "Enter" && newPlName.trim() && selectedFileIds.size > 0) createLocalPlaylist(); }} />
+            </div>
+            {/* File list */}
+            <div style={{ flex: 1, overflowY: "auto", padding: "12px 24px 16px" }}>
+              {importedFiles.length === 0 ? (
+                <div style={{ textAlign: "center", padding: "32px 20px", color: "var(--muted)" }}>
+                  <div style={{ fontSize: 28, marginBottom: 8 }}>🎵</div>
+                  <div style={{ marginBottom: 12 }}>Nenhum arquivo importado ainda</div>
+                  <button className="btn-ghost" style={{ fontSize: 10 }} onClick={() => { setCreatePlOpen(false); fileInputRef.current?.click(); }}>Importar MP3</button>
+                </div>
+              ) : (
+                <>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                    <div style={{ fontFamily: "Cinzel,serif", fontSize: 10, color: "var(--muted2)", letterSpacing: 1 }}>BIBLIOTECA LOCAL · {importedFiles.length} arquivo{importedFiles.length !== 1 ? "s" : ""}</div>
+                    <button style={{ background: "transparent", border: "none", cursor: "pointer", color: selectedFileIds.size === importedFiles.length ? gold : "var(--muted)", fontSize: 10, fontFamily: "Cinzel,serif", letterSpacing: 1 }}
+                      onClick={() => setSelectedFileIds(selectedFileIds.size === importedFiles.length ? new Set() : new Set(importedFiles.map(f => f.id)))}>
+                      {selectedFileIds.size === importedFiles.length ? "Desmarcar todos" : "Selecionar todos"}
+                    </button>
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                    {importedFiles.map(f => {
+                      const checked = selectedFileIds.has(f.id);
+                      return (
+                        <div key={f.id} onClick={() => {
+                          setSelectedFileIds(prev => {
+                            const n = new Set(prev);
+                            checked ? n.delete(f.id) : n.add(f.id);
+                            return n;
+                          });
+                        }}
+                          style={{ display: "flex", alignItems: "center", gap: 10, padding: "7px 10px", borderRadius: 6, cursor: "pointer", transition: "background 0.15s", background: checked ? "rgba(201,168,76,0.07)" : "transparent", border: `1px solid ${checked ? "rgba(201,168,76,0.2)" : "transparent"}` }}
+                          onMouseEnter={e => { if (!checked) e.currentTarget.style.background = "var(--card)"; }}
+                          onMouseLeave={e => { if (!checked) e.currentTarget.style.background = "transparent"; }}>
+                          <div style={{ width: 18, height: 18, borderRadius: 4, border: `1.5px solid ${checked ? gold : "var(--border2)"}`, background: checked ? gold : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, transition: "all 0.15s" }}>
+                            {checked && <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#050505" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>}
+                          </div>
+                          <div style={{ fontSize: 14, flexShrink: 0 }}>🎵</div>
+                          <div style={{ minWidth: 0, flex: 1 }}>
+                            <div style={{ fontSize: 12, color: checked ? "var(--gold2)" : "var(--text)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                              {f.name?.replace(/\.[^.]+$/, "") || "Sem nome"}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </>
+              )}
+            </div>
+            {/* Footer */}
+            <div style={{ padding: "14px 24px", borderTop: "1px solid var(--border)", display: "flex", gap: 10, justifyContent: "flex-end" }}>
+              <button className="btn-ghost" onClick={() => { setCreatePlOpen(false); setEditingPl(null); }}>Cancelar</button>
+              <button className="btn-gold" disabled={!newPlName.trim() || selectedFileIds.size === 0} onClick={createLocalPlaylist}
+                style={{ opacity: !newPlName.trim() || selectedFileIds.size === 0 ? 0.5 : 1 }}>
+                {editingPl ? "Salvar" : "Criar Playlist"}
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
