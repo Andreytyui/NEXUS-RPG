@@ -55,6 +55,10 @@ const G = () => (
       --muted:#9c8e70;
       --muted2:#c8b48e;
       --danger:#8b2020;
+      --purple:#8e6dbf;
+      --purple2:#c8a8f0;
+      --purple-glow:rgba(142,109,191,0.3);
+      --purple-dim:rgba(142,109,191,0.12);
     }
     body{background:var(--bg);font-family:'Crimson Pro',serif;overflow-x:hidden}
     ::-webkit-scrollbar{width:3px}
@@ -71,20 +75,25 @@ const G = () => (
     @keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-6px)}}
     @keyframes borderGlow{0%,100%{border-color:rgba(201,168,76,0.2)}50%{border-color:rgba(201,168,76,0.6)}}
     @keyframes critAura{0%,100%{box-shadow:0 0 8px 3px rgba(255,215,0,0.9),0 0 22px 8px rgba(255,180,0,0.55),0 0 44px 16px rgba(201,168,76,0.25);color:#ffe86a}50%{box-shadow:0 0 16px 6px rgba(255,215,0,1),0 0 40px 14px rgba(255,180,0,0.8),0 0 70px 28px rgba(201,168,76,0.45);color:#fff5a0}}
+    @keyframes statCardIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+    @keyframes skeletonPulse{0%,100%{opacity:0.35}50%{opacity:0.6}}
     .logo-float{animation:float 4s ease-in-out infinite}
+    .stat-card{cursor:pointer;transition:all 0.2s ease}
+    .stat-card:hover{box-shadow:0 0 18px rgba(142,109,191,0.28),0 4px 14px rgba(0,0,0,0.35);border-color:rgba(142,109,191,0.45)!important}
+    .skeleton{background:linear-gradient(90deg,rgba(255,255,255,0.04) 25%,rgba(255,255,255,0.08) 50%,rgba(255,255,255,0.04) 75%);background-size:200% 100%;animation:shimmer 1.5s infinite;border-radius:4px}
     [role="button"]:focus-visible{outline:2px solid rgba(201,168,76,0.8);outline-offset:3px;border-radius:10px}
     a:focus-visible{outline:2px solid rgba(201,168,76,0.8);outline-offset:2px;border-radius:3px}
 
     .fade{animation:fadeIn 0.5s ease forwards}
 
     .btn-gold{
-      font-family:'Cinzel',serif;font-size:11px;letter-spacing:3px;text-transform:uppercase;
-      padding:13px 28px;border-radius:4px;cursor:pointer;transition:all 0.25s;
+      font-family:'Cinzel',serif;font-size:0.8rem;letter-spacing:0.1em;text-transform:uppercase;
+      padding:12px 24px;border-radius:4px;cursor:pointer;transition:all 0.25s;
       background:linear-gradient(135deg,#c9a84c,#e8c96d,#a07830);
       border:none;color:#050505;font-weight:700;
       box-shadow:0 4px 20px rgba(201,168,76,0.3);
     }
-    .btn-gold:hover{transform:translateY(-1px);box-shadow:0 6px 30px rgba(201,168,76,0.5)}
+    .btn-gold:hover{filter:brightness(1.15);transform:translateY(-1px);box-shadow:0 6px 30px rgba(201,168,76,0.5)}
     .btn-ghost{
       font-family:'Cinzel',serif;font-size:10px;letter-spacing:2px;text-transform:uppercase;
       padding:11px 22px;border-radius:4px;cursor:pointer;transition:all 0.25s;
@@ -92,12 +101,12 @@ const G = () => (
     }
     .btn-ghost:hover{background:var(--gold-dim);border-color:var(--gold)}
     .nav-item{
-      font-family:'Cinzel',serif;font-size:10px;letter-spacing:2px;text-transform:uppercase;
+      font-family:'Cinzel',serif;font-size:10px;letter-spacing:0.08em;text-transform:uppercase;
       padding:8px 14px;border-radius:3px;cursor:pointer;border:none;
       background:transparent;color:var(--muted2);transition:all 0.2s;display:flex;align-items:center;gap:7px;
     }
-    .nav-item:hover{background:var(--gold-dim)}
-    .nav-item.active{color:var(--gold);background:var(--gold-dim);border-left:2px solid var(--gold)}
+    .nav-item:hover{background:rgba(255,255,255,0.05);color:var(--text)}
+    .nav-item.active{color:var(--purple2);background:var(--purple-dim)}
     input,textarea{
       font-family:'Crimson Pro',serif;font-size:15px;
       background:var(--card2);border:1px solid var(--border);border-radius:5px;
@@ -151,7 +160,7 @@ const G = () => (
       .step-bar-mobile{display:flex;overflow-x:auto;gap:0;padding:0 16px;scrollbar-width:none}
       .step-bar-mobile::-webkit-scrollbar{display:none}
       .char-meta{grid-template-columns:repeat(2,1fr)}
-      .btn-gold{padding:12px 18px;font-size:10px;letter-spacing:2px}
+      .btn-gold{padding:10px 18px;font-size:0.75rem;letter-spacing:0.08em}
       .btn-ghost{padding:10px 16px}
       .login-card{padding:28px 20px !important;max-width:100% !important}
     }
@@ -633,9 +642,9 @@ function Sidebar({ active, onNav, collapsed, setCollapsed, system, onChangeSyste
           borderRadius:6,
           display:"flex", alignItems:"center", gap:8,
         }}>
-          <span style={{display:"flex",alignItems:"center"}}>{system.svgIcon ? system.svgIcon(false) : system.icon}</span>
-          <div style={{flex:1, overflow:"hidden"}}>
-            <div style={{fontFamily:"Cinzel,serif", fontSize:9, letterSpacing:1, color:system.accent, textTransform:"uppercase", whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis"}}>{system.name}</div>
+          <span style={{display:"flex",alignItems:"center",flexShrink:0}}>{system.svgIcon ? system.svgIcon(false) : system.icon}</span>
+          <div style={{flex:1, minWidth:0}}>
+            <div style={{fontFamily:"Cinzel,serif", fontSize:9, letterSpacing:"0.06em", color:system.accent, textTransform:"uppercase", whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis"}}>{system.name}</div>
           </div>
           <button onClick={onChangeSystem} title="Trocar sistema" style={{
             background:"none", border:"none", cursor:"pointer",
@@ -658,9 +667,9 @@ function Sidebar({ active, onNav, collapsed, setCollapsed, system, onChangeSyste
         {navItems.map(item => (
           <button key={item.id} className={`nav-item ${active===item.id?"active":""}`}
             onClick={()=>onNav(item.id)}
-            style={{justifyContent: collapsed?"center":"flex-start", paddingLeft: collapsed?0:14, borderLeft: active===item.id&&!collapsed?"2px solid var(--gold)":"2px solid transparent"}}
+            style={{justifyContent: collapsed?"center":"flex-start", paddingLeft: collapsed?0:14, borderLeft: active===item.id&&!collapsed?"2px solid var(--purple)":"2px solid transparent"}}
             title={collapsed?item.label:""}>
-            <span style={{fontSize:16, minWidth:20, textAlign:"center"}}>{item.icon}</span>
+            <span style={{fontSize:16, minWidth:20, textAlign:"center", opacity:active===item.id?1:0.6, transition:"opacity 0.2s"}}>{item.icon}</span>
             {!collapsed && item.label}
           </button>
         ))}
@@ -824,33 +833,33 @@ function Sidebar({ active, onNav, collapsed, setCollapsed, system, onChangeSyste
 /* ═══════════════════════════════
    DASHBOARD
 ═══════════════════════════════ */
-function Dashboard({ system, onCreateChar, characters, sessions, onSelectChar }) {
+function Dashboard({ system, onCreateChar, characters, sessions, onSelectChar, onNav }) {
   const accent = system?.accent || "var(--gold)";
   const accentText = system?.accentText || system?.accent || "var(--gold)";
 
   const stats = [
-    { label:"Fichas Criadas", val: String(characters.length),   icon:"◈", color: accent },
-    { label:"Mapas",          val: "0",                          icon:"⬙", color:"#7a9ed4" },
-    { label:"Sessões com IA", val: String(sessions.length),      icon:"◉", color:"#8e6dbf" },
-    { label:"Horas Jogadas",  val: "0h",                         icon:"◎", color:"#6aaa7a" },
+    { label:"Fichas Criadas", val: String(characters.length), icon:"◈", color: accent,   nav:"sheet" },
+    { label:"Mapas",          val: "0",                       icon:"⬙", color:"#7a9ed4", nav:"map" },
+    { label:"Sessões com IA", val: String(sessions.length),   icon:"◉", color:"#8e6dbf", nav:"master" },
+    { label:"Horas Jogadas",  val: "0h",                      icon:"◎", color:"#6aaa7a", nav:"party" },
   ];
 
   /* ── Empty state helpers ── */
   const EmptyChars = () => (
     <div style={{
       display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center",
-      padding:"36px 20px", gap:14, textAlign:"center",
-      background:"var(--card)", border:"1px dashed rgba(201,168,76,0.15)",
-      borderRadius:8,
+      minHeight:180, padding:"28px 20px", gap:12, textAlign:"center",
+      background:"radial-gradient(ellipse at center, rgba(201,168,76,0.06) 0%, var(--card) 70%)",
+      border:"1px dashed rgba(201,168,76,0.18)", borderRadius:8,
     }}>
-      <div style={{fontSize:40, opacity:0.3}}>◈</div>
-      <div style={{fontFamily:"Cinzel,serif", fontSize:14, letterSpacing:2, color:"var(--muted)", textTransform:"uppercase"}}>
+      <div style={{fontSize:48, opacity:0.4}}>◈</div>
+      <div style={{fontFamily:"Cinzel,serif", fontSize:12, letterSpacing:"0.08em", color:"var(--muted)", textTransform:"uppercase"}}>
         Nenhum personagem criado
       </div>
-      <div style={{fontFamily:"Crimson Pro,serif", fontSize:17, color:"var(--muted)", fontStyle:"italic", maxWidth:280}}>
+      <div style={{fontFamily:"Crimson Pro,serif", fontSize:16, color:"var(--muted)", fontStyle:"italic", maxWidth:280}}>
         Crie sua primeira ficha de agente e ela aparecerá aqui.
       </div>
-      <button className="btn-gold" onClick={onCreateChar} style={{fontSize:13, padding:"10px 22px", marginTop:4}}>
+      <button className="btn-gold" onClick={onCreateChar}>
         + Criar Primeiro Agente
       </button>
     </div>
@@ -859,12 +868,12 @@ function Dashboard({ system, onCreateChar, characters, sessions, onSelectChar })
   const EmptySessions = () => (
     <div style={{
       display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center",
-      padding:"28px 20px", gap:10, textAlign:"center",
-      background:"var(--card)", border:"1px dashed rgba(201,168,76,0.1)",
-      borderRadius:8,
+      minHeight:180, padding:"28px 20px", gap:12, textAlign:"center",
+      background:"radial-gradient(ellipse at center, rgba(142,109,191,0.07) 0%, var(--card) 70%)",
+      border:"1px dashed rgba(142,109,191,0.18)", borderRadius:8,
     }}>
-      <div style={{fontSize:32, opacity:0.3}}>◉</div>
-      <div style={{fontFamily:"Cinzel,serif", fontSize:14, letterSpacing:2, color:"var(--muted)", textTransform:"uppercase"}}>Nenhuma sessão ainda</div>
+      <div style={{fontSize:48, opacity:0.4}}>◉</div>
+      <div style={{fontFamily:"Cinzel,serif", fontSize:12, letterSpacing:"0.08em", color:"var(--muted)", textTransform:"uppercase"}}>Nenhuma sessão ainda</div>
       <div style={{fontFamily:"Crimson Pro,serif", fontSize:16, color:"var(--muted)", fontStyle:"italic"}}>
         Use o Ajudante do Mestre para iniciar sua primeira sessão.
       </div>
@@ -876,32 +885,32 @@ function Dashboard({ system, onCreateChar, characters, sessions, onSelectChar })
 
       {/* System banner */}
       <div style={{
-        padding:"16px 20px",
+        padding:"12px 20px",
         background:`linear-gradient(135deg, ${system?.accent}12, transparent)`,
         border:`1px solid ${system?.accent}30`,
         borderRadius:8, display:"flex", alignItems:"center", gap:14, flexWrap:"wrap",
       }}>
         <span style={{fontSize:28}}>{system?.svgIcon ? system.svgIcon(false) : system?.icon}</span>
         <div>
-          <div style={{fontFamily:"Cinzel,serif", fontSize:13, letterSpacing:2, color:accentText, textTransform:"uppercase", marginBottom:3}}>{system?.subtitle}</div>
+          <div style={{fontFamily:"Cinzel,serif", fontSize:11, letterSpacing:"0.08em", color:accentText, textTransform:"uppercase", marginBottom:3}}>{system?.subtitle}</div>
           <div style={{fontFamily:"'Cinzel Decorative',serif", fontSize:20, color:"var(--text)"}}>{system?.name}</div>
         </div>
-        <div style={{marginLeft:"auto", fontFamily:"Crimson Pro,serif", fontSize:16, color:"var(--muted2)", fontStyle:"italic", maxWidth:320, textAlign:"right"}}>
+        <div style={{marginLeft:"auto", fontFamily:"Crimson Pro,serif", fontSize:16, color:"#d4c4a0", fontStyle:"italic", maxWidth:320, textAlign:"right", textShadow:"0 1px 3px rgba(0,0,0,0.7)"}}>
           {system?.desc}
         </div>
       </div>
 
       {/* Header */}
-      <div style={{display:"flex", justifyContent:"space-between", alignItems:"flex-end", flexWrap:"wrap", gap:12}}>
+      <div style={{display:"flex", justifyContent:"space-between", alignItems:"flex-end", flexWrap:"wrap", gap:12, marginTop:8}}>
         <div>
-          <div style={{fontFamily:"Cinzel,serif", fontSize:12, letterSpacing:3, color:"var(--muted)", textTransform:"uppercase", marginBottom:6}}>Bem-vindo de volta</div>
+          <div style={{fontFamily:"Cinzel,serif", fontSize:12, letterSpacing:"0.08em", color:"var(--muted)", textTransform:"uppercase", marginBottom:6}}>Bem-vindo de volta</div>
           <h1 style={{fontFamily:"'Cinzel Decorative',serif", fontSize:24, fontWeight:700,
             background:`linear-gradient(135deg,${accent},#e8c96d)`,
             WebkitBackgroundClip:"text", WebkitTextFillColor:"transparent", backgroundClip:"text"}}>Painel do Agente</h1>
         </div>
         <button
           className="btn-gold"
-          style={{fontSize:13, padding:"10px 22px", opacity: characters.length >= 5 ? 0.45 : 1, cursor: characters.length >= 5 ? "not-allowed" : "pointer"}}
+          style={{opacity: characters.length >= 5 ? 0.45 : 1, cursor: characters.length >= 5 ? "not-allowed" : "pointer"}}
           onClick={characters.length < 5 ? onCreateChar : undefined}
           disabled={characters.length >= 5}
           title={characters.length >= 5 ? "Limite de 5 fichas atingido" : ""}
@@ -911,20 +920,24 @@ function Dashboard({ system, onCreateChar, characters, sessions, onSelectChar })
       </div>
 
       {/* Stats */}
-      <div style={{display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:12}}>
-        {stats.map(s=>(
-          <div key={s.label} style={{
-            background:"var(--card)", border:"1px solid var(--border)",
-            borderRadius:8, padding:"18px 16px", display:"flex", gap:12, alignItems:"center",
-          }}>
+      <div className="dash-stats">
+        {stats.map((s,i)=>(
+          <div key={s.label} className="stat-card"
+            onClick={()=>onNav && onNav(s.nav)}
+            style={{
+              background:"var(--card)", border:"1px solid var(--border)",
+              borderRadius:8, padding:"20px 18px",
+              display:"flex", flexDirection:"column", gap:10,
+              animation:`statCardIn 0.4s ease ${i*0.08}s both`,
+            }}>
             <div style={{
-              width:40, height:40, borderRadius:8, flexShrink:0,
-              background:`${s.color}15`, border:`1px solid ${s.color}30`,
-              display:"flex", alignItems:"center", justifyContent:"center", fontSize:18, color:s.color,
+              width:44, height:44, borderRadius:10, flexShrink:0,
+              background:`${s.color}20`, border:`1px solid ${s.color}45`,
+              display:"flex", alignItems:"center", justifyContent:"center", fontSize:22, color:s.color,
             }}>{s.icon}</div>
             <div>
-              <div style={{fontFamily:"Cinzel,serif", fontSize:12, letterSpacing:2, color:"var(--muted)", textTransform:"uppercase", marginBottom:3}}>{s.label}</div>
-              <div style={{fontFamily:"'Cinzel Decorative',serif", fontSize:26, color:s.color}}>{s.val}</div>
+              <div style={{fontFamily:"Cinzel,serif", fontSize:9, letterSpacing:"0.08em", color:"var(--muted)", textTransform:"uppercase", marginBottom:4}}>{s.label}</div>
+              <div style={{fontFamily:"'Cinzel Decorative',serif", fontSize:"1.9rem", color:s.color, lineHeight:1}}>{s.val}</div>
             </div>
           </div>
         ))}
@@ -932,7 +945,7 @@ function Dashboard({ system, onCreateChar, characters, sessions, onSelectChar })
 
       {/* Characters */}
       <div>
-        <div style={{fontFamily:"Cinzel,serif", fontSize:14, letterSpacing:2, color:accentText, textTransform:"uppercase", marginBottom:14}}>
+        <div style={{fontFamily:"Cinzel,serif", fontSize:14, letterSpacing:"0.08em", color:accentText, textTransform:"uppercase", marginBottom:14}}>
           Seus Personagens
         </div>
         {characters.length === 0 ? <EmptyChars/> : (
@@ -979,7 +992,7 @@ function Dashboard({ system, onCreateChar, characters, sessions, onSelectChar })
 
       {/* Sessions */}
       <div>
-        <div style={{fontFamily:"Cinzel,serif", fontSize:14, letterSpacing:2, color:accentText, textTransform:"uppercase", marginBottom:14}}>
+        <div style={{fontFamily:"Cinzel,serif", fontSize:14, letterSpacing:"0.08em", color:accentText, textTransform:"uppercase", marginBottom:14}}>
           Últimas Sessões com Ajudante do Mestre
         </div>
         {sessions.length === 0 ? <EmptySessions/> : (
@@ -1426,10 +1439,10 @@ function Topbar({ screen, system, onChangeSystem, onLogout }) {
             fontFamily:"Cinzel,serif", fontSize:9, letterSpacing:2,
             color:system.accentText, textTransform:"uppercase",
             transition:"all 0.25s",
-            boxShadow:`0 0 12px ${system.accent}55, inset 0 1px 0 ${system.accentText}25`,
+            boxShadow:`0 0 6px ${system.accent}33, inset 0 1px 0 ${system.accentText}15`,
           }}
-            onMouseEnter={e=>{e.currentTarget.style.boxShadow=`0 0 20px ${system.accent}99, inset 0 1px 0 ${system.accentText}40`;e.currentTarget.style.borderColor=system.accentText;}}
-            onMouseLeave={e=>{e.currentTarget.style.boxShadow=`0 0 12px ${system.accent}55, inset 0 1px 0 ${system.accentText}25`;e.currentTarget.style.borderColor=`${system.accentText}90`;}}
+            onMouseEnter={e=>{e.currentTarget.style.boxShadow=`0 0 12px ${system.accent}55, inset 0 1px 0 ${system.accentText}30`;e.currentTarget.style.borderColor=system.accentText;}}
+            onMouseLeave={e=>{e.currentTarget.style.boxShadow=`0 0 6px ${system.accent}33, inset 0 1px 0 ${system.accentText}15`;e.currentTarget.style.borderColor=`${system.accentText}90`;}}
             title="Trocar sistema"
           >
             <span style={{display:"flex",alignItems:"center",filter:`drop-shadow(0 0 4px ${system.accent})`}}>{system?.svgIcon ? system.svgIcon(false) : system?.icon}</span>
@@ -1437,15 +1450,15 @@ function Topbar({ screen, system, onChangeSystem, onLogout }) {
             <span style={{opacity:0.8, fontSize:11}}>⇄</span>
           </button>
         )}
-        <div style={{display:"flex", gap:6, alignItems:"center"}}>
-          <div style={{width:6, height:6, borderRadius:"50%", background:"#4caf50", boxShadow:"0 0 6px #4caf50", animation:"pulse 2s infinite"}}/>
-          <span style={{fontFamily:"Cinzel,serif", fontSize:8, letterSpacing:2, color:"var(--muted2)", textTransform:"uppercase"}}>Online</span>
+        <div style={{display:"flex", gap:6, alignItems:"center", padding:"4px 10px", borderRadius:20, background:"rgba(76,175,80,0.08)", border:"1px solid rgba(76,175,80,0.28)"}}>
+          <div style={{width:5, height:5, borderRadius:"50%", background:"#4caf50", boxShadow:"0 0 5px #4caf50", animation:"pulse 2s infinite"}}/>
+          <span style={{fontFamily:"Cinzel,serif", fontSize:8, letterSpacing:"0.08em", color:"#7ecb82", textTransform:"uppercase"}}>Online</span>
         </div>
         <div style={{
           padding:"4px 12px", borderRadius:20,
           background:"linear-gradient(135deg,rgba(201,168,76,0.25),rgba(201,168,76,0.08))",
           border:"1px solid var(--border2)",
-          fontFamily:"Cinzel,serif", fontSize:8, letterSpacing:2, color:"var(--gold2)", textTransform:"uppercase",
+          fontFamily:"Cinzel,serif", fontSize:8, letterSpacing:"0.08em", color:"var(--gold2)", textTransform:"uppercase",
         }}>✦ Plano Pro</div>
 
         {/* Avatar + dropdown */}
@@ -1472,7 +1485,7 @@ function Topbar({ screen, system, onChangeSystem, onLogout }) {
               }
             </button>
             {notifCount > 0 && (
-              <span style={{
+              <span title={`${notifCount} nova${notifCount>1?"s":""} notificaç${notifCount>1?"ões":"ão"} — clique no avatar para ver`} style={{
                 position:"absolute", bottom:-5, right:-5,
                 background:"#e03333", color:"#fff",
                 borderRadius:"50%", minWidth:20, height:20,
@@ -1481,7 +1494,7 @@ function Topbar({ screen, system, onChangeSystem, onLogout }) {
                 display:"flex", alignItems:"center", justifyContent:"center",
                 border:"2px solid #0e0e14",
                 boxShadow:"0 0 8px rgba(220,50,50,0.8)",
-                pointerEvents:"none",
+                pointerEvents:"none", cursor:"default",
               }}>{notifCount}</span>
             )}
           </div>
@@ -5348,12 +5361,12 @@ export default function App() {
     if (creatingChar) return null;
     if (createdChar && screen === "sheet") return <FullSheet character={createdChar} onBack={()=>setCreatedChar(null)} onUpdate={(updated) => { setCreatedChar(updated); setCharacters(prev => prev.map(c => (c.id && c.id === updated.id) || (!c.id && c.createdAt === updated.createdAt) ? updated : c)); }}/>;
     switch(screen){
-      case "dashboard": return <Dashboard system={activeSystem} onCreateChar={()=>setCreatingChar(true)} characters={characters} sessions={sessions} onSelectChar={c=>{ setCreatedChar(c); setScreen("sheet"); }}/>;
+      case "dashboard": return <Dashboard system={activeSystem} onCreateChar={()=>setCreatingChar(true)} characters={characters} sessions={sessions} onSelectChar={c=>{ setCreatedChar(c); setScreen("sheet"); }} onNav={setScreen}/>;
       case "sheet":     return <SheetList characters={characters} system={activeSystem} onCreateChar={()=>setCreatingChar(true)} onSelectChar={c=>{ setCreatedChar(c); }}/>;
       case "map":       return <PlaceholderScreen icon="🗺️" title="Editor de Mapas" desc={`Mapas com tiles e névoa de guerra para ${sysName}.`} badge="Em breve" />;
       case "master":    return <PlaceholderScreen icon="🎭" title="Ajudante do Mestre por Voz" desc={`Ajudante inteligente treinado nas regras de ${sysName}.`} badge="Beta · Pro" />;
       case "party":     return <PlaceholderScreen icon="◎" title="Grupo de Agentes" desc="Compartilhe fichas e gerencie sua campanha." badge="Em breve" />;
-      default: return <Dashboard system={activeSystem} onCreateChar={()=>setCreatingChar(true)} characters={characters} sessions={sessions}/>;
+      default: return <Dashboard system={activeSystem} onCreateChar={()=>setCreatingChar(true)} characters={characters} sessions={sessions} onNav={setScreen}/>;
     }
   };
 
