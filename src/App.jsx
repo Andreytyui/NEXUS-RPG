@@ -1275,15 +1275,17 @@ function CampaignChat({ campaignId, uid, userName, userPhoto }) {
     setInput("");
     clearTimeout(typingTimeoutRef.current);
     fsSetTyping(campaignId,uid,userName,false);
-    if (text.startsWith("/roll ")||text.startsWith("/r ")) {
-      const expr = text.replace(/^\/(roll|r)\s+/,"");
+    if (text.startsWith("/roll ")||text.startsWith("/r ")||/^\/\d+d\d+([+-]\d+)?$/i.test(text)) {
+      const expr = (text.startsWith("/roll ")||text.startsWith("/r "))
+        ? text.replace(/^\/(roll|r)\s+/,"")
+        : text.slice(1);
       const result = rollDice(expr);
       if (result) {
         await fsSendMessage(campaignId,uid,userName,userPhoto,
           `Rolou ${result.expr} → [${result.rolls.join(", ")}]${result.mod!==0?(result.mod>0?` + ${result.mod}`:` - ${Math.abs(result.mod)}`):"" } = ${result.total}`,
           "roll", result);
       } else {
-        await fsSendMessage(campaignId,"system","Sistema",null,"Expressão inválida. Use: /r 1d20+5","system",null);
+        await fsSendMessage(campaignId,"system","Sistema",null,"Expressão inválida. Use: /1d20+5","system",null);
       }
       return;
     }
@@ -1365,7 +1367,7 @@ function CampaignChat({ campaignId, uid, userName, userPhoto }) {
             value={input}
             onChange={handleInput}
             onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();sendMessage();}}}
-            placeholder="Mensagem... ou /r 1d20+5 para rolar dados"
+            placeholder="Mensagem... ou /1d20+5 para rolar dados"
             style={{paddingRight:50,background:"rgba(176,48,216,0.06)",border:"1px solid rgba(176,48,216,0.22)",borderRadius:6}}
           />
           <span style={{position:"absolute",right:10,top:"50%",transform:"translateY(-50%)",fontFamily:"Cinzel,serif",fontSize:9,color:"var(--muted)",letterSpacing:1,pointerEvents:"none"}}>🎲</span>
