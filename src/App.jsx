@@ -95,9 +95,9 @@ const fsJoinCampaign = async (uid, userName, code) => {
   } catch (e) { console.error(e); return { error:"Erro ao entrar na campanha." }; }
 };
 
-const fsGetUserCampaigns = (uid, cb) => {
+const fsGetUserCampaigns = (uid, cb, onError) => {
   const q = query(collection(db,"campaigns"), where("members","array-contains",uid));
-  return onSnapshot(q, snap => cb(snap.docs.map(d=>({id:d.id,...d.data()}))), ()=>cb([]));
+  return onSnapshot(q, snap => cb(snap.docs.map(d=>({id:d.id,...d.data()}))), onError || (() => cb([])));
 };
 
 const fsSendMessage = async (campaignId, uid, userName, userPhoto, content, type, rollData) => {
@@ -6186,6 +6186,7 @@ export default function App() {
   const [currentUser, setCurrentUser] = useState(null);
   const [campaigns, setCampaigns] = useState([]);
   const [campaignsLoading, setCampaignsLoading] = useState(false);
+  const [campaignSubKey, setCampaignSubKey] = useState(0);
   const [selectedCampaign, setSelectedCampaign] = useState(null);
   const [showCreateCampaign, setShowCreateCampaign] = useState(false);
   const [showJoinCampaign, setShowJoinCampaign] = useState(false);
@@ -6234,9 +6235,13 @@ export default function App() {
       setCampaigns(list);
       setCampaignsLoading(false);
       setSelectedCampaign(prev => prev ? (list.find(c=>c.id===prev.id)||null) : null);
+    }, () => {
+      setCampaigns([]);
+      setCampaignsLoading(false);
+      setTimeout(() => setCampaignSubKey(k => k + 1), 5000);
     });
     return unsub;
-  }, [currentUser?.uid]);
+  }, [currentUser?.uid, campaignSubKey]);
 
   useEffect(() => {
     if (activeSystem) localStorage.setItem('nexus_system', JSON.stringify(activeSystem));
@@ -6299,8 +6304,8 @@ export default function App() {
             <>
               <CampaignDetail campaign={live} uid={uid} userName={userName} userPhoto={userPhoto}
                 characters={characters} onBack={()=>setSelectedCampaign(null)}/>
-              {showCreateCampaign && <CreateCampaignModal onClose={()=>setShowCreateCampaign(false)} onCreate={async(data)=>{const r=await fsCreateCampaign(uid,userName,data);if(r){setShowCreateCampaign(false);return true;}return false;}}/>}
-              {showJoinCampaign && <JoinCampaignModal onClose={()=>setShowJoinCampaign(false)} onJoin={async(code)=>{const r=await fsJoinCampaign(uid,userName,code);if(!r?.error){setShowJoinCampaign(false);}return r;}}/>}
+              {showCreateCampaign && <CreateCampaignModal onClose={()=>setShowCreateCampaign(false)} onCreate={async(data)=>{const r=await fsCreateCampaign(uid,userName,data);if(r){setShowCreateCampaign(false);setCampaignSubKey(k=>k+1);return true;}return false;}}/>}
+              {showJoinCampaign && <JoinCampaignModal onClose={()=>setShowJoinCampaign(false)} onJoin={async(code)=>{const r=await fsJoinCampaign(uid,userName,code);if(!r?.error){setShowJoinCampaign(false);setCampaignSubKey(k=>k+1);}return r;}}/>}
             </>
           );
         }
@@ -6310,7 +6315,7 @@ export default function App() {
               onOpenCampaign={setSelectedCampaign}
               onCreateCampaign={()=>setShowCreateCampaign(true)}
               onJoinCampaign={()=>setShowJoinCampaign(true)}/>
-            {showCreateCampaign && <CreateCampaignModal onClose={()=>setShowCreateCampaign(false)} onCreate={async(data)=>{const r=await fsCreateCampaign(uid,userName,data);if(r){setShowCreateCampaign(false);return true;}return false;}}/>}
+            {showCreateCampaign && <CreateCampaignModal onClose={()=>setShowCreateCampaign(false)} onCreate={async(data)=>{const r=await fsCreateCampaign(uid,userName,data);if(r){setShowCreateCampaign(false);setCampaignSubKey(k=>k+1);return true;}return false;}}/>}
             {showJoinCampaign && <JoinCampaignModal onClose={()=>setShowJoinCampaign(false)} onJoin={async(code)=>{const r=await fsJoinCampaign(uid,userName,code);if(!r?.error)setShowJoinCampaign(false);return r;}}/>}
           </>
         );
