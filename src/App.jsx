@@ -71,8 +71,7 @@ const G = () => (
     @keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-6px)}}
     @keyframes borderGlow{0%,100%{border-color:rgba(201,168,76,0.2)}50%{border-color:rgba(201,168,76,0.6)}}
     @keyframes critAura{0%,100%{box-shadow:0 0 8px 3px rgba(255,215,0,0.9),0 0 22px 8px rgba(255,180,0,0.55),0 0 44px 16px rgba(201,168,76,0.25);color:#ffe86a}50%{box-shadow:0 0 16px 6px rgba(255,215,0,1),0 0 40px 14px rgba(255,180,0,0.8),0 0 70px 28px rgba(201,168,76,0.45);color:#fff5a0}}
-    @keyframes hexSpin{to{transform:rotate(360deg)}}
-    .hex-spin-group{transform-box:view-box;transform-origin:60px 60px;animation:hexSpin 8s linear infinite}
+    .logo-float{animation:float 4s ease-in-out infinite}
 
     .fade{animation:fadeIn 0.5s ease forwards}
 
@@ -175,80 +174,17 @@ const G = () => (
   `}</style>
 );
 
-/* ─── LOGO SVG — NEXUS N ─── */
-const NexusLogo = ({ size = 40, animate = false }) => {
-  // Wireframe vertices: rectangle + 4 apex points
-  const TL=[33,27], TR=[87,27], BR=[87,93], BL=[33,93];
-  const TC=[60,10], BC=[60,110], LC=[14,60], RC=[106,60];
-  const edges = [
-    [TL,TR],[TR,BR],[BR,BL],[BL,TL],   // rectangle
-    [TL,TC],[TR,TC],                    // top pyramid
-    [BL,BC],[BR,BC],                    // bottom pyramid
-    [TL,LC],[BL,LC],                    // left pyramid
-    [TR,RC],[BR,RC],                    // right pyramid
-    [TL,BR],[TR,BL],                    // X diagonals
-    [TC,BC],[LC,RC],                    // long cross
-  ];
-  return (
-    <svg width={size} height={size} viewBox="0 0 120 120" fill="none" xmlns="http://www.w3.org/2000/svg"
-      style={animate ? { animation:"glow 3s ease-in-out infinite", display:"block" } : { display:"block" }}>
-      <defs>
-        <radialGradient id="nGold" cx="60" cy="38" r="38" gradientUnits="userSpaceOnUse">
-          <stop offset="0%" stopColor="#f5e07a" />
-          <stop offset="50%" stopColor="#c9a84c" />
-          <stop offset="100%" stopColor="#7a5510" />
-        </radialGradient>
-        <filter id="nGlow" x="-30%" y="-30%" width="160%" height="160%">
-          <feGaussianBlur stdDeviation="2.5" result="blur" />
-          <feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge>
-        </filter>
-        <filter id="nSoft" x="-20%" y="-20%" width="140%" height="140%">
-          <feGaussianBlur stdDeviation="1.2" result="blur" />
-          <feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge>
-        </filter>
-      </defs>
-
-      {/* Outer compass ring — static */}
-      <circle cx="60" cy="60" r="56" stroke="#c9a84c" strokeWidth="1" strokeOpacity="0.5" fill="none" />
-      <circle cx="60" cy="60" r="51" stroke="#c9a84c" strokeWidth="0.4" strokeOpacity="0.2" fill="none" />
-      {Array.from({length:24}, (_,i) => {
-        const angle = i * 15 * Math.PI / 180;
-        const isMain = i % 6 === 0, isMed = i % 3 === 0;
-        const r2 = isMain ? 46 : isMed ? 49 : 52;
-        return (
-          <line key={i}
-            x1={60 + 56*Math.cos(angle)} y1={60 + 56*Math.sin(angle)}
-            x2={60 + r2*Math.cos(angle)} y2={60 + r2*Math.sin(angle)}
-            stroke="#c9a84c" strokeWidth={isMain ? 1.5 : isMed ? 0.8 : 0.4}
-            strokeOpacity={isMain ? 0.9 : isMed ? 0.6 : 0.3}
-          />
-        );
-      })}
-
-      {/* Cardinal sparkle diamonds on ring */}
-      {[[60,4],[116,60],[60,116],[4,60]].map(([x,y],i) => (
-        <polygon key={i} points={`${x},${y-5} ${x+2.5},${y} ${x},${y+5} ${x-2.5},${y}`}
-          fill="#c9a84c" filter="url(#nSoft)" opacity="0.95" />
-      ))}
-
-      {/* Spinning 3D cage wireframe */}
-      <g className="hex-spin-group" filter="url(#nGlow)">
-        {edges.map(([[x1,y1],[x2,y2]],i) => (
-          <line key={i} x1={x1} y1={y1} x2={x2} y2={y2}
-            stroke="#c9a84c"
-            strokeWidth={i < 4 ? 1.0 : 0.65}
-            strokeOpacity={i < 4 ? 0.85 : 0.7}
-          />
-        ))}
-      </g>
-
-      {/* N letter — static */}
-      <text x="60" y="84" textAnchor="middle"
-        fontFamily="'Cinzel', serif" fontSize="66" fontWeight="700"
-        fill="url(#nGold)" filter="url(#nGlow)">N</text>
-    </svg>
-  );
-};
+/* ─── LOGO IMAGE — NEXUS N ─── */
+const NexusLogo = ({ size = 40, animate = false }) => (
+  <img
+    src="/Logo Nexus.jpg"
+    alt="Nexus RPG"
+    width={size}
+    height={size}
+    className={animate ? "logo-float" : ""}
+    style={{ display:"block", objectFit:"contain" }}
+  />
+);
 
 /* ─── DECORATIVE LINES ─── */
 const Deco = () => (
