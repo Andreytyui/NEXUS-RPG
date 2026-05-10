@@ -71,14 +71,8 @@ const G = () => (
     @keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-6px)}}
     @keyframes borderGlow{0%,100%{border-color:rgba(201,168,76,0.2)}50%{border-color:rgba(201,168,76,0.6)}}
     @keyframes critAura{0%,100%{box-shadow:0 0 8px 3px rgba(255,215,0,0.9),0 0 22px 8px rgba(255,180,0,0.55),0 0 44px 16px rgba(201,168,76,0.25);color:#ffe86a}50%{box-shadow:0 0 16px 6px rgba(255,215,0,1),0 0 40px 14px rgba(255,180,0,0.8),0 0 70px 28px rgba(201,168,76,0.45);color:#fff5a0}}
-    @keyframes eyeBlink{
-      0%,83%  {transform:scaleX(1);animation-timing-function:cubic-bezier(0.4,0,1,0.4)}
-      87%     {transform:scaleX(0.04);animation-timing-function:linear}
-      89%     {transform:scaleX(0.04);animation-timing-function:cubic-bezier(0,0.6,0.4,1)}
-      95%     {transform:scaleX(1)}
-      100%    {transform:scaleX(1)}
-    }
-    .eye-blink-group{transform-box:view-box;transform-origin:60px 60px;animation:eyeBlink 6s linear infinite}
+    @keyframes hexSpin{to{transform:rotate(360deg)}}
+    .hex-spin-group{transform-box:view-box;transform-origin:60px 60px;animation:hexSpin 8s linear infinite}
 
     .fade{animation:fadeIn 0.5s ease forwards}
 
@@ -181,164 +175,89 @@ const G = () => (
   `}</style>
 );
 
-/* ─── LOGO SVG — ALL-SEEING EYE ─── */
-const NexusLogo = ({ size = 40, animate = false }) => (
-  <svg width={size} height={size} viewBox="0 0 120 120" fill="none" xmlns="http://www.w3.org/2000/svg"
-    style={animate ? { animation: "glow 3s ease-in-out infinite", display:"block" } : { display:"block" }}>
-    <defs>
-      <radialGradient id="eyeGold" cx="50%" cy="50%" r="50%">
-        <stop offset="0%" stopColor="#f0d878" />
-        <stop offset="50%" stopColor="#c9a84c" />
-        <stop offset="100%" stopColor="#7a5510" />
-      </radialGradient>
-      <radialGradient id="irisGrad" cx="50%" cy="40%" r="55%">
-        <stop offset="0%" stopColor="#1a0e00" />
-        <stop offset="60%" stopColor="#0a0800" />
-        <stop offset="100%" stopColor="#050400" />
-      </radialGradient>
-      <radialGradient id="pupilGrad" cx="40%" cy="35%" r="60%">
-        <stop offset="0%" stopColor="#c9a84c" stopOpacity="0.35" />
-        <stop offset="100%" stopColor="#000000" />
-      </radialGradient>
-      <radialGradient id="glintGrad" cx="30%" cy="30%" r="60%">
-        <stop offset="0%" stopColor="#ffffff" stopOpacity="0.9" />
-        <stop offset="100%" stopColor="#e8c96d" stopOpacity="0" />
-      </radialGradient>
-      <filter id="outerGlow" x="-30%" y="-30%" width="160%" height="160%">
-        <feGaussianBlur stdDeviation="3" result="blur" />
-        <feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge>
-      </filter>
-      <filter id="softGlow" x="-20%" y="-20%" width="140%" height="140%">
-        <feGaussianBlur stdDeviation="1.5" result="blur" />
-        <feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge>
-      </filter>
-      <filter id="strongGlow" x="-40%" y="-40%" width="180%" height="180%">
-        <feGaussianBlur stdDeviation="4" result="blur" />
-        <feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge>
-      </filter>
-      <clipPath id="eyeClip">
-        <path d="M60 35 Q90 60 60 85 Q30 60 60 35 Z" />
-      </clipPath>
-    </defs>
+/* ─── LOGO SVG — NEXUS N ─── */
+const NexusLogo = ({ size = 40, animate = false }) => {
+  const hex = (r) => Array.from({length:6}, (_,i) => {
+    const a = (i * 60 - 90) * Math.PI / 180;
+    return [60 + r * Math.cos(a), 60 + r * Math.sin(a)];
+  });
+  const h40 = hex(40), h28 = hex(28);
+  return (
+    <svg width={size} height={size} viewBox="0 0 120 120" fill="none" xmlns="http://www.w3.org/2000/svg"
+      style={animate ? { animation:"glow 3s ease-in-out infinite", display:"block" } : { display:"block" }}>
+      <defs>
+        <radialGradient id="nGold" cx="50%" cy="30%" r="70%">
+          <stop offset="0%" stopColor="#f0d878" />
+          <stop offset="55%" stopColor="#c9a84c" />
+          <stop offset="100%" stopColor="#7a5510" />
+        </radialGradient>
+        <filter id="nGlow" x="-30%" y="-30%" width="160%" height="160%">
+          <feGaussianBlur stdDeviation="3" result="blur" />
+          <feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge>
+        </filter>
+        <filter id="nSoft" x="-20%" y="-20%" width="140%" height="140%">
+          <feGaussianBlur stdDeviation="1.5" result="blur" />
+          <feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge>
+        </filter>
+      </defs>
 
-    {/* ── Outer ring with tick marks ── */}
-    <circle cx="60" cy="60" r="56" stroke="#c9a84c" strokeWidth="0.5" strokeOpacity="0.25" fill="none" />
-    <circle cx="60" cy="60" r="52" stroke="#c9a84c" strokeWidth="0.3" strokeOpacity="0.15" fill="none" />
+      {/* Outer compass ring — static */}
+      <circle cx="60" cy="60" r="56" stroke="#c9a84c" strokeWidth="0.5" strokeOpacity="0.25" fill="none" />
+      <circle cx="60" cy="60" r="52" stroke="#c9a84c" strokeWidth="0.3" strokeOpacity="0.15" fill="none" />
+      {Array.from({length:24}, (_,i) => {
+        const angle = i * 15 * Math.PI / 180;
+        const isMain = i % 6 === 0, isMed = i % 3 === 0;
+        const r2 = isMain ? 48 : isMed ? 50 : 52;
+        return (
+          <line key={i}
+            x1={60 + 56*Math.cos(angle)} y1={60 + 56*Math.sin(angle)}
+            x2={60 + r2*Math.cos(angle)} y2={60 + r2*Math.sin(angle)}
+            stroke="#c9a84c" strokeWidth={isMain ? 1.2 : isMed ? 0.8 : 0.4}
+            strokeOpacity={isMain ? 0.9 : isMed ? 0.5 : 0.25}
+          />
+        );
+      })}
 
-    {/* 24 tick marks around outer ring */}
-    {Array.from({length:24}).map((_,i) => {
-      const angle = (i * 15) * Math.PI / 180;
-      const isMain = i % 6 === 0;
-      const isMed  = i % 3 === 0;
-      const r1 = 56, r2 = isMain ? 48 : isMed ? 50 : 52;
-      return (
-        <line key={i}
-          x1={60 + r1 * Math.cos(angle)} y1={60 + r1 * Math.sin(angle)}
-          x2={60 + r2 * Math.cos(angle)} y2={60 + r2 * Math.sin(angle)}
-          stroke="#c9a84c" strokeWidth={isMain ? 1.2 : isMed ? 0.8 : 0.4}
-          strokeOpacity={isMain ? 0.9 : isMed ? 0.5 : 0.25}
-        />
-      );
-    })}
+      {/* Cardinal diamond points */}
+      {[[60,4],[116,60],[60,116],[4,60]].map(([x,y],i) => (
+        <polygon key={i} points={`${x},${y-4} ${x+3},${y} ${x},${y+4} ${x-3},${y}`}
+          fill="#c9a84c" filter="url(#nSoft)" opacity="0.9" />
+      ))}
 
-    {/* ── 8 ornamental rays behind eye ── */}
-    {Array.from({length:8}).map((_,i) => {
-      const angle = (i * 45 - 90) * Math.PI / 180;
-      const r1 = 18, r2 = 44;
-      return (
-        <line key={i}
-          x1={60 + r1*Math.cos(angle)} y1={60 + r1*Math.sin(angle)}
-          x2={60 + r2*Math.cos(angle)} y2={60 + r2*Math.sin(angle)}
-          stroke="url(#eyeGold)" strokeWidth="0.7" strokeOpacity="0.4"
-          filter="url(#softGlow)"
-        />
-      );
-    })}
-
-    {/* ── Triangle / pyramid frame ── */}
-    <polygon
-      points="60,14 100,78 20,78"
-      fill="none" stroke="url(#eyeGold)" strokeWidth="1.5"
-      filter="url(#outerGlow)" strokeOpacity="0.85"
-    />
-    {/* Inner triangle */}
-    <polygon
-      points="60,24 93,72 27,72"
-      fill="none" stroke="#c9a84c" strokeWidth="0.6" strokeOpacity="0.3"
-    />
-
-    {/* Triangle corner diamonds */}
-    {[[60,14],[100,78],[20,78]].map(([x,y],i)=>(
-      <g key={i} transform={`translate(${x},${y})`}>
-        <polygon points="0,-4 3,0 0,4 -3,0" fill="#c9a84c" filter="url(#softGlow)" />
+      {/* Spinning hexagonal d20 wireframe */}
+      <g className="hex-spin-group">
+        <polygon points={h40.map(([x,y])=>`${x.toFixed(2)},${y.toFixed(2)}`).join(' ')}
+          fill="none" stroke="#c9a84c" strokeWidth="1.3" strokeOpacity="0.85" filter="url(#nGlow)" />
+        <polygon points={h28.map(([x,y])=>`${x.toFixed(2)},${y.toFixed(2)}`).join(' ')}
+          fill="none" stroke="#c9a84c" strokeWidth="0.5" strokeOpacity="0.3" />
+        {/* 3 main diagonals connecting opposite vertices */}
+        {[0,1,2].map(i => (
+          <line key={i}
+            x1={h40[i][0].toFixed(2)}   y1={h40[i][1].toFixed(2)}
+            x2={h40[i+3][0].toFixed(2)} y2={h40[i+3][1].toFixed(2)}
+            stroke="#c9a84c" strokeWidth="0.8" strokeOpacity="0.5" />
+        ))}
+        {/* Skip-2 diagonals (Star-of-David / d20 face pattern) */}
+        {Array.from({length:6}, (_,i) => (
+          <line key={`sk${i}`}
+            x1={h40[i][0].toFixed(2)}       y1={h40[i][1].toFixed(2)}
+            x2={h40[(i+2)%6][0].toFixed(2)} y2={h40[(i+2)%6][1].toFixed(2)}
+            stroke="#c9a84c" strokeWidth="0.5" strokeOpacity="0.3" />
+        ))}
+        {/* Vertex ornament dots */}
+        {h40.map(([x,y],i) => (
+          <circle key={i} cx={x.toFixed(2)} cy={y.toFixed(2)} r="2"
+            fill="#c9a84c" filter="url(#nSoft)" opacity="0.85" />
+        ))}
       </g>
-    ))}
 
-    {/* ── Eye (blink animation group) ── */}
-    <g className="eye-blink-group">
-
-    {/* ── Eye white / sclera glow ── */}
-    <path d="M60 36 Q92 60 60 84 Q28 60 60 36 Z"
-      fill="#1a1000" stroke="url(#eyeGold)" strokeWidth="1.5"
-      filter="url(#outerGlow)" />
-
-    {/* ── Iris ── */}
-    <circle cx="60" cy="60" r="16" fill="url(#irisGrad)" />
-    {/* Iris texture rings */}
-    <circle cx="60" cy="60" r="16" fill="none" stroke="#c9a84c" strokeWidth="0.8" strokeOpacity="0.5" />
-    <circle cx="60" cy="60" r="12" fill="none" stroke="#c9a84c" strokeWidth="0.4" strokeOpacity="0.3" />
-    {/* Iris fibre lines */}
-    {Array.from({length:16}).map((_,i) => {
-      const a = (i * 22.5) * Math.PI / 180;
-      return (
-        <line key={i}
-          x1={60 + 6*Math.cos(a)} y1={60 + 6*Math.sin(a)}
-          x2={60 + 15*Math.cos(a)} y2={60 + 15*Math.sin(a)}
-          stroke="#c9a84c" strokeWidth="0.4" strokeOpacity="0.35"
-        />
-      );
-    })}
-
-    {/* ── Pupil ── */}
-    <circle cx="60" cy="60" r="7" fill="url(#pupilGrad)" />
-    <circle cx="60" cy="60" r="7" fill="none" stroke="#c9a84c" strokeWidth="0.5" strokeOpacity="0.6" />
-
-    {/* ── Gold vertical slit ── */}
-    <ellipse cx="60" cy="60" rx="2.5" ry="6.5" fill="#c9a84c" filter="url(#strongGlow)" opacity="0.9" />
-
-    {/* ── Specular glint ── */}
-    <ellipse cx="55" cy="55" rx="3.5" ry="2" fill="url(#glintGrad)" opacity="0.7" transform="rotate(-25,55,55)" />
-    <ellipse cx="64" cy="64" rx="1.2" ry="0.7" fill="#ffffff" opacity="0.3" transform="rotate(-25,64,64)" />
-
-    {/* ── Eye lashes / upper lid stroke ── */}
-    <path d="M60 36 Q92 60 60 84" fill="none" stroke="url(#eyeGold)" strokeWidth="2" filter="url(#softGlow)" />
-    <path d="M60 36 Q28 60 60 84" fill="none" stroke="url(#eyeGold)" strokeWidth="2" filter="url(#softGlow)" />
-
-    {/* ── Eyelash ticks upper ── */}
-    {[[-30,-18,-8,0,8,18,30]].flat().map((deg,i) => {
-      const angle = (deg) * Math.PI / 180;
-      const ex = 60 + 26*Math.sin(angle);
-      const ey = 60 - 24*Math.cos(angle);
-      const ex2 = 60 + 29*Math.sin(angle);
-      const ey2 = 60 - 27*Math.cos(angle);
-      return <line key={i} x1={ex} y1={ey} x2={ex2} y2={ey2} stroke="#c9a84c" strokeWidth="1" strokeOpacity="0.7" filter="url(#softGlow)" />;
-    })}
-
-    </g>
-
-
-    {/* ── Corner ornaments ── */}
-    {/* Top center dot */}
-    <circle cx="60" cy="6" r="2.5" fill="#c9a84c" filter="url(#softGlow)" />
-    {/* Side dots on triangle */}
-    <circle cx="100" cy="78" r="2" fill="#c9a84c" filter="url(#softGlow)" />
-    <circle cx="20"  cy="78" r="2" fill="#c9a84c" filter="url(#softGlow)" />
-
-    {/* ── Bottom decorative line ── */}
-    <line x1="30" y1="84" x2="90" y2="84" stroke="#c9a84c" strokeWidth="0.6" strokeOpacity="0.4" />
-    <line x1="40" y1="87" x2="80" y2="87" stroke="#c9a84c" strokeWidth="0.4" strokeOpacity="0.2" />
-  </svg>
-);
+      {/* N letter — static */}
+      <text x="60" y="76" textAnchor="middle"
+        fontFamily="'Cinzel', serif" fontSize="44" fontWeight="700"
+        fill="url(#nGold)" filter="url(#nGlow)">N</text>
+    </svg>
+  );
+};
 
 /* ─── DECORATIVE LINES ─── */
 const Deco = () => (
