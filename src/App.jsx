@@ -8,7 +8,7 @@ import {
   sendPasswordResetEmail, updateProfile, signOut,
   setPersistence, browserLocalPersistence, browserSessionPersistence,
 } from "firebase/auth";
-import { getFirestore, doc, setDoc, getDoc, updateDoc, deleteField } from "firebase/firestore";
+import { getFirestore, doc, setDoc, getDoc, updateDoc, deleteField, collection, addDoc, query, orderBy, limit, onSnapshot, getDocs, serverTimestamp, arrayUnion, arrayRemove, where, deleteDoc, startAfter } from "firebase/firestore";
 
 const firebaseApp = initializeApp({
   apiKey: "AIzaSyAunCnV2lla9DVIy_4A-ngR1W23dZNRUKU",
@@ -31,6 +31,106 @@ const fsDeleteMusicLink = async (uid, svc) => {
 };
 const fsGetMusicLinks = async (uid) => {
   try { const snap = await getDoc(doc(db, "users", uid)); return snap.exists() ? (snap.data().musicLinks || {}) : {}; } catch (_) { return {}; }
+};
+
+/* ── Dice roller: parses "2d6+3", "1d20", "1d100-5" ── */
+const rollDice = (expr) => {
+  const clean = expr.replace(/\s/g,"").toLowerCase();
+  const match = clean.match(/^(\d+)d(\d+)([+-]\d+)?$/);
+  if (!match) return null;
+  const count = Math.min(parseInt(match[1]),20);
+  const sides = Math.min(parseInt(match[2]),100);
+  const mod = match[3] ? parseInt(match[3]) : 0;
+  const rolls = Array.from({length:count},()=>Math.floor(Math.random()*sides)+1);
+  const total = rolls.reduce((a,b)=>a+b,0)+mod;
+  return { expr:clean, rolls, mod, total, sides, count };
+};
+
+/* ── Campaign helpers ── */
+const generateInviteCode = () => {
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  return Array.from({length:6},()=>chars[Math.floor(Math.random()*chars.length)]).join("");
+};
+
+const fsCreateCampaign = async (uid, userName, data) => {
+  try {
+    const code = generateInviteCode();
+    const ref = await addDoc(collection(db,"campaigns"), {
+      name: data.name,
+      description: data.description || "",
+      system: data.system || "Genérico",
+      masterId: uid,
+      masterName: userName,
+      inviteCode: code,
+      members: [uid],
+      memberNames: { [uid]: userName },
+      createdAt: serverTimestamp(),
+      isActive: true,
+      maxPlayers: data.maxPlayers || 6,
+      coverImage: null,
+    });
+    return { id: ref.id, code };
+  } catch (e) { console.error(e); return null; }
+};
+
+const fsJoinCampaign = async (uid, userName, code) => {
+  try {
+    const q = query(collection(db,"campaigns"), where("inviteCode","==",code.toUpperCase()), where("isActive","==",true));
+    const snap = await getDocs(q);
+    if (snap.empty) return { error: "Código inválido ou campanha não encontrada." };
+    const campDoc = snap.docs[0];
+    const camp = campDoc.data();
+    if (camp.members.includes(uid)) return { error: "Você já é membro desta campanha." };
+    if (camp.members.length >= (camp.maxPlayers || 6)) return { error: "Campanha lotada." };
+    await updateDoc(doc(db,"campaigns",campDoc.id), {
+      members: arrayUnion(uid),
+      [`memberNames.${uid}`]: userName,
+    });
+    await addDoc(collection(db,"campaigns",campDoc.id,"messages"), {
+      userId:"system", userName:"Sistema", userPhoto:null,
+      content:`${userName} entrou na campanha.`,
+      type:"system", timestamp:serverTimestamp(),
+    });
+    return { id: campDoc.id };
+  } catch (e) { console.error(e); return { error:"Erro ao entrar na campanha." }; }
+};
+
+const fsGetUserCampaigns = (uid, cb) => {
+  const q = query(collection(db,"campaigns"), where("members","array-contains",uid));
+  return onSnapshot(q, snap => cb(snap.docs.map(d=>({id:d.id,...d.data()}))), ()=>cb([]));
+};
+
+const fsSendMessage = async (campaignId, uid, userName, userPhoto, content, type, rollData) => {
+  try {
+    await addDoc(collection(db,"campaigns",campaignId,"messages"), {
+      userId:uid, userName, userPhoto:userPhoto||null,
+      content, type:type||"text", timestamp:serverTimestamp(),
+      ...(rollData ? {rollData} : {}),
+    });
+  } catch(e) { console.error(e); }
+};
+
+const fsSetTyping = async (campaignId, uid, userName, isTyping) => {
+  try {
+    await setDoc(doc(db,"campaigns",campaignId,"typing",uid), {
+      userName, isTyping, updatedAt:serverTimestamp(),
+    });
+  } catch(_) {}
+};
+
+const fsShareSheet = async (campaignId, uid, userName, character, isLive) => {
+  try {
+    const ref = doc(collection(db,"campaigns",campaignId,"sharedSheets"));
+    await setDoc(ref, {
+      characterId: String(character.id || character.createdAt || Date.now()),
+      ownerId:uid, ownerName:userName,
+      characterName: character.form?.personagem || "Sem nome",
+      characterData: character, isLive,
+      sharedAt: serverTimestamp(),
+      permissions: { canView:"members" },
+    });
+    return ref.id;
+  } catch(e) { console.error(e); return null; }
 };
 
 /* ─── FONTS & GLOBAL CSS ─── */
@@ -577,7 +677,7 @@ const navItems = [
   { id:"party",     icon:"◎", label:"Grupo" },
 ];
 
-function Sidebar({ active, onNav, collapsed, setCollapsed, system, onChangeSystem, onLogout }) {
+function Sidebar({ active, onNav, collapsed, setCollapsed, system, onChangeSystem, onLogout, campaignCount }) {
   const [profilePhoto, setProfilePhoto] = useState(() => localStorage.getItem("nexus_profile_photo") || "");
   const [profileName, setProfileName] = useState(() => localStorage.getItem("nexus_profile_name") || "Agente");
   const [editingProfile, setEditingProfile] = useState(false);
@@ -667,10 +767,24 @@ function Sidebar({ active, onNav, collapsed, setCollapsed, system, onChangeSyste
         {navItems.map(item => (
           <button key={item.id} className={`nav-item ${active===item.id?"active":""}`}
             onClick={()=>onNav(item.id)}
-            style={{justifyContent: collapsed?"center":"flex-start", paddingLeft: collapsed?0:14, borderLeft: active===item.id&&!collapsed?"2px solid var(--purple)":"2px solid transparent"}}
+            style={{justifyContent: collapsed?"center":"flex-start", paddingLeft: collapsed?0:14, borderLeft: active===item.id&&!collapsed?"2px solid var(--purple)":"2px solid transparent", position:"relative"}}
             title={collapsed?item.label:""}>
             <span style={{fontSize:16, minWidth:20, textAlign:"center", opacity:active===item.id?1:0.6, transition:"opacity 0.2s"}}>{item.icon}</span>
             {!collapsed && item.label}
+            {!collapsed && item.id==="party" && campaignCount>0 && (
+              <span style={{
+                marginLeft:"auto",minWidth:18,height:18,borderRadius:9,
+                background:"rgba(176,48,216,0.8)",color:"#fff",
+                fontSize:9,fontWeight:700,fontFamily:"Cinzel,serif",
+                display:"flex",alignItems:"center",justifyContent:"center",padding:"0 5px",
+              }}>{campaignCount}</span>
+            )}
+            {collapsed && item.id==="party" && campaignCount>0 && (
+              <span style={{
+                position:"absolute",top:4,right:6,width:10,height:10,borderRadius:"50%",
+                background:"#b030d8",border:"2px solid var(--surface)",
+              }}/>
+            )}
           </button>
         ))}
       </nav>
@@ -826,6 +940,782 @@ function Sidebar({ active, onNav, collapsed, setCollapsed, system, onChangeSyste
           </div>
         </div>
       , document.body)}
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════
+   GRUPO — Campaign Management, Chat, Shared Sheets
+═══════════════════════════════════════════════════════ */
+
+function CreateCampaignModal({ onClose, onCreate }) {
+  const [name, setName] = useState("");
+  const [desc, setDesc] = useState("");
+  const [system, setSystem] = useState("");
+  const [maxPlayers, setMaxPlayers] = useState(6);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  const handleCreate = async () => {
+    if (!name.trim()) { setError("Digite o nome da campanha."); return; }
+    setLoading(true); setError("");
+    await onCreate({ name:name.trim(), description:desc.trim(), system:system.trim()||"Genérico", maxPlayers });
+    setLoading(false);
+  };
+
+  return createPortal(
+    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.78)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:"20px"}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:"var(--surface)",border:"1px solid var(--border2)",borderRadius:12,padding:"28px",width:"100%",maxWidth:440,display:"flex",flexDirection:"column",gap:20,boxShadow:"0 24px 64px rgba(0,0,0,0.7)"}}>
+        <div style={{fontFamily:"'Cinzel Decorative',serif",fontSize:18,background:"linear-gradient(135deg,#b030d8,#c8a8f0)",WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent",backgroundClip:"text"}}>
+          Nova Campanha
+        </div>
+        {error && <div style={{padding:"10px 14px",background:"rgba(139,32,32,0.18)",border:"1px solid rgba(139,32,32,0.4)",borderRadius:6,fontFamily:"Cinzel,serif",fontSize:11,color:"#e07070",letterSpacing:1}}>{error}</div>}
+        <div style={{display:"flex",flexDirection:"column",gap:14}}>
+          <div>
+            <div style={{fontFamily:"Cinzel,serif",fontSize:9,letterSpacing:2,color:"var(--muted)",textTransform:"uppercase",marginBottom:6}}>Nome da Campanha *</div>
+            <input value={name} onChange={e=>setName(e.target.value)} maxLength={60} placeholder="Ex: Marcas Fragmentadas" autoFocus/>
+          </div>
+          <div>
+            <div style={{fontFamily:"Cinzel,serif",fontSize:9,letterSpacing:2,color:"var(--muted)",textTransform:"uppercase",marginBottom:6}}>Descrição</div>
+            <textarea value={desc} onChange={e=>setDesc(e.target.value)} maxLength={300} placeholder="Uma breve descrição da campanha..." rows={3}
+              style={{resize:"vertical",fontFamily:"'Crimson Pro',serif",fontSize:15,background:"var(--card2)",border:"1px solid var(--border)",borderRadius:5,color:"var(--text)",outline:"none",padding:"11px 14px",width:"100%",boxSizing:"border-box"}}/>
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+            <div>
+              <div style={{fontFamily:"Cinzel,serif",fontSize:9,letterSpacing:2,color:"var(--muted)",textTransform:"uppercase",marginBottom:6}}>Sistema</div>
+              <input value={system} onChange={e=>setSystem(e.target.value)} placeholder="Ordem Paranormal..." maxLength={40}/>
+            </div>
+            <div>
+              <div style={{fontFamily:"Cinzel,serif",fontSize:9,letterSpacing:2,color:"var(--muted)",textTransform:"uppercase",marginBottom:6}}>Máx. Jogadores</div>
+              <input type="number" value={maxPlayers} onChange={e=>setMaxPlayers(Math.max(2,Math.min(20,+e.target.value||6)))} min={2} max={20}/>
+            </div>
+          </div>
+        </div>
+        <div style={{display:"flex",gap:10}}>
+          <button onClick={onClose} className="btn-ghost" style={{flex:1,padding:"10px 0"}}>Cancelar</button>
+          <button onClick={handleCreate} disabled={loading||!name.trim()} className="btn-gold" style={{flex:1,padding:"10px 0",opacity:loading||!name.trim()?0.5:1}}>
+            {loading?"Criando...":"Criar Campanha"}
+          </button>
+        </div>
+      </div>
+    </div>
+  , document.body);
+}
+
+function JoinCampaignModal({ onClose, onJoin }) {
+  const [code, setCode] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  const handleJoin = async () => {
+    if (code.trim().length < 6) { setError("Código deve ter 6 caracteres."); return; }
+    setLoading(true); setError("");
+    const result = await onJoin(code.trim());
+    setLoading(false);
+    if (result?.error) setError(result.error);
+  };
+
+  return createPortal(
+    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.78)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:"20px"}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:"var(--surface)",border:"1px solid var(--border2)",borderRadius:12,padding:"28px",width:"100%",maxWidth:360,display:"flex",flexDirection:"column",gap:20,boxShadow:"0 24px 64px rgba(0,0,0,0.7)"}}>
+        <div style={{fontFamily:"'Cinzel Decorative',serif",fontSize:18,background:"linear-gradient(135deg,#b030d8,#c8a8f0)",WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent",backgroundClip:"text"}}>
+          Entrar em Campanha
+        </div>
+        <div style={{fontFamily:"'Crimson Pro',serif",fontSize:15,color:"var(--muted2)",lineHeight:1.65}}>
+          Insira o código de convite de 6 caracteres fornecido pelo Mestre.
+        </div>
+        {error && <div style={{padding:"10px 14px",background:"rgba(139,32,32,0.18)",border:"1px solid rgba(139,32,32,0.4)",borderRadius:6,fontFamily:"Cinzel,serif",fontSize:11,color:"#e07070",letterSpacing:1}}>{error}</div>}
+        <div>
+          <div style={{fontFamily:"Cinzel,serif",fontSize:9,letterSpacing:2,color:"var(--muted)",textTransform:"uppercase",marginBottom:6}}>Código de Convite</div>
+          <input
+            value={code}
+            onChange={e=>setCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g,"").slice(0,6))}
+            placeholder="EX: AB12CD"
+            style={{textAlign:"center",fontSize:22,letterSpacing:8,fontFamily:"Cinzel,serif"}}
+            autoFocus
+            onKeyDown={e=>{if(e.key==="Enter"&&code.length===6)handleJoin();}}
+          />
+        </div>
+        <div style={{display:"flex",gap:10}}>
+          <button onClick={onClose} className="btn-ghost" style={{flex:1,padding:"10px 0"}}>Cancelar</button>
+          <button onClick={handleJoin} disabled={loading||code.length<6} className="btn-gold" style={{flex:1,padding:"10px 0",opacity:loading||code.length<6?0.5:1}}>
+            {loading?"Entrando...":"Entrar"}
+          </button>
+        </div>
+      </div>
+    </div>
+  , document.body);
+}
+
+function CampaignCard({ campaign, uid, onClick }) {
+  const isMaster = campaign.masterId === uid;
+  const memberCount = campaign.members?.length || 0;
+  return (
+    <div onClick={onClick} style={{
+      background:"var(--card)",border:"1px solid var(--border)",borderRadius:10,
+      padding:"18px 18px 16px",cursor:"pointer",transition:"all 0.2s",
+      position:"relative",overflow:"hidden",
+    }}
+      onMouseEnter={e=>{e.currentTarget.style.borderColor="rgba(176,48,216,0.45)";e.currentTarget.style.transform="translateY(-2px)";e.currentTarget.style.boxShadow="0 8px 24px rgba(176,48,216,0.14)";}}
+      onMouseLeave={e=>{e.currentTarget.style.borderColor="var(--border)";e.currentTarget.style.transform="translateY(0)";e.currentTarget.style.boxShadow="none";}}>
+      <div style={{position:"absolute",top:0,left:0,right:0,height:2,background:"linear-gradient(90deg,transparent,rgba(176,48,216,0.55),transparent)"}}/>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8,marginBottom:10}}>
+        <div style={{fontFamily:"Cinzel,serif",fontSize:15,fontWeight:700,color:"var(--text)",flex:1,lineHeight:1.3}}>
+          {campaign.name}
+        </div>
+        {isMaster && (
+          <div style={{padding:"3px 8px",borderRadius:4,background:"rgba(176,48,216,0.15)",border:"1px solid rgba(176,48,216,0.3)",fontFamily:"Cinzel,serif",fontSize:8,letterSpacing:1,color:"#c8a8f0",textTransform:"uppercase",flexShrink:0}}>
+            Mestre
+          </div>
+        )}
+      </div>
+      {campaign.description && (
+        <div style={{fontFamily:"'Crimson Pro',serif",fontSize:14,color:"var(--muted2)",marginBottom:12,lineHeight:1.5,display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical",overflow:"hidden"}}>
+          {campaign.description}
+        </div>
+      )}
+      <div style={{display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
+        {campaign.system && (
+          <span style={{fontFamily:"Cinzel,serif",fontSize:9,letterSpacing:1,color:"var(--gold)",textTransform:"uppercase"}}>⬡ {campaign.system}</span>
+        )}
+        <span style={{fontFamily:"Cinzel,serif",fontSize:9,letterSpacing:1,color:"var(--muted)"}}>◎ {memberCount}/{campaign.maxPlayers||6}</span>
+        {!campaign.isActive && (
+          <span style={{padding:"2px 7px",borderRadius:3,background:"rgba(255,255,255,0.05)",fontFamily:"Cinzel,serif",fontSize:8,letterSpacing:1,color:"var(--muted)",textTransform:"uppercase"}}>
+            Arquivada
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function CampaignList({ uid, userName, campaigns, loading, onOpenCampaign, onCreateCampaign, onJoinCampaign }) {
+  const active = campaigns.filter(c=>c.isActive);
+  const archived = campaigns.filter(c=>!c.isActive);
+
+  if (loading) return (
+    <div className="fade" style={{display:"flex",alignItems:"center",justifyContent:"center",minHeight:320}}>
+      <div style={{width:32,height:32,border:"2px solid rgba(176,48,216,0.3)",borderTopColor:"#b030d8",borderRadius:"50%",animation:"spin 0.8s linear infinite"}}/>
+    </div>
+  );
+
+  return (
+    <div className="fade" style={{display:"flex",flexDirection:"column",gap:24}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-end",flexWrap:"wrap",gap:12}}>
+        <div>
+          <div style={{fontFamily:"Cinzel,serif",fontSize:11,letterSpacing:"0.08em",color:"var(--muted)",textTransform:"uppercase",marginBottom:6}}>Modo Multijogador</div>
+          <h1 style={{fontFamily:"'Cinzel Decorative',serif",fontSize:22,fontWeight:700,background:"linear-gradient(135deg,#b030d8,#c8a8f0)",WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent",backgroundClip:"text"}}>
+            Grupo de Agentes
+          </h1>
+        </div>
+        <div style={{display:"flex",gap:10}}>
+          <button onClick={onJoinCampaign} className="btn-ghost" style={{padding:"9px 18px",fontSize:10}}>◎ Entrar com Código</button>
+          <button onClick={onCreateCampaign} className="btn-gold" style={{padding:"9px 18px",fontSize:11}}>+ Nova Campanha</button>
+        </div>
+      </div>
+
+      {active.length===0&&archived.length===0 && (
+        <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",minHeight:320,gap:20,textAlign:"center",
+          background:"radial-gradient(ellipse at center,rgba(176,48,216,0.07) 0%,var(--card) 70%)",
+          border:"1px dashed rgba(176,48,216,0.22)",borderRadius:12,padding:"40px 20px"}}>
+          <div style={{fontSize:56,animation:"float 4s ease-in-out infinite",opacity:0.55}}>◎</div>
+          <div>
+            <div style={{fontFamily:"'Cinzel Decorative',serif",fontSize:18,color:"var(--text)",marginBottom:10}}>Nenhuma Campanha</div>
+            <div style={{fontFamily:"'Crimson Pro',serif",fontSize:16,color:"var(--muted2)",maxWidth:340,lineHeight:1.7,fontStyle:"italic"}}>
+              Crie uma campanha para ser o Mestre ou entre em uma com o código de convite.
+            </div>
+          </div>
+          <div style={{display:"flex",gap:12,flexWrap:"wrap",justifyContent:"center"}}>
+            <button onClick={onCreateCampaign} className="btn-gold">+ Criar Campanha</button>
+            <button onClick={onJoinCampaign} className="btn-ghost">◎ Entrar com Código</button>
+          </div>
+        </div>
+      )}
+
+      {active.length>0 && (
+        <div style={{display:"flex",flexDirection:"column",gap:12}}>
+          <div style={{fontFamily:"Cinzel,serif",fontSize:10,letterSpacing:"0.1em",color:"var(--muted)",textTransform:"uppercase",paddingBottom:6,borderBottom:"1px solid var(--border)"}}>
+            Campanhas Ativas — {active.length}
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(290px,1fr))",gap:14}}>
+            {active.map(camp=>(
+              <CampaignCard key={camp.id} campaign={camp} uid={uid} onClick={()=>onOpenCampaign(camp)}/>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {archived.length>0 && (
+        <div style={{display:"flex",flexDirection:"column",gap:12,opacity:0.55}}>
+          <div style={{fontFamily:"Cinzel,serif",fontSize:10,letterSpacing:"0.1em",color:"var(--muted)",textTransform:"uppercase",paddingBottom:6,borderBottom:"1px solid var(--border)"}}>
+            Arquivadas — {archived.length}
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(290px,1fr))",gap:14}}>
+            {archived.map(camp=>(
+              <CampaignCard key={camp.id} campaign={camp} uid={uid} onClick={()=>onOpenCampaign(camp)}/>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ChatMessage({ msg, uid, formatTime }) {
+  const isOwn = msg.userId === uid;
+  const isSystem = msg.type === "system";
+  const isRoll = msg.type === "roll";
+
+  if (isSystem) return (
+    <div style={{textAlign:"center",padding:"5px 0"}}>
+      <span style={{fontFamily:"'Crimson Pro',serif",fontSize:13,color:"var(--muted)",fontStyle:"italic",padding:"3px 14px",background:"rgba(255,255,255,0.03)",borderRadius:12,border:"1px solid var(--border)"}}>
+        {msg.content}
+      </span>
+    </div>
+  );
+
+  return (
+    <div style={{display:"flex",gap:8,alignItems:"flex-start",padding:"2px 4px",flexDirection:isOwn?"row-reverse":"row"}}>
+      <div style={{width:32,height:32,borderRadius:"50%",flexShrink:0,
+        background:"linear-gradient(135deg,rgba(176,48,216,0.28),rgba(176,48,216,0.08))",
+        border:"1px solid rgba(176,48,216,0.22)",
+        display:msg.grouped?"block":"flex",alignItems:"center",justifyContent:"center",
+        fontFamily:"Cinzel,serif",fontSize:12,color:"#c8a8f0",overflow:"hidden",
+        opacity:msg.grouped?0:1,pointerEvents:"none",
+      }}>
+        {!msg.grouped && (msg.userPhoto
+          ? <img src={msg.userPhoto} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>
+          : (msg.userName?.charAt(0)?.toUpperCase()||"?"))}
+      </div>
+      <div style={{maxWidth:"72%",display:"flex",flexDirection:"column",gap:1,alignItems:isOwn?"flex-end":"flex-start"}}>
+        {!msg.grouped && (
+          <div style={{display:"flex",gap:6,alignItems:"center",padding:"0 4px"}}>
+            {!isOwn && <span style={{fontFamily:"Cinzel,serif",fontSize:10,letterSpacing:1,color:isRoll?"#c8a8f0":"var(--muted2)"}}>{msg.userName}</span>}
+            <span style={{fontFamily:"Cinzel,serif",fontSize:8,color:"var(--muted)",letterSpacing:0.5}}>{formatTime(msg.timestamp)}</span>
+          </div>
+        )}
+        <div style={{
+          padding:isRoll?"10px 14px":"8px 12px",
+          borderRadius:isOwn?"10px 2px 10px 10px":"2px 10px 10px 10px",
+          background:isRoll?"rgba(176,48,216,0.14)":isOwn?"rgba(176,48,216,0.18)":"var(--card2)",
+          border:isRoll?"1px solid rgba(176,48,216,0.35)":isOwn?"1px solid rgba(176,48,216,0.28)":"1px solid var(--border)",
+          fontFamily:isRoll?"Cinzel,serif":"'Crimson Pro',serif",
+          fontSize:isRoll?12:15,color:isRoll?"#c8a8f0":"var(--text)",lineHeight:1.5,wordBreak:"break-word",
+        }}>
+          {isRoll ? (
+            <div style={{display:"flex",flexDirection:"column",gap:3}}>
+              <span style={{fontSize:9,letterSpacing:1,opacity:0.65,textTransform:"uppercase"}}>🎲 Rolagem</span>
+              <span>{msg.content.replace(/\*\*/g,"")}</span>
+              {msg.rollData && (
+                <span style={{fontSize:11,opacity:0.6,fontFamily:"'Crimson Pro',serif"}}>
+                  [{msg.rollData.rolls?.join(", ")}]{msg.rollData.mod!==0?` ${msg.rollData.mod>0?"+":""}${msg.rollData.mod}`:""}
+                </span>
+              )}
+            </div>
+          ) : msg.content}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CampaignChat({ campaignId, uid, userName, userPhoto }) {
+  const [messages, setMessages] = useState([]);
+  const [input, setInput] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [typingUsers, setTypingUsers] = useState([]);
+  const [lastDoc, setLastDoc] = useState(null);
+  const [hasMore, setHasMore] = useState(false);
+  const messagesEndRef = useRef(null);
+  const typingTimeoutRef = useRef(null);
+  const LIMIT = 50;
+
+  useEffect(() => {
+    setLoading(true);
+    const q = query(collection(db,"campaigns",campaignId,"messages"),orderBy("timestamp","desc"),limit(LIMIT));
+    const unsub = onSnapshot(q, snap => {
+      const msgs = snap.docs.map(d=>({id:d.id,...d.data()})).reverse();
+      setMessages(msgs);
+      if (snap.docs.length>0) setLastDoc(snap.docs[snap.docs.length-1]);
+      setHasMore(snap.docs.length===LIMIT);
+      setLoading(false);
+      setTimeout(()=>messagesEndRef.current?.scrollIntoView({behavior:"smooth"}),60);
+    });
+    return unsub;
+  }, [campaignId]);
+
+  useEffect(() => {
+    const q = query(collection(db,"campaigns",campaignId,"typing"));
+    const unsub = onSnapshot(q, snap => {
+      const now = Date.now();
+      setTypingUsers(snap.docs
+        .map(d=>({id:d.id,...d.data()}))
+        .filter(u=>u.id!==uid&&u.isTyping&&(now-(u.updatedAt?.toMillis?.()??0))<5000));
+    });
+    return () => { unsub(); fsSetTyping(campaignId,uid,userName,false); };
+  }, [campaignId,uid,userName]);
+
+  const handleInput = (e) => {
+    setInput(e.target.value);
+    fsSetTyping(campaignId,uid,userName,true);
+    clearTimeout(typingTimeoutRef.current);
+    typingTimeoutRef.current = setTimeout(()=>fsSetTyping(campaignId,uid,userName,false),3000);
+  };
+
+  const sendMessage = async () => {
+    const text = input.trim();
+    if (!text) return;
+    setInput("");
+    clearTimeout(typingTimeoutRef.current);
+    fsSetTyping(campaignId,uid,userName,false);
+    if (text.startsWith("/roll ")||text.startsWith("/r ")) {
+      const expr = text.replace(/^\/(roll|r)\s+/,"");
+      const result = rollDice(expr);
+      if (result) {
+        await fsSendMessage(campaignId,uid,userName,userPhoto,
+          `Rolou ${result.expr} → [${result.rolls.join(", ")}]${result.mod!==0?(result.mod>0?` + ${result.mod}`:` - ${Math.abs(result.mod)}`):"" } = ${result.total}`,
+          "roll", result);
+      } else {
+        await fsSendMessage(campaignId,"system","Sistema",null,"Expressão inválida. Use: /r 1d20+5","system",null);
+      }
+      return;
+    }
+    await fsSendMessage(campaignId,uid,userName,userPhoto,text,"text",null);
+  };
+
+  const loadMore = async () => {
+    if (!lastDoc||!hasMore) return;
+    const q = query(collection(db,"campaigns",campaignId,"messages"),orderBy("timestamp","desc"),startAfter(lastDoc),limit(LIMIT));
+    const snap = await getDocs(q);
+    const older = snap.docs.map(d=>({id:d.id,...d.data()})).reverse();
+    setMessages(prev=>[...older,...prev]);
+    if (snap.docs.length>0) setLastDoc(snap.docs[snap.docs.length-1]);
+    setHasMore(snap.docs.length===LIMIT);
+  };
+
+  const grouped = messages.map((msg,i)=>{
+    const prev = messages[i-1];
+    const isGrouped = prev&&prev.userId===msg.userId&&msg.type==="text"&&prev.type==="text"
+      &&((msg.timestamp?.toMillis?.()??0)-(prev.timestamp?.toMillis?.()??0))<120000;
+    return {...msg, grouped:isGrouped};
+  });
+
+  const formatTime = (ts) => {
+    if (!ts?.toDate) return "";
+    const d = ts.toDate();
+    return `${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`;
+  };
+
+  return (
+    <div style={{display:"flex",flexDirection:"column",flex:1,minHeight:0,overflow:"hidden"}}>
+      {hasMore && (
+        <div style={{textAlign:"center",padding:"8px 0",flexShrink:0}}>
+          <button onClick={loadMore} style={{background:"none",border:"1px solid var(--border)",borderRadius:4,cursor:"pointer",color:"var(--muted)",fontFamily:"Cinzel,serif",fontSize:8,letterSpacing:1,textTransform:"uppercase",padding:"5px 14px"}}>
+            Carregar mensagens anteriores
+          </button>
+        </div>
+      )}
+      <div style={{flex:1,overflowY:"auto",padding:"12px 4px",display:"flex",flexDirection:"column",gap:1,minHeight:0}}>
+        {loading && (
+          <div style={{display:"flex",justifyContent:"center",padding:"40px 0"}}>
+            <div style={{width:24,height:24,border:"2px solid rgba(176,48,216,0.3)",borderTopColor:"#b030d8",borderRadius:"50%",animation:"spin 0.8s linear infinite"}}/>
+          </div>
+        )}
+        {!loading&&messages.length===0 && (
+          <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",flex:1,gap:10,opacity:0.45,textAlign:"center"}}>
+            <div style={{fontSize:32}}>💬</div>
+            <div style={{fontFamily:"Cinzel,serif",fontSize:10,letterSpacing:1,color:"var(--muted)",textTransform:"uppercase"}}>Nenhuma mensagem</div>
+            <div style={{fontFamily:"'Crimson Pro',serif",fontSize:14,color:"var(--muted)",fontStyle:"italic"}}>Use /r 1d20 para rolar dados no chat</div>
+          </div>
+        )}
+        {grouped.map(msg=>(
+          <ChatMessage key={msg.id} msg={msg} uid={uid} formatTime={formatTime}/>
+        ))}
+        {typingUsers.length>0 && (
+          <div style={{display:"flex",alignItems:"center",gap:8,padding:"4px 8px",opacity:0.6}}>
+            <div style={{display:"flex",gap:3,alignItems:"center"}}>
+              {[0,1,2].map(i=>(
+                <div key={i} style={{width:5,height:5,borderRadius:"50%",background:"var(--muted2)",animation:`pulse 1.2s ${i*0.2}s infinite`}}/>
+              ))}
+            </div>
+            <span style={{fontFamily:"'Crimson Pro',serif",fontSize:13,color:"var(--muted2)",fontStyle:"italic"}}>
+              {typingUsers.map(u=>u.userName).join(", ")} está digitando...
+            </span>
+          </div>
+        )}
+        <div ref={messagesEndRef}/>
+      </div>
+      <div style={{padding:"10px 4px",borderTop:"1px solid var(--border)",display:"flex",gap:8,alignItems:"center",flexShrink:0}}>
+        <div style={{flex:1,position:"relative"}}>
+          <input
+            value={input}
+            onChange={handleInput}
+            onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();sendMessage();}}}
+            placeholder="Mensagem... ou /r 1d20+5 para rolar dados"
+            style={{paddingRight:50,background:"rgba(176,48,216,0.06)",border:"1px solid rgba(176,48,216,0.22)",borderRadius:6}}
+          />
+          <span style={{position:"absolute",right:10,top:"50%",transform:"translateY(-50%)",fontFamily:"Cinzel,serif",fontSize:9,color:"var(--muted)",letterSpacing:1,pointerEvents:"none"}}>🎲</span>
+        </div>
+        <button onClick={sendMessage} disabled={!input.trim()} style={{
+          width:38,height:38,borderRadius:6,flexShrink:0,
+          background:input.trim()?"rgba(176,48,216,0.18)":"rgba(255,255,255,0.04)",
+          border:input.trim()?"1px solid rgba(176,48,216,0.38)":"1px solid var(--border)",
+          cursor:input.trim()?"pointer":"default",
+          display:"flex",alignItems:"center",justifyContent:"center",
+          color:input.trim()?"#c8a8f0":"var(--muted)",fontSize:15,transition:"all 0.2s",
+        }}>➤</button>
+      </div>
+    </div>
+  );
+}
+
+function SharedSheetCard({ sheet, uid, isMaster, onView, onRemove }) {
+  const canRemove = uid===sheet.ownerId||isMaster;
+  const char = sheet.characterData;
+  return (
+    <div style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:10,padding:"16px",display:"flex",flexDirection:"column",gap:12,position:"relative",overflow:"hidden"}}>
+      {sheet.isLive && (
+        <div style={{position:"absolute",top:10,right:10,padding:"2px 7px",borderRadius:3,background:"rgba(106,170,122,0.14)",border:"1px solid rgba(106,170,122,0.3)",fontFamily:"Cinzel,serif",fontSize:7,letterSpacing:1,color:"#6aaa7a",textTransform:"uppercase",display:"flex",alignItems:"center",gap:4}}>
+          <div style={{width:5,height:5,borderRadius:"50%",background:"#6aaa7a",animation:"pulse 2s infinite"}}/>Ao Vivo
+        </div>
+      )}
+      <div style={{display:"flex",gap:12,alignItems:"center"}}>
+        <div style={{width:48,height:48,borderRadius:8,background:"rgba(176,48,216,0.1)",border:"1px solid rgba(176,48,216,0.22)",display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden",flexShrink:0,fontSize:22}}>
+          {char?.form?.avatar?<img src={char.form.avatar} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>:"🕵️"}
+        </div>
+        <div style={{flex:1,minWidth:0}}>
+          <div style={{fontFamily:"Cinzel,serif",fontSize:14,color:"var(--text)",marginBottom:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{sheet.characterName}</div>
+          <div style={{fontFamily:"'Crimson Pro',serif",fontSize:13,color:"var(--muted2)"}}>{char?.classe?.name||"—"}</div>
+          <div style={{fontFamily:"Cinzel,serif",fontSize:8,letterSpacing:1,color:"var(--muted)",textTransform:"uppercase",marginTop:2}}>por {sheet.ownerName}</div>
+        </div>
+      </div>
+      {char && (
+        <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+          {[
+            {label:"PV",val:`${char.pv??0}`,color:"#e07070"},
+            {label:"SAN",val:`${char.san??0}`,color:"#70a0e0"},
+            {label:"NEX",val:`${char.nex??5}%`,color:"var(--gold)"},
+          ].map(s=>(
+            <div key={s.label} style={{padding:"3px 8px",borderRadius:4,background:"rgba(255,255,255,0.04)",border:"1px solid var(--border)"}}>
+              <span style={{fontFamily:"Cinzel,serif",fontSize:8,color:s.color,letterSpacing:1}}>{s.label} </span>
+              <span style={{fontFamily:"Cinzel,serif",fontSize:11,color:"var(--text)"}}>{s.val}</span>
+            </div>
+          ))}
+        </div>
+      )}
+      <div style={{display:"flex",gap:8}}>
+        <button onClick={onView} className="btn-ghost" style={{flex:1,padding:"7px 0",fontSize:9}}>Ver Ficha</button>
+        {canRemove && (
+          <button onClick={onRemove} style={{padding:"7px 12px",borderRadius:4,background:"rgba(139,32,32,0.1)",border:"1px solid rgba(139,32,32,0.28)",cursor:"pointer",fontFamily:"Cinzel,serif",fontSize:9,letterSpacing:1,color:"#e07070",textTransform:"uppercase",transition:"all 0.2s"}}
+            onMouseEnter={e=>{e.currentTarget.style.background="rgba(139,32,32,0.24)"}}
+            onMouseLeave={e=>{e.currentTarget.style.background="rgba(139,32,32,0.1)"}}>
+            Remover
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function SharedSheetsPanel({ campaignId, uid, userName, isMaster, characters }) {
+  const [sharedSheets, setSharedSheets] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [sharing, setSharing] = useState(false);
+  const [viewSheet, setViewSheet] = useState(null);
+
+  useEffect(()=>{
+    const q = query(collection(db,"campaigns",campaignId,"sharedSheets"));
+    const unsub = onSnapshot(q,snap=>{
+      setSharedSheets(snap.docs.map(d=>({id:d.id,...d.data()})));
+      setLoading(false);
+    });
+    return unsub;
+  },[campaignId]);
+
+  const handleShare = async (character, isLive) => {
+    const sheetId = await fsShareSheet(campaignId,uid,userName,character,isLive);
+    if (sheetId) {
+      await fsSendMessage(campaignId,"system","Sistema",null,
+        `${userName} compartilhou a ficha de ${character.form?.personagem||"um personagem"}.`,
+        "system",null);
+    }
+    setSharing(false);
+  };
+
+  const handleRemove = async (sheetId) => {
+    try { await deleteDoc(doc(db,"campaigns",campaignId,"sharedSheets",sheetId)); } catch(e){console.error(e);}
+  };
+
+  const mySharedCharIds = sharedSheets.filter(s=>s.ownerId===uid).map(s=>s.characterId);
+  const availableChars = characters.filter(c=>!mySharedCharIds.includes(String(c.id||c.createdAt)));
+
+  return (
+    <div style={{overflowY:"auto",padding:"16px 4px",display:"flex",flexDirection:"column",gap:16}}>
+      {availableChars.length>0&&!sharing && (
+        <button onClick={()=>setSharing(true)} className="btn-gold" style={{alignSelf:"flex-start",padding:"8px 18px",fontSize:10}}>
+          + Compartilhar Ficha
+        </button>
+      )}
+      {sharing && (
+        <div style={{background:"var(--card)",border:"1px solid var(--border2)",borderRadius:10,padding:"16px",display:"flex",flexDirection:"column",gap:10}}>
+          <div style={{fontFamily:"Cinzel,serif",fontSize:10,letterSpacing:2,color:"var(--muted)",textTransform:"uppercase"}}>Escolha uma Ficha</div>
+          {availableChars.map(c=>(
+            <div key={c.id||c.createdAt} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 14px",background:"var(--card2)",borderRadius:6,border:"1px solid var(--border)",flexWrap:"wrap",gap:8}}>
+              <div style={{display:"flex",alignItems:"center",gap:10}}>
+                <div style={{width:36,height:36,borderRadius:6,background:"rgba(176,48,216,0.1)",border:"1px solid rgba(176,48,216,0.22)",display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden",fontSize:18}}>
+                  {c.form?.avatar?<img src={c.form.avatar} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>:"🕵️"}
+                </div>
+                <div>
+                  <div style={{fontFamily:"Cinzel,serif",fontSize:13,color:"var(--text)"}}>{c.form?.personagem||"Sem nome"}</div>
+                  <div style={{fontFamily:"'Crimson Pro',serif",fontSize:12,color:"var(--muted)"}}>{c.classe?.name||"—"}</div>
+                </div>
+              </div>
+              <div style={{display:"flex",gap:8,flexShrink:0}}>
+                <button onClick={()=>handleShare(c,false)} className="btn-ghost" style={{padding:"6px 12px",fontSize:9}} title="Foto do estado atual">Snapshot</button>
+                <button onClick={()=>handleShare(c,true)} className="btn-gold" style={{padding:"6px 12px",fontSize:9}} title="Sempre reflete dados atuais">● Ao Vivo</button>
+              </div>
+            </div>
+          ))}
+          <button onClick={()=>setSharing(false)} className="btn-ghost" style={{alignSelf:"flex-end",padding:"6px 14px",fontSize:9}}>Cancelar</button>
+        </div>
+      )}
+      {loading && (
+        <div style={{display:"flex",justifyContent:"center",padding:"40px 0"}}>
+          <div style={{width:24,height:24,border:"2px solid rgba(176,48,216,0.3)",borderTopColor:"#b030d8",borderRadius:"50%",animation:"spin 0.8s linear infinite"}}/>
+        </div>
+      )}
+      {!loading&&sharedSheets.length===0 && (
+        <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",minHeight:200,gap:10,opacity:0.45,textAlign:"center"}}>
+          <div style={{fontSize:32}}>◈</div>
+          <div style={{fontFamily:"Cinzel,serif",fontSize:10,letterSpacing:1,color:"var(--muted)",textTransform:"uppercase"}}>Nenhuma ficha compartilhada</div>
+          <div style={{fontFamily:"'Crimson Pro',serif",fontSize:14,color:"var(--muted)",fontStyle:"italic"}}>
+            Compartilhe uma ficha para que o grupo possa acompanhar seu personagem.
+          </div>
+        </div>
+      )}
+      {sharedSheets.length>0 && (
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(260px,1fr))",gap:14}}>
+          {sharedSheets.map(sheet=>(
+            <SharedSheetCard key={sheet.id} sheet={sheet} uid={uid} isMaster={isMaster}
+              onView={()=>setViewSheet(sheet)} onRemove={()=>handleRemove(sheet.id)}/>
+          ))}
+        </div>
+      )}
+      {viewSheet && createPortal(
+        <div onClick={()=>setViewSheet(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.88)",zIndex:9999,overflowY:"auto",padding:"20px"}}>
+          <div onClick={e=>e.stopPropagation()} style={{maxWidth:960,margin:"0 auto",background:"var(--bg)",borderRadius:10,overflow:"hidden"}}>
+            <FullSheet character={viewSheet.characterData} onBack={()=>setViewSheet(null)} onUpdate={()=>{}}/>
+          </div>
+        </div>
+      , document.body)}
+    </div>
+  );
+}
+
+function MembersPanel({ campaign, uid, isMaster }) {
+  const memberIds = campaign.members||[];
+  const memberNames = campaign.memberNames||{};
+  const [copied, setCopied] = useState(false);
+
+  const copyCode = () => {
+    navigator.clipboard?.writeText(campaign.inviteCode).then(()=>{setCopied(true);setTimeout(()=>setCopied(false),2000);});
+  };
+
+  return (
+    <div style={{overflowY:"auto",padding:"16px 4px",display:"flex",flexDirection:"column",gap:12}}>
+      {isMaster && (
+        <div style={{padding:"14px 16px",background:"var(--card)",border:"1px solid rgba(176,48,216,0.3)",borderRadius:8,display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:10}}>
+          <div>
+            <div style={{fontFamily:"Cinzel,serif",fontSize:9,letterSpacing:2,color:"var(--muted)",textTransform:"uppercase",marginBottom:4}}>Código de Convite</div>
+            <div style={{fontFamily:"Cinzel,serif",fontSize:24,letterSpacing:10,color:"#c8a8f0",userSelect:"all"}}>{campaign.inviteCode}</div>
+          </div>
+          <button onClick={copyCode} className="btn-ghost" style={{padding:"7px 16px",fontSize:9}}>
+            {copied?"✓ Copiado":"Copiar Código"}
+          </button>
+        </div>
+      )}
+      <div style={{fontFamily:"Cinzel,serif",fontSize:10,letterSpacing:"0.1em",color:"var(--muted)",textTransform:"uppercase",paddingBottom:6,borderBottom:"1px solid var(--border)"}}>
+        Membros — {memberIds.length}/{campaign.maxPlayers||6}
+      </div>
+      {memberIds.map(memberId=>{
+        const isSelf = memberId===uid;
+        const isMasterMember = memberId===campaign.masterId;
+        const name = memberNames[memberId]||"Agente";
+        return (
+          <div key={memberId} style={{display:"flex",alignItems:"center",gap:12,padding:"10px 12px",background:"var(--card)",borderRadius:8,border:"1px solid var(--border)"}}>
+            <div style={{width:36,height:36,borderRadius:"50%",background:"linear-gradient(135deg,rgba(176,48,216,0.28),rgba(176,48,216,0.08))",border:"1px solid rgba(176,48,216,0.22)",display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"Cinzel,serif",fontSize:14,color:"#c8a8f0",flexShrink:0}}>
+              {name.charAt(0).toUpperCase()}
+            </div>
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{fontFamily:"Cinzel,serif",fontSize:13,color:"var(--text)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                {name}{isSelf&&" (você)"}
+              </div>
+              {isMasterMember&&<div style={{fontFamily:"Cinzel,serif",fontSize:8,letterSpacing:1,color:"#c8a8f0",textTransform:"uppercase"}}>◉ Mestre</div>}
+            </div>
+            {isMaster&&!isMasterMember && (
+              <button onClick={async()=>{if(window.confirm(`Remover ${name} da campanha?`)){await updateDoc(doc(db,"campaigns",campaign.id),{members:arrayRemove(memberId)});}}}
+                style={{padding:"5px 10px",borderRadius:4,background:"rgba(139,32,32,0.1)",border:"1px solid rgba(139,32,32,0.25)",cursor:"pointer",fontFamily:"Cinzel,serif",fontSize:8,letterSpacing:1,color:"#e07070",textTransform:"uppercase",transition:"all 0.2s"}}
+                onMouseEnter={e=>{e.currentTarget.style.background="rgba(139,32,32,0.22)"}}
+                onMouseLeave={e=>{e.currentTarget.style.background="rgba(139,32,32,0.1)"}}>
+                Remover
+              </button>
+            )}
+            {isSelf&&!isMasterMember && (
+              <button onClick={async()=>{if(window.confirm("Sair desta campanha?")){await updateDoc(doc(db,"campaigns",campaign.id),{members:arrayRemove(uid)});}}}
+                style={{padding:"5px 10px",borderRadius:4,background:"rgba(139,32,32,0.1)",border:"1px solid rgba(139,32,32,0.25)",cursor:"pointer",fontFamily:"Cinzel,serif",fontSize:8,letterSpacing:1,color:"#e07070",textTransform:"uppercase",transition:"all 0.2s"}}
+                onMouseEnter={e=>{e.currentTarget.style.background="rgba(139,32,32,0.22)"}}
+                onMouseLeave={e=>{e.currentTarget.style.background="rgba(139,32,32,0.1)"}}>
+                Sair
+              </button>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function MasterSettings({ campaign, onBack }) {
+  const [name, setName] = useState(campaign.name);
+  const [desc, setDesc] = useState(campaign.description||"");
+  const [maxPlayers, setMaxPlayers] = useState(campaign.maxPlayers||6);
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState("");
+
+  const showMsg = (text) => { setMsg(text); setTimeout(()=>setMsg(""),2500); };
+
+  const handleSave = async () => {
+    if (!name.trim()) return;
+    setSaving(true);
+    try { await updateDoc(doc(db,"campaigns",campaign.id),{name:name.trim(),description:desc.trim(),maxPlayers}); showMsg("Salvo com sucesso!"); }
+    catch(e) { showMsg("Erro ao salvar."); }
+    setSaving(false);
+  };
+
+  const handleRegenCode = async () => {
+    if (!window.confirm("Regenerar o código invalida o código atual. Continuar?")) return;
+    const code = generateInviteCode();
+    try { await updateDoc(doc(db,"campaigns",campaign.id),{inviteCode:code}); showMsg(`Novo código: ${code}`); }
+    catch(e) { showMsg("Erro."); }
+  };
+
+  const handleArchive = async () => {
+    if (!window.confirm(campaign.isActive?"Arquivar a campanha?":"Reativar a campanha?")) return;
+    try { await updateDoc(doc(db,"campaigns",campaign.id),{isActive:!campaign.isActive}); onBack(); }
+    catch(e) {}
+  };
+
+  return (
+    <div style={{overflowY:"auto",padding:"16px 4px",display:"flex",flexDirection:"column",gap:20}}>
+      <div style={{fontFamily:"Cinzel,serif",fontSize:10,letterSpacing:"0.1em",color:"var(--muted)",textTransform:"uppercase",paddingBottom:6,borderBottom:"1px solid var(--border)"}}>
+        Configurações da Campanha
+      </div>
+      {msg && (
+        <div style={{padding:"10px 14px",background:"rgba(106,170,122,0.14)",border:"1px solid rgba(106,170,122,0.3)",borderRadius:6,fontFamily:"Cinzel,serif",fontSize:11,color:"#6aaa7a",letterSpacing:1}}>
+          {msg}
+        </div>
+      )}
+      <div style={{display:"flex",flexDirection:"column",gap:14}}>
+        <div>
+          <div style={{fontFamily:"Cinzel,serif",fontSize:9,letterSpacing:2,color:"var(--muted)",textTransform:"uppercase",marginBottom:6}}>Nome</div>
+          <input value={name} onChange={e=>setName(e.target.value)} maxLength={60}/>
+        </div>
+        <div>
+          <div style={{fontFamily:"Cinzel,serif",fontSize:9,letterSpacing:2,color:"var(--muted)",textTransform:"uppercase",marginBottom:6}}>Descrição</div>
+          <textarea value={desc} onChange={e=>setDesc(e.target.value)} maxLength={300} rows={3}
+            style={{resize:"vertical",fontFamily:"'Crimson Pro',serif",fontSize:15,background:"var(--card2)",border:"1px solid var(--border)",borderRadius:5,color:"var(--text)",outline:"none",padding:"11px 14px",width:"100%",boxSizing:"border-box"}}/>
+        </div>
+        <div style={{width:100}}>
+          <div style={{fontFamily:"Cinzel,serif",fontSize:9,letterSpacing:2,color:"var(--muted)",textTransform:"uppercase",marginBottom:6}}>Máx. Jogadores</div>
+          <input type="number" value={maxPlayers} onChange={e=>setMaxPlayers(Math.max(2,Math.min(20,+e.target.value||6)))} min={2} max={20}/>
+        </div>
+      </div>
+      <button onClick={handleSave} disabled={saving||!name.trim()} className="btn-gold" style={{alignSelf:"flex-start",padding:"9px 22px",opacity:saving||!name.trim()?0.5:1}}>
+        {saving?"Salvando...":"Salvar Alterações"}
+      </button>
+      <div style={{display:"flex",flexDirection:"column",gap:12,paddingTop:16,borderTop:"1px solid var(--border)"}}>
+        <div style={{fontFamily:"Cinzel,serif",fontSize:10,letterSpacing:"0.1em",color:"var(--muted)",textTransform:"uppercase"}}>
+          Ações do Mestre
+        </div>
+        <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
+          <button onClick={handleRegenCode} className="btn-ghost" style={{padding:"9px 18px",fontSize:9}}>
+            🔄 Regenerar Código de Convite
+          </button>
+          <button onClick={handleArchive} style={{
+            padding:"9px 18px",borderRadius:4,cursor:"pointer",fontFamily:"Cinzel,serif",fontSize:9,letterSpacing:1,textTransform:"uppercase",
+            background:campaign.isActive?"rgba(139,32,32,0.1)":"rgba(106,170,122,0.1)",
+            border:campaign.isActive?"1px solid rgba(139,32,32,0.3)":"1px solid rgba(106,170,122,0.3)",
+            color:campaign.isActive?"#e07070":"#6aaa7a",transition:"all 0.2s",
+          }}>
+            {campaign.isActive?"📁 Arquivar Campanha":"📂 Reativar Campanha"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CampaignDetail({ campaign, uid, userName, userPhoto, characters, onBack }) {
+  const [activeTab, setActiveTab] = useState("chat");
+  const isMaster = campaign.masterId===uid;
+
+  const tabs = [
+    {id:"chat",  label:"Chat",               icon:"💬"},
+    {id:"sheets",label:"Fichas dos Agentes",  icon:"◈"},
+    {id:"members",label:"Membros",            icon:"◎"},
+    ...(isMaster?[{id:"settings",label:"Gerenciar",icon:"⚙"}]:[]),
+  ];
+
+  return (
+    <div className="fade" style={{display:"flex",flexDirection:"column",height:"calc(100vh - 136px)",minHeight:400}}>
+      <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:14,flexWrap:"wrap",flexShrink:0}}>
+        <button onClick={onBack} style={{
+          background:"none",border:"1px solid var(--border)",borderRadius:6,cursor:"pointer",
+          color:"var(--muted2)",padding:"6px 13px",fontFamily:"Cinzel,serif",fontSize:9,
+          letterSpacing:1,textTransform:"uppercase",display:"flex",alignItems:"center",gap:5,
+          transition:"all 0.2s",flexShrink:0,
+        }}
+          onMouseEnter={e=>{e.currentTarget.style.borderColor="var(--border2)";e.currentTarget.style.color="var(--text)";}}
+          onMouseLeave={e=>{e.currentTarget.style.borderColor="var(--border)";e.currentTarget.style.color="var(--muted2)";}}>
+          ← Voltar
+        </button>
+        <div style={{flex:1,minWidth:0}}>
+          <div style={{fontFamily:"'Cinzel Decorative',serif",fontSize:17,color:"var(--text)",lineHeight:1.2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+            {campaign.name}
+          </div>
+          <div style={{display:"flex",alignItems:"center",gap:10,marginTop:3,flexWrap:"wrap"}}>
+            {campaign.system&&<span style={{fontFamily:"Cinzel,serif",fontSize:9,letterSpacing:1,color:"var(--gold)",textTransform:"uppercase"}}>⬡ {campaign.system}</span>}
+            <span style={{fontFamily:"Cinzel,serif",fontSize:9,letterSpacing:1,color:"var(--muted)",textTransform:"uppercase"}}>◎ {campaign.members?.length||1}/{campaign.maxPlayers||6}</span>
+            <span style={{fontFamily:"Cinzel,serif",fontSize:9,letterSpacing:1,color:"var(--muted)",textTransform:"uppercase"}}>Mestre: {campaign.masterName}</span>
+          </div>
+        </div>
+        {isMaster && (
+          <div style={{padding:"4px 12px",borderRadius:20,background:"rgba(176,48,216,0.13)",border:"1px solid rgba(176,48,216,0.28)",fontFamily:"Cinzel,serif",fontSize:8,letterSpacing:1,color:"#c8a8f0",textTransform:"uppercase",flexShrink:0}}>
+            ◉ Mestre
+          </div>
+        )}
+      </div>
+
+      <div style={{display:"flex",gap:0,borderBottom:"1px solid var(--border)",flexShrink:0}}>
+        {tabs.map(tab=>(
+          <button key={tab.id} onClick={()=>setActiveTab(tab.id)} style={{
+            padding:"9px 16px",background:"none",border:"none",cursor:"pointer",
+            fontFamily:"Cinzel,serif",fontSize:9,letterSpacing:"0.08em",textTransform:"uppercase",
+            color:activeTab===tab.id?"var(--purple2)":"var(--muted2)",
+            borderBottom:activeTab===tab.id?"2px solid var(--purple)":"2px solid transparent",
+            transition:"all 0.2s",display:"flex",alignItems:"center",gap:5,marginBottom:-1,
+          }}>
+            <span style={{fontSize:13}}>{tab.icon}</span>{tab.label}
+          </button>
+        ))}
+      </div>
+
+      <div style={{flex:1,overflow:"hidden",display:"flex",flexDirection:"column",paddingTop:10}}>
+        {activeTab==="chat"    && <CampaignChat campaignId={campaign.id} uid={uid} userName={userName} userPhoto={userPhoto}/>}
+        {activeTab==="sheets"  && <SharedSheetsPanel campaignId={campaign.id} uid={uid} userName={userName} isMaster={isMaster} characters={characters}/>}
+        {activeTab==="members" && <MembersPanel campaign={campaign} uid={uid} isMaster={isMaster}/>}
+        {activeTab==="settings"&&isMaster && <MasterSettings campaign={campaign} onBack={onBack}/>}
+      </div>
     </div>
   );
 }
@@ -5279,6 +6169,12 @@ function MusicScreen({ nowPlaying, onNowPlaying, musicTokens, onMusicTokens, ytP
 ═══════════════════════════════ */
 export default function App() {
   const [loggedIn, setLoggedIn] = useState(null); // null = carregando, false = deslogado, true = logado
+  const [currentUser, setCurrentUser] = useState(null);
+  const [campaigns, setCampaigns] = useState([]);
+  const [campaignsLoading, setCampaignsLoading] = useState(false);
+  const [selectedCampaign, setSelectedCampaign] = useState(null);
+  const [showCreateCampaign, setShowCreateCampaign] = useState(false);
+  const [showJoinCampaign, setShowJoinCampaign] = useState(false);
   const [activeSystem, setActiveSystem] = useState(() => {
     try { const s = localStorage.getItem('nexus_system'); return s ? JSON.parse(s) : null; } catch { return null; }
   });
@@ -5310,9 +6206,23 @@ export default function App() {
   const ytPlayerRef = useRef(null);
 
   useEffect(() => {
-    const unsub = onAuthStateChanged(auth, user => setLoggedIn(!!user));
+    const unsub = onAuthStateChanged(auth, user => {
+      setLoggedIn(!!user);
+      setCurrentUser(user || null);
+    });
     return unsub;
   }, []);
+
+  useEffect(() => {
+    if (!currentUser) { setCampaigns([]); return; }
+    setCampaignsLoading(true);
+    const unsub = fsGetUserCampaigns(currentUser.uid, (list) => {
+      setCampaigns(list);
+      setCampaignsLoading(false);
+      setSelectedCampaign(prev => prev ? (list.find(c=>c.id===prev.id)||null) : null);
+    });
+    return unsub;
+  }, [currentUser?.uid]);
 
   useEffect(() => {
     if (activeSystem) localStorage.setItem('nexus_system', JSON.stringify(activeSystem));
@@ -5365,7 +6275,32 @@ export default function App() {
       case "sheet":     return <SheetList characters={characters} system={activeSystem} onCreateChar={()=>setCreatingChar(true)} onSelectChar={c=>{ setCreatedChar(c); }}/>;
       case "map":       return <PlaceholderScreen icon="🗺️" title="Editor de Mapas" desc={`Mapas com tiles e névoa de guerra para ${sysName}.`} badge="Em breve" />;
       case "master":    return <PlaceholderScreen icon="🎭" title="Ajudante do Mestre por Voz" desc={`Ajudante inteligente treinado nas regras de ${sysName}.`} badge="Beta · Pro" />;
-      case "party":     return <PlaceholderScreen icon="◎" title="Grupo de Agentes" desc="Compartilhe fichas e gerencie sua campanha." badge="Em breve" />;
+      case "party": {
+        const uid = currentUser?.uid || "";
+        const userName = localStorage.getItem("nexus_profile_name") || currentUser?.displayName || "Agente";
+        const userPhoto = localStorage.getItem("nexus_profile_photo") || currentUser?.photoURL || "";
+        if (selectedCampaign) {
+          const live = campaigns.find(c=>c.id===selectedCampaign.id) || selectedCampaign;
+          return (
+            <>
+              <CampaignDetail campaign={live} uid={uid} userName={userName} userPhoto={userPhoto}
+                characters={characters} onBack={()=>setSelectedCampaign(null)}/>
+              {showCreateCampaign && <CreateCampaignModal onClose={()=>setShowCreateCampaign(false)} onCreate={async(data)=>{const r=await fsCreateCampaign(uid,userName,data);if(r){setShowCreateCampaign(false);}}}/>}
+              {showJoinCampaign && <JoinCampaignModal onClose={()=>setShowJoinCampaign(false)} onJoin={async(code)=>{const r=await fsJoinCampaign(uid,userName,code);if(!r?.error){setShowJoinCampaign(false);}return r;}}/>}
+            </>
+          );
+        }
+        return (
+          <>
+            <CampaignList uid={uid} userName={userName} campaigns={campaigns} loading={campaignsLoading}
+              onOpenCampaign={setSelectedCampaign}
+              onCreateCampaign={()=>setShowCreateCampaign(true)}
+              onJoinCampaign={()=>setShowJoinCampaign(true)}/>
+            {showCreateCampaign && <CreateCampaignModal onClose={()=>setShowCreateCampaign(false)} onCreate={async(data)=>{const r=await fsCreateCampaign(uid,userName,data);if(r)setShowCreateCampaign(false);}}/>}
+            {showJoinCampaign && <JoinCampaignModal onClose={()=>setShowJoinCampaign(false)} onJoin={async(code)=>{const r=await fsJoinCampaign(uid,userName,code);if(!r?.error)setShowJoinCampaign(false);return r;}}/>}
+          </>
+        );
+      }
       default: return <Dashboard system={activeSystem} onCreateChar={()=>setCreatingChar(true)} characters={characters} sessions={sessions} onNav={setScreen}/>;
     }
   };
@@ -5383,7 +6318,7 @@ export default function App() {
       <G/>
       <Deco/>
       <div style={{display:"flex", minHeight:"100vh", background:"var(--bg)", position:"relative", zIndex:1}}>
-        <Sidebar active={screen} onNav={setScreen} collapsed={collapsed} setCollapsed={setCollapsed} system={activeSystem} onChangeSystem={()=>setActiveSystem(null)} onLogout={handleLogout}/>
+        <Sidebar active={screen} onNav={setScreen} collapsed={collapsed} setCollapsed={setCollapsed} system={activeSystem} onChangeSystem={()=>setActiveSystem(null)} onLogout={handleLogout} campaignCount={campaigns.filter(c=>c.isActive).length}/>
         <div style={{flex:1, display:"flex", flexDirection:"column", minWidth:0, overflow:"hidden"}}>
           <Topbar screen={screen} system={activeSystem} onChangeSystem={()=>setActiveSystem(null)} onLogout={handleLogout}/>
           {/* hidden div that hosts the YT IFrame player — never unmounts */}

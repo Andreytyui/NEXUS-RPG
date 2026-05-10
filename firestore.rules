@@ -1,0 +1,99 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ── Users ──────────────────────────────────────────────────────────────────
+    match /users/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+
+    // ── Campaigns ─────────────────────────────────────────────────────────────
+    match /campaigns/{campaignId} {
+
+      // Any authenticated user can read campaigns to join via invite code
+      allow read: if request.auth != null;
+
+      // Only authenticated users can create a campaign (they become masterId)
+      allow create: if request.auth != null
+        && request.resource.data.masterId == request.auth.uid
+        && request.resource.data.members.hasAll([request.auth.uid]);
+
+      // Only the master can update campaign settings
+      allow update: if request.auth != null
+        && resource.data.masterId == request.auth.uid;
+
+      // Allow members to join/leave (update members array) OR master to update
+      allow update: if request.auth != null
+        && resource.data.members.hasAny([request.auth.uid])
+        && onlyUpdatingFields(['members', 'memberNames']);
+
+      // Only master can delete a campaign
+      allow delete: if request.auth != null
+        && resource.data.masterId == request.auth.uid;
+
+      // ── Messages ─────────────────────────────────────────────────────────────
+      match /messages/{messageId} {
+        // Only campaign members can read messages
+        allow read: if request.auth != null
+          && isMember(campaignId);
+
+        // Only members can create messages; system messages are validated separately
+        allow create: if request.auth != null
+          && isMember(campaignId)
+          && (
+            request.resource.data.userId == request.auth.uid
+            || request.resource.data.userId == "system"
+          );
+
+        // Users can only delete their own messages; master can delete any
+        allow delete: if request.auth != null
+          && (
+            resource.data.userId == request.auth.uid
+            || isMaster(campaignId)
+          );
+
+        allow update: if false;
+      }
+
+      // ── Typing indicators ────────────────────────────────────────────────────
+      match /typing/{userId} {
+        allow read:  if request.auth != null && isMember(campaignId);
+        allow write: if request.auth != null && request.auth.uid == userId && isMember(campaignId);
+      }
+
+      // ── Shared Sheets ────────────────────────────────────────────────────────
+      match /sharedSheets/{sheetId} {
+        // Only campaign members can read shared sheets
+        allow read: if request.auth != null && isMember(campaignId);
+
+        // Only members can share their own sheets
+        allow create: if request.auth != null
+          && isMember(campaignId)
+          && request.resource.data.ownerId == request.auth.uid;
+
+        // Owner or master can remove a shared sheet
+        allow delete: if request.auth != null
+          && (
+            resource.data.ownerId == request.auth.uid
+            || isMaster(campaignId)
+          );
+
+        allow update: if false;
+      }
+    }
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
+    function isMember(campaignId) {
+      return request.auth.uid in get(/databases/$(database)/documents/campaigns/$(campaignId)).data.members;
+    }
+
+    function isMaster(campaignId) {
+      return request.auth.uid == get(/databases/$(database)/documents/campaigns/$(campaignId)).data.masterId;
+    }
+
+    function onlyUpdatingFields(fields) {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(fields);
+    }
+  }
+}
