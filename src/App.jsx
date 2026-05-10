@@ -161,7 +161,7 @@ const G = () => (
 
     /* ── DESKTOP LOGIN LAYOUT ── */
     .login-layout{display:flex;min-height:100vh}
-    .login-left{display:none;flex-direction:column;justify-content:center;width:56%;padding:80px 64px;position:relative;overflow-y:auto;border-right:1px solid var(--border)}
+    .login-left{display:none;flex-direction:column;justify-content:center;width:56%;padding:40px 64px;position:relative;overflow-y:auto;border-right:1px solid var(--border)}
     .login-right{flex:1;display:flex;align-items:center;justify-content:center;padding:40px 20px;position:sticky;top:0;height:100vh;overflow-y:auto}
 
     @media(min-width:1024px){
@@ -382,11 +382,11 @@ function Login({ onLogin }) {
         <div className="login-left">
           <div style={{position:"absolute",inset:0,background:"radial-gradient(ellipse at 60% 50%,rgba(201,168,76,0.07) 0%,transparent 65%)",pointerEvents:"none"}}/>
           <div style={{position:"relative",zIndex:1}}>
-            <div style={{display:"flex",justifyContent:"center",marginBottom:16}}>
-              <NexusLogo size={280} animate />
+            <div style={{display:"flex",justifyContent:"center",marginBottom:12}}>
+              <NexusLogo size={160} animate />
             </div>
-            <div style={{textAlign:"center",marginBottom:28}}>
-              <div style={{fontFamily:"'Cinzel Decorative',serif",fontSize:44,fontWeight:700,
+            <div style={{textAlign:"center",marginBottom:20}}>
+              <div style={{fontFamily:"'Cinzel Decorative',serif",fontSize:38,fontWeight:700,
                 background:"linear-gradient(135deg,#c9a84c,#e8c96d,#a07830)",
                 WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent",
                 backgroundClip:"text",letterSpacing:8,marginBottom:10}}>NEXUS</div>
@@ -395,7 +395,7 @@ function Login({ onLogin }) {
               </div>
             </div>
 
-            <div style={{display:"flex",flexDirection:"column",gap:14,marginBottom:28}}>
+            <div style={{display:"flex",flexDirection:"column",gap:10,marginBottom:20}}>
               {[
                 {icon:"◈",title:"Fichas Digitais",desc:"Gerencie personagens com atributos, perícias e inventário completos"},
                 {icon:"◉",title:"Ajudante do Mestre",desc:"Narração assistida por inteligência artificial para suas campanhas"},
