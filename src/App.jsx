@@ -381,8 +381,8 @@ function Login({ onLogin }) {
         <div className="login-left">
           <div style={{position:"absolute",inset:0,background:"radial-gradient(ellipse at 60% 50%,rgba(201,168,76,0.07) 0%,transparent 65%)",pointerEvents:"none"}}/>
           <div style={{position:"relative",zIndex:1}}>
-            <div style={{display:"flex",justifyContent:"center",marginBottom:28,animation:"float 4s ease-in-out infinite"}}>
-              <NexusLogo size={110} animate />
+            <div style={{display:"flex",justifyContent:"center",marginBottom:28}}>
+              <NexusLogo size={190} animate />
             </div>
             <div style={{textAlign:"center",marginBottom:52}}>
               <div style={{fontFamily:"'Cinzel Decorative',serif",fontSize:44,fontWeight:700,
