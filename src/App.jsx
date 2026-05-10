@@ -959,7 +959,8 @@ function CreateCampaignModal({ onClose, onCreate }) {
   const handleCreate = async () => {
     if (!name.trim()) { setError("Digite o nome da campanha."); return; }
     setLoading(true); setError("");
-    await onCreate({ name:name.trim(), description:desc.trim(), system:system.trim()||"Genérico", maxPlayers });
+    const ok = await onCreate({ name:name.trim(), description:desc.trim(), system:system.trim()||"Genérico", maxPlayers });
+    if (!ok) setError("Erro ao criar campanha. Verifique sua conexão e as regras do Firestore.");
     setLoading(false);
   };
 
@@ -1223,6 +1224,7 @@ function CampaignChat({ campaignId, uid, userName, userPhoto }) {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(true);
+  const [chatError, setChatError] = useState("");
   const [typingUsers, setTypingUsers] = useState([]);
   const [lastDoc, setLastDoc] = useState(null);
   const [hasMore, setHasMore] = useState(false);
@@ -1232,6 +1234,7 @@ function CampaignChat({ campaignId, uid, userName, userPhoto }) {
 
   useEffect(() => {
     setLoading(true);
+    setChatError("");
     const q = query(collection(db,"campaigns",campaignId,"messages"),orderBy("timestamp","desc"),limit(LIMIT));
     const unsub = onSnapshot(q, snap => {
       const msgs = snap.docs.map(d=>({id:d.id,...d.data()})).reverse();
@@ -1240,6 +1243,10 @@ function CampaignChat({ campaignId, uid, userName, userPhoto }) {
       setHasMore(snap.docs.length===LIMIT);
       setLoading(false);
       setTimeout(()=>messagesEndRef.current?.scrollIntoView({behavior:"smooth"}),60);
+    }, err => {
+      console.error("Chat messages error:", err);
+      setLoading(false);
+      setChatError("Não foi possível carregar o chat. Verifique as regras do Firestore (firebase deploy --only firestore:rules).");
     });
     return unsub;
   }, [campaignId]);
@@ -1321,7 +1328,14 @@ function CampaignChat({ campaignId, uid, userName, userPhoto }) {
             <div style={{width:24,height:24,border:"2px solid rgba(176,48,216,0.3)",borderTopColor:"#b030d8",borderRadius:"50%",animation:"spin 0.8s linear infinite"}}/>
           </div>
         )}
-        {!loading&&messages.length===0 && (
+        {chatError && (
+          <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",flex:1,gap:10,textAlign:"center",padding:"20px"}}>
+            <div style={{fontSize:28,opacity:0.5}}>⚠</div>
+            <div style={{fontFamily:"Cinzel,serif",fontSize:10,letterSpacing:1,color:"#e07070",textTransform:"uppercase"}}>Erro ao carregar chat</div>
+            <div style={{fontFamily:"'Crimson Pro',serif",fontSize:13,color:"var(--muted)",fontStyle:"italic",maxWidth:380,lineHeight:1.6}}>{chatError}</div>
+          </div>
+        )}
+        {!loading&&!chatError&&messages.length===0 && (
           <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",flex:1,gap:10,opacity:0.45,textAlign:"center"}}>
             <div style={{fontSize:32}}>💬</div>
             <div style={{fontFamily:"Cinzel,serif",fontSize:10,letterSpacing:1,color:"var(--muted)",textTransform:"uppercase"}}>Nenhuma mensagem</div>
@@ -6285,7 +6299,7 @@ export default function App() {
             <>
               <CampaignDetail campaign={live} uid={uid} userName={userName} userPhoto={userPhoto}
                 characters={characters} onBack={()=>setSelectedCampaign(null)}/>
-              {showCreateCampaign && <CreateCampaignModal onClose={()=>setShowCreateCampaign(false)} onCreate={async(data)=>{const r=await fsCreateCampaign(uid,userName,data);if(r){setShowCreateCampaign(false);}}}/>}
+              {showCreateCampaign && <CreateCampaignModal onClose={()=>setShowCreateCampaign(false)} onCreate={async(data)=>{const r=await fsCreateCampaign(uid,userName,data);if(r){setShowCreateCampaign(false);return true;}return false;}}/>}
               {showJoinCampaign && <JoinCampaignModal onClose={()=>setShowJoinCampaign(false)} onJoin={async(code)=>{const r=await fsJoinCampaign(uid,userName,code);if(!r?.error){setShowJoinCampaign(false);}return r;}}/>}
             </>
           );
@@ -6296,7 +6310,7 @@ export default function App() {
               onOpenCampaign={setSelectedCampaign}
               onCreateCampaign={()=>setShowCreateCampaign(true)}
               onJoinCampaign={()=>setShowJoinCampaign(true)}/>
-            {showCreateCampaign && <CreateCampaignModal onClose={()=>setShowCreateCampaign(false)} onCreate={async(data)=>{const r=await fsCreateCampaign(uid,userName,data);if(r)setShowCreateCampaign(false);}}/>}
+            {showCreateCampaign && <CreateCampaignModal onClose={()=>setShowCreateCampaign(false)} onCreate={async(data)=>{const r=await fsCreateCampaign(uid,userName,data);if(r){setShowCreateCampaign(false);return true;}return false;}}/>}
             {showJoinCampaign && <JoinCampaignModal onClose={()=>setShowJoinCampaign(false)} onJoin={async(code)=>{const r=await fsJoinCampaign(uid,userName,code);if(!r?.error)setShowJoinCampaign(false);return r;}}/>}
           </>
         );
