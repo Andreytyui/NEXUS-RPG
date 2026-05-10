@@ -162,7 +162,7 @@ const G = () => (
     /* ── DESKTOP LOGIN LAYOUT ── */
     .login-layout{display:flex;min-height:100vh}
     .login-left{display:none;flex-direction:column;justify-content:center;width:56%;padding:80px 64px;position:relative;overflow-y:auto;border-right:1px solid var(--border)}
-    .login-right{flex:1;display:flex;align-items:center;justify-content:center;padding:40px 20px}
+    .login-right{flex:1;display:flex;align-items:center;justify-content:center;padding:40px 20px;position:sticky;top:0;height:100vh;overflow-y:auto}
 
     @media(min-width:1024px){
       .login-left{display:flex}
@@ -306,6 +306,7 @@ function Login({ onLogin }) {
   const [error, setError] = useState("");
   const [resetSent, setResetSent] = useState(false);
   const [keepLoggedIn, setKeepLoggedIn] = useState(() => localStorage.getItem("nx_keep") !== "0");
+  const [showPass, setShowPass] = useState(false);
 
   const applyPersistence = () => {
     const persistence = keepLoggedIn ? browserLocalPersistence : browserSessionPersistence;
@@ -381,10 +382,10 @@ function Login({ onLogin }) {
         <div className="login-left">
           <div style={{position:"absolute",inset:0,background:"radial-gradient(ellipse at 60% 50%,rgba(201,168,76,0.07) 0%,transparent 65%)",pointerEvents:"none"}}/>
           <div style={{position:"relative",zIndex:1}}>
-            <div style={{display:"flex",justifyContent:"center",marginBottom:28}}>
+            <div style={{display:"flex",justifyContent:"center",marginBottom:16}}>
               <NexusLogo size={280} animate />
             </div>
-            <div style={{textAlign:"center",marginBottom:52}}>
+            <div style={{textAlign:"center",marginBottom:28}}>
               <div style={{fontFamily:"'Cinzel Decorative',serif",fontSize:44,fontWeight:700,
                 background:"linear-gradient(135deg,#c9a84c,#e8c96d,#a07830)",
                 WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent",
@@ -394,7 +395,7 @@ function Login({ onLogin }) {
               </div>
             </div>
 
-            <div style={{display:"flex",flexDirection:"column",gap:22,marginBottom:52}}>
+            <div style={{display:"flex",flexDirection:"column",gap:14,marginBottom:28}}>
               {[
                 {icon:"◈",title:"Fichas Digitais",desc:"Gerencie personagens com atributos, perícias e inventário completos"},
                 {icon:"◉",title:"Ajudante do Mestre",desc:"Narração assistida por inteligência artificial para suas campanhas"},
@@ -461,22 +462,43 @@ function Login({ onLogin }) {
             <div style={{display:"flex", flexDirection:"column", gap:14}}>
               {tab==="register" && (
                 <div>
-                  <div style={{fontFamily:"Cinzel,serif", fontSize:9, letterSpacing:2, color:"var(--muted)", textTransform:"uppercase", marginBottom:7}}>Nome de Agente</div>
+                  <div style={{fontFamily:"Cinzel,serif", fontSize:9, letterSpacing:2, color:"var(--muted2)", textTransform:"uppercase", marginBottom:7}}>Nome de Agente</div>
                   <input value={name} onChange={e=>setName(e.target.value)} placeholder="Seu nome ou codinome" />
                 </div>
               )}
               <div>
-                <div style={{fontFamily:"Cinzel,serif", fontSize:9, letterSpacing:2, color:"var(--muted)", textTransform:"uppercase", marginBottom:7}}>E-mail</div>
+                <div style={{fontFamily:"Cinzel,serif", fontSize:9, letterSpacing:2, color:"var(--muted2)", textTransform:"uppercase", marginBottom:7}}>E-mail</div>
                 <input type="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="agente@ordo.com" onKeyDown={e=>e.key==="Enter"&&handle()} />
               </div>
               <div>
-                <div style={{fontFamily:"Cinzel,serif", fontSize:9, letterSpacing:2, color:"var(--muted)", textTransform:"uppercase", marginBottom:7}}>Senha</div>
-                <input type="password" value={pass} onChange={e=>setPass(e.target.value)} placeholder="••••••••" onKeyDown={e=>e.key==="Enter"&&handle()} />
+                <div style={{fontFamily:"Cinzel,serif", fontSize:9, letterSpacing:2, color:"var(--muted2)", textTransform:"uppercase", marginBottom:7}}>Senha</div>
+                <div style={{position:"relative"}}>
+                  <input type={showPass?"text":"password"} value={pass} onChange={e=>setPass(e.target.value)} placeholder="••••••••" onKeyDown={e=>e.key==="Enter"&&handle()} style={{paddingRight:42,width:"100%"}} />
+                  <button type="button" onClick={()=>setShowPass(v=>!v)} aria-label={showPass?"Ocultar senha":"Mostrar senha"} style={{
+                    position:"absolute", right:10, top:"50%", transform:"translateY(-50%)",
+                    background:"none", border:"none", cursor:"pointer", padding:4,
+                    color:"var(--muted)", display:"flex", alignItems:"center", lineHeight:1,
+                  }}>
+                    {showPass ? (
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94"/>
+                        <path d="M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19"/>
+                        <line x1="1" y1="1" x2="23" y2="23"/>
+                      </svg>
+                    ) : (
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                        <circle cx="12" cy="12" r="3"/>
+                      </svg>
+                    )}
+                  </button>
+                </div>
               </div>
               {tab==="login" && (
                 <div style={{display:"flex", justifyContent:"space-between", alignItems:"center"}}>
-                  <label style={{display:"flex", alignItems:"center", gap:7, cursor:"pointer", userSelect:"none"}}
-                    onClick={() => setKeepLoggedIn(v => !v)}>
+                  <label htmlFor="keep-logged-in" style={{display:"flex", alignItems:"center", gap:7, cursor:"pointer", userSelect:"none"}}>
+                    <input type="checkbox" id="keep-logged-in" checked={keepLoggedIn} onChange={e=>setKeepLoggedIn(e.target.checked)}
+                      style={{position:"absolute", opacity:0, width:0, height:0}} />
                     <div style={{
                       width:16, height:16, borderRadius:3, border:"1.5px solid",
                       borderColor: keepLoggedIn ? "var(--gold)" : "var(--border2)",
@@ -486,7 +508,7 @@ function Login({ onLogin }) {
                     }}>
                       {keepLoggedIn && <svg width="10" height="8" viewBox="0 0 10 8" fill="none"><path d="M1 3.5L4 6.5L9 1" stroke="var(--gold)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>}
                     </div>
-                    <span style={{fontFamily:"Cinzel,serif", fontSize:9, letterSpacing:1, color: keepLoggedIn ? "var(--gold2)" : "var(--muted)"}}>Manter conectado</span>
+                    <span style={{fontFamily:"Cinzel,serif", fontSize:10, letterSpacing:1, color: keepLoggedIn ? "var(--gold2)" : "var(--muted2)"}}>Manter conectado</span>
                   </label>
                   <span onClick={handleReset} style={{fontFamily:"Cinzel,serif", fontSize:9, letterSpacing:1, color:"var(--muted)", cursor:"pointer", textDecoration:"underline"}}>Esqueci minha senha</span>
                 </div>
@@ -501,7 +523,23 @@ function Login({ onLogin }) {
               <div style={{display:"flex", gap:10, alignItems:"center", margin:"4px 0"}}>
                 <div style={{flex:1, height:1, background:"var(--border)"}}/><span style={{fontFamily:"Cinzel,serif", fontSize:9, color:"var(--muted)"}}>ou</span><div style={{flex:1, height:1, background:"var(--border)"}}/>
               </div>
-              <button className="btn-ghost" onClick={handleGoogle} disabled={loading} style={{width:"100%"}}>☢ Continuar com Google</button>
+              <button className="btn-ghost" onClick={handleGoogle} disabled={loading} style={{width:"100%",display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
+                <svg width="16" height="16" viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg">
+                  <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
+                  <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
+                  <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/>
+                  <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
+                </svg>
+                Continuar com Google
+              </button>
+              {tab==="login" && (
+                <p style={{textAlign:"center",fontFamily:"Cinzel,serif",fontSize:10,color:"var(--muted)",marginTop:4}}>
+                  Não tem conta?{" "}
+                  <span onClick={()=>setTab("register")} style={{color:"var(--gold)",cursor:"pointer",textDecoration:"underline"}}>
+                    Crie uma agora
+                  </span>
+                </p>
+              )}
             </div>
 
             {/* Quote — hidden on desktop */}
