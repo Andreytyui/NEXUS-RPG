@@ -4205,12 +4205,12 @@ function FullSheet({ character, onBack, onUpdate }) {
   const initNex = character.nex ?? 5;
   const cs0 = nexStats(initNex, classe?.id, initAttrs);
 
-  const [pvMax,  setPvMax]  = useState(cs0.pv);
-  const [sanMax, setSanMax] = useState(cs0.san);
-  const [peMax,  setPeMax]  = useState(cs0.pe);
-  const [hp,  setHp]  = useState(cs0.pv);
-  const [san, setSan] = useState(cs0.san);
-  const [pe,  setPe]  = useState(cs0.pe);
+  const [pvMax,  setPvMax]  = useState(character.pvMax  ?? cs0.pv);
+  const [sanMax, setSanMax] = useState(character.sanMax ?? cs0.san);
+  const [peMax,  setPeMax]  = useState(character.peMax  ?? cs0.pe);
+  const [hp,  setHp]  = useState(character.pv  ?? cs0.pv);
+  const [san, setSan] = useState(character.san ?? cs0.san);
+  const [pe,  setPe]  = useState(character.pe  ?? cs0.pe);
   const [nex, setNex] = useState(initNex);
   const [showNexMenu, setShowNexMenu] = useState(false);
   const nexBtnRef = useRef(null);
@@ -4218,7 +4218,7 @@ function FullSheet({ character, onBack, onUpdate }) {
   const [activeTab, setActiveTab] = useState("combate");
   const [diceInput, setDiceInput] = useState("");
   const [rollPopup, setRollPopup] = useState(null);
-  const [attacks, setAttacks] = useState([]);
+  const [attacks, setAttacks] = useState(character.attacks ?? []);
   const [showNewAtk, setShowNewAtk] = useState(false);
   const [newAtk, setNewAtk] = useState({ name:"", dmg:"", crit:"x2" });
   const [desc, setDesc] = useState({
@@ -4244,6 +4244,31 @@ function FullSheet({ character, onBack, onUpdate }) {
     }
   }, [rollPopup]);
 
+  // Auto-save: persist ALL sheet state whenever anything changes
+  const _isMounted = useRef(false);
+  useEffect(() => {
+    if (!_isMounted.current) { _isMounted.current = true; return; }
+    onUpdate?.({
+      ...character,
+      attrs,
+      form: { ...form, ...desc },
+      origem,
+      classe,
+      skillTreino,
+      skillOutros,
+      skillAttr,
+      pdBonus,
+      nex,
+      pv: hp,
+      san,
+      pe,
+      pvMax,
+      sanMax,
+      peMax,
+      attacks,
+    });
+  }, [attrs, form, desc, origem, classe, skillTreino, skillOutros, skillAttr, pdBonus, nex, hp, san, pe, pvMax, sanMax, peMax, attacks]);
+
   // derived
   const defesa   = 10 + attrs.AGI;
   const esquiva  = attrs.AGI;
@@ -4264,7 +4289,6 @@ function FullSheet({ character, onBack, onUpdate }) {
     setPeMax(ns.pe);  setPe(v  => Math.min(v, ns.pe));
     setNex(newNex);
     setShowNexMenu(false);
-    onUpdate?.({ ...character, nex: newNex });
   };
 
   const rollFreeInput = () => {
@@ -4381,7 +4405,7 @@ function FullSheet({ character, onBack, onUpdate }) {
             <div style={{fontFamily:"Cinzel,serif",fontSize:8,color:"var(--muted2)",letterSpacing:2,textTransform:"uppercase",marginBottom:2}}>Personagem</div>
             <input
               value={form.personagem}
-              onChange={e=>{ const f={...form,personagem:e.target.value}; setForm(f); onUpdate?.({...character,form:f,origem,classe}); }}
+              onChange={e=>{ const f={...form,personagem:e.target.value}; setForm(f); }}
               placeholder="—"
               style={{
                 width:"100%", boxSizing:"border-box",
@@ -4399,7 +4423,7 @@ function FullSheet({ character, onBack, onUpdate }) {
             <div style={{fontFamily:"Cinzel,serif",fontSize:8,color:"var(--muted2)",letterSpacing:2,textTransform:"uppercase",marginBottom:2}}>Jogador</div>
             <input
               value={form.jogador}
-              onChange={e=>{ const f={...form,jogador:e.target.value}; setForm(f); onUpdate?.({...character,form:f,origem,classe}); }}
+              onChange={e=>{ const f={...form,jogador:e.target.value}; setForm(f); }}
               placeholder="—"
               style={{
                 width:"100%", boxSizing:"border-box",
@@ -4417,7 +4441,7 @@ function FullSheet({ character, onBack, onUpdate }) {
             <div style={{fontFamily:"Cinzel,serif",fontSize:8,color:"var(--muted2)",letterSpacing:2,textTransform:"uppercase",marginBottom:2}}>Origem</div>
             <select
               value={origem?.id || ""}
-              onChange={e=>{ const o=ORIGENS.find(o=>o.id===e.target.value)||null; setOrigem(o); onUpdate?.({...character,form,origem:o,classe}); }}
+              onChange={e=>{ const o=ORIGENS.find(o=>o.id===e.target.value)||null; setOrigem(o); }}
               style={{
                 width:"100%", background:"transparent", border:"none",
                 borderBottom:"1px solid transparent",
@@ -4439,7 +4463,7 @@ function FullSheet({ character, onBack, onUpdate }) {
             <div style={{fontFamily:"Cinzel,serif",fontSize:8,color:"var(--muted2)",letterSpacing:2,textTransform:"uppercase",marginBottom:2}}>Classe</div>
             <select
               value={classe?.id || ""}
-              onChange={e=>{ const c=CLASSES.find(c=>c.id===e.target.value)||null; setClasse(c); onUpdate?.({...character,form,origem,classe:c}); }}
+              onChange={e=>{ const c=CLASSES.find(c=>c.id===e.target.value)||null; setClasse(c); }}
               style={{
                 width:"100%", background:"transparent", border:"none",
                 borderBottom:"1px solid transparent",
@@ -4485,8 +4509,8 @@ function FullSheet({ character, onBack, onUpdate }) {
                   <input
                     autoFocus type="number" min={0} max={999}
                     defaultValue={pdBonus}
-                    onBlur={e=>{const v=Math.max(0,Math.min(999,parseInt(e.target.value)||0));setPdBonus(v);onUpdate?.({...character,form,origem,classe,skillTreino,skillOutros,skillAttr,pdBonus:v});setPdEditing(false);}}
-                    onKeyDown={e=>{if(e.key==="Enter"||e.key==="Escape"){const v=Math.max(0,Math.min(999,parseInt(e.target.value)||0));setPdBonus(v);onUpdate?.({...character,form,origem,classe,skillTreino,skillOutros,skillAttr,pdBonus:v});setPdEditing(false);}}}
+                    onBlur={e=>{const v=Math.max(0,Math.min(999,parseInt(e.target.value)||0));setPdBonus(v);setPdEditing(false);}}
+                    onKeyDown={e=>{if(e.key==="Enter"||e.key==="Escape"){const v=Math.max(0,Math.min(999,parseInt(e.target.value)||0));setPdBonus(v);setPdEditing(false);}}}
                     style={{width:"100%",background:"transparent",border:"none",borderBottom:"1px solid var(--gold)",textAlign:"center",fontFamily:"Cinzel,serif",fontSize:13,color:"var(--gold)",fontWeight:600,padding:0,outline:"none",MozAppearance:"textfield"}}
                   />
                 ) : (
@@ -4592,7 +4616,6 @@ function FullSheet({ character, onBack, onUpdate }) {
                                   e.stopPropagation();
                                   const updated={...skillAttr,[base]:a};
                                   setSkillAttr(updated);
-                                  onUpdate?.({...character,form,origem,classe,skillTreino,skillOutros,skillAttr:updated});
                                   setAttrOpen(null);
                                 }}
                                 onMouseEnter={e=>e.currentTarget.style.background="rgba(255,255,255,0.12)"}
@@ -4622,7 +4645,6 @@ function FullSheet({ character, onBack, onUpdate }) {
                                   e.stopPropagation();
                                   const updated={...skillTreino,[base]:v};
                                   setSkillTreino(updated);
-                                  onUpdate?.({...character,form,origem,classe,skillTreino:updated,skillOutros});
                                   setTreinoOpen(null);
                                 }}
                                 onMouseEnter={e=>e.currentTarget.style.background="rgba(255,255,255,0.12)"}
@@ -4642,7 +4664,6 @@ function FullSheet({ character, onBack, onUpdate }) {
                       const v = Math.max(0, Math.min(99, parseInt(raw)||0));
                       const updated = {...skillOutros, [base]: v};
                       setSkillOutros(updated);
-                      onUpdate?.({...character,form,origem,classe,skillTreino,skillOutros:updated});
                       setOutrosEditing(null);
                     };
                     return isEditing ? (
