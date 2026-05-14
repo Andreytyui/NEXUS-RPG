@@ -1912,46 +1912,115 @@ function MasterSettings({ campaign, onBack }) {
 
 function CampaignDetail({ campaign, uid, userName, userPhoto, characters, onBack }) {
   const [activeTab, setActiveTab] = useState("chat");
-  const isMaster = campaign.masterId===uid;
+  const [showInvite, setShowInvite] = useState(false);
+  const [coverUploading, setCoverUploading] = useState(false);
+  const [inviteCopied, setInviteCopied] = useState(false);
+  const isMaster = campaign.masterId === uid;
+  const coverInputRef = useRef(null);
+
+  const handleCoverUpload = async (file) => {
+    if (!file || !file.type.startsWith("image/")) return;
+    setCoverUploading(true);
+    try {
+      const img = await resizeCoverImage(file);
+      await updateDoc(doc(db, "campaigns", campaign.id), { coverImage: img });
+    } catch(_) {}
+    setCoverUploading(false);
+  };
+
+  const copyInviteCode = () => {
+    navigator.clipboard.writeText(campaign.inviteCode || "").catch(()=>{});
+    setInviteCopied(true);
+    setTimeout(() => setInviteCopied(false), 2000);
+  };
 
   const tabs = [
-    {id:"chat",  label:"Chat",               icon:"💬"},
-    {id:"sheets",label:"Fichas dos Agentes",  icon:"◈"},
-    {id:"members",label:"Membros",            icon:"◎"},
-    ...(isMaster?[{id:"settings",label:"Gerenciar",icon:"⚙"}]:[]),
+    { id:"chat",    label:"Chat",      icon:"💬" },
+    { id:"sheets",  label:"Agentes",   icon:"◈" },
+    { id:"members", label:"Jogadores", icon:"◎" },
+    ...(isMaster ? [{ id:"settings", label:"Gerenciar", icon:"⚙" }] : []),
   ];
 
+  const BtnAction = ({ icon, label, onClick, purple, disabled }) => (
+    <button onClick={onClick} disabled={!!disabled}
+      style={{
+        display:"flex",alignItems:"center",gap:6,padding:"7px 14px",
+        background: purple ? "rgba(176,48,216,0.18)" : "transparent",
+        border:`1px solid ${purple ? "rgba(176,48,216,0.5)" : "var(--border2)"}`,
+        borderRadius:6,cursor:disabled?"default":"pointer",
+        fontFamily:"Cinzel,serif",fontSize:9,letterSpacing:1,textTransform:"uppercase",
+        color: purple ? "#c8a8f0" : "var(--muted2)",
+        transition:"all 0.18s",whiteSpace:"nowrap",opacity:disabled?0.5:1,
+      }}
+      onMouseEnter={e=>{ if(!disabled){ e.currentTarget.style.borderColor=purple?"rgba(176,48,216,0.8)":"var(--text)"; e.currentTarget.style.color=purple?"#e0c8ff":"var(--text)"; }}}
+      onMouseLeave={e=>{ e.currentTarget.style.borderColor=purple?"rgba(176,48,216,0.5)":"var(--border2)"; e.currentTarget.style.color=purple?"#c8a8f0":"var(--muted2)"; }}>
+      <span style={{fontSize:14,lineHeight:1}}>{icon}</span>{label}
+    </button>
+  );
+
   return (
-    <div className="fade" style={{display:"flex",flexDirection:"column",height:"calc(100vh - 136px)",minHeight:400}}>
-      <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:14,flexWrap:"wrap",flexShrink:0}}>
-        <button onClick={onBack} style={{
-          background:"none",border:"1px solid var(--border)",borderRadius:6,cursor:"pointer",
-          color:"var(--muted2)",padding:"6px 13px",fontFamily:"Cinzel,serif",fontSize:9,
-          letterSpacing:1,textTransform:"uppercase",display:"flex",alignItems:"center",gap:5,
-          transition:"all 0.2s",flexShrink:0,
-        }}
-          onMouseEnter={e=>{e.currentTarget.style.borderColor="var(--border2)";e.currentTarget.style.color="var(--text)";}}
-          onMouseLeave={e=>{e.currentTarget.style.borderColor="var(--border)";e.currentTarget.style.color="var(--muted2)";}}>
-          ← Voltar
-        </button>
-        <div style={{flex:1,minWidth:0}}>
-          <div style={{fontFamily:"'Cinzel Decorative',serif",fontSize:17,color:"var(--text)",lineHeight:1.2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
-            {campaign.name}
-          </div>
-          <div style={{display:"flex",alignItems:"center",gap:10,marginTop:3,flexWrap:"wrap"}}>
-            {campaign.system&&<span style={{fontFamily:"Cinzel,serif",fontSize:9,letterSpacing:1,color:"var(--gold)",textTransform:"uppercase"}}>⬡ {campaign.system}</span>}
-            <span style={{fontFamily:"Cinzel,serif",fontSize:9,letterSpacing:1,color:"var(--muted)",textTransform:"uppercase"}}>◎ {campaign.members?.length||1}/{campaign.maxPlayers||6}</span>
-            <span style={{fontFamily:"Cinzel,serif",fontSize:9,letterSpacing:1,color:"var(--muted)",textTransform:"uppercase"}}>Mestre: {campaign.masterName}</span>
+    <div className="fade" style={{display:"flex",flexDirection:"column",height:"calc(100vh - 136px)",minHeight:400,gap:0}}>
+
+      {/* ── Banner de capa ── */}
+      <div style={{position:"relative",width:"100%",height:campaign.coverImage?180:80,borderRadius:10,overflow:"hidden",flexShrink:0,marginBottom:0,
+        background:campaign.coverImage?"transparent":"linear-gradient(135deg,rgba(176,48,216,0.18),rgba(176,48,216,0.04))"}}>
+        {campaign.coverImage && <img src={campaign.coverImage} alt="" style={{width:"100%",height:"100%",objectFit:"cover",display:"block"}}/>}
+        <div style={{position:"absolute",inset:0,background:"linear-gradient(to bottom,rgba(0,0,0,0.05) 0%,rgba(0,0,0,0.72) 100%)"}}/>
+        {/* Back + title */}
+        <div style={{position:"absolute",bottom:12,left:14,right:14,display:"flex",alignItems:"flex-end",gap:12}}>
+          <button onClick={onBack} style={{
+            background:"rgba(0,0,0,0.45)",border:"1px solid rgba(255,255,255,0.18)",borderRadius:6,cursor:"pointer",
+            color:"rgba(255,255,255,0.8)",padding:"5px 11px",fontFamily:"Cinzel,serif",fontSize:9,
+            letterSpacing:1,textTransform:"uppercase",flexShrink:0,transition:"all 0.2s",
+          }}
+            onMouseEnter={e=>{e.currentTarget.style.background="rgba(0,0,0,0.65)";e.currentTarget.style.color="#fff";}}
+            onMouseLeave={e=>{e.currentTarget.style.background="rgba(0,0,0,0.45)";e.currentTarget.style.color="rgba(255,255,255,0.8)";}}>
+            ← Voltar
+          </button>
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{fontFamily:"'Cinzel Decorative',serif",fontSize:18,color:"#fff",lineHeight:1.2,textShadow:"0 1px 6px rgba(0,0,0,0.8)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+              {campaign.name}
+            </div>
+            <div style={{display:"flex",alignItems:"center",gap:10,marginTop:2,flexWrap:"wrap"}}>
+              {campaign.system&&<span style={{fontFamily:"Cinzel,serif",fontSize:9,letterSpacing:1,color:"rgba(255,220,100,0.9)",textTransform:"uppercase"}}>⬡ {campaign.system}</span>}
+              <span style={{fontFamily:"Cinzel,serif",fontSize:9,letterSpacing:1,color:"rgba(255,255,255,0.5)",textTransform:"uppercase"}}>◎ {campaign.members?.length||1}/{campaign.maxPlayers||6}</span>
+              {isMaster&&<span style={{fontFamily:"Cinzel,serif",fontSize:8,letterSpacing:1,color:"#c8a8f0",padding:"2px 7px",background:"rgba(176,48,216,0.35)",borderRadius:4,textTransform:"uppercase"}}>Mestre</span>}
+            </div>
           </div>
         </div>
-        {isMaster && (
-          <div style={{padding:"4px 12px",borderRadius:20,background:"rgba(176,48,216,0.13)",border:"1px solid rgba(176,48,216,0.28)",fontFamily:"Cinzel,serif",fontSize:8,letterSpacing:1,color:"#c8a8f0",textTransform:"uppercase",flexShrink:0}}>
-            ◉ Mestre
-          </div>
-        )}
       </div>
 
-      <div style={{display:"flex",gap:0,borderBottom:"1px solid var(--border)",flexShrink:0}}>
+      {/* ── Barra de ações ── */}
+      <input ref={coverInputRef} type="file" accept="image/*" style={{display:"none"}} onChange={e=>e.target.files?.[0]&&handleCoverUpload(e.target.files[0])}/>
+      <div style={{display:"flex",gap:6,flexWrap:"wrap",padding:"10px 0 4px",flexShrink:0,alignItems:"center"}}>
+        {isMaster && (
+          <BtnAction icon={coverUploading?"⏳":"🖼"} label={coverUploading?"Enviando...":"Foto de Capa"} disabled={coverUploading}
+            onClick={()=>coverInputRef.current?.click()}/>
+        )}
+        <BtnAction icon="◈" label="Adicionar Agentes" onClick={()=>setActiveTab("sheets")}/>
+        <BtnAction icon="◎" label="Convidar Jogadores" onClick={()=>setShowInvite(v=>!v)}/>
+        {isMaster && <BtnAction icon="⚙" label="Editar Campanha" onClick={()=>setActiveTab("settings")}/>}
+      </div>
+
+      {/* ── Painel código de convite ── */}
+      {showInvite && (
+        <div style={{padding:"12px 16px",background:"rgba(176,48,216,0.07)",border:"1px solid rgba(176,48,216,0.22)",borderRadius:8,display:"flex",alignItems:"center",gap:14,flexShrink:0,marginBottom:4}}>
+          <div>
+            <div style={{fontFamily:"Cinzel,serif",fontSize:9,color:"var(--muted)",letterSpacing:1,textTransform:"uppercase",marginBottom:4}}>Código de Convite</div>
+            <div style={{fontFamily:"Cinzel,serif",fontSize:22,letterSpacing:8,color:"#c8a8f0",fontWeight:700}}>{campaign.inviteCode||"------"}</div>
+          </div>
+          <button onClick={copyInviteCode} style={{
+            marginLeft:"auto",padding:"7px 16px",background:inviteCopied?"rgba(106,170,122,0.15)":"rgba(176,48,216,0.15)",
+            border:`1px solid ${inviteCopied?"rgba(106,170,122,0.4)":"rgba(176,48,216,0.4)"}`,
+            borderRadius:6,cursor:"pointer",fontFamily:"Cinzel,serif",fontSize:9,letterSpacing:1,
+            color:inviteCopied?"#6aaa7a":"#c8a8f0",transition:"all 0.2s",
+          }}>{inviteCopied?"✓ Copiado!":"Copiar"}</button>
+          <button onClick={()=>setShowInvite(false)} style={{background:"transparent",border:"none",cursor:"pointer",color:"var(--muted)",fontSize:16,lineHeight:1,padding:"2px 4px"}}>✕</button>
+        </div>
+      )}
+
+      {/* ── Tabs ── */}
+      <div style={{display:"flex",gap:0,borderBottom:"1px solid var(--border)",flexShrink:0,marginTop:4}}>
         {tabs.map(tab=>(
           <button key={tab.id} onClick={()=>setActiveTab(tab.id)} style={{
             padding:"9px 16px",background:"none",border:"none",cursor:"pointer",
@@ -1965,6 +2034,7 @@ function CampaignDetail({ campaign, uid, userName, userPhoto, characters, onBack
         ))}
       </div>
 
+      {/* ── Conteúdo ── */}
       <div style={{flex:1,overflow:"hidden",display:"flex",flexDirection:"column",paddingTop:10}}>
         {activeTab==="chat"    && <CampaignChat campaignId={campaign.id} uid={uid} userName={userName} userPhoto={userPhoto}/>}
         {activeTab==="sheets"  && <SharedSheetsPanel campaignId={campaign.id} uid={uid} userName={userName} isMaster={isMaster} characters={characters}/>}
