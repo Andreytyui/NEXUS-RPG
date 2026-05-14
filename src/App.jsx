@@ -52,6 +52,27 @@ const generateInviteCode = () => {
   return Array.from({length:6},()=>chars[Math.floor(Math.random()*chars.length)]).join("");
 };
 
+const resizeCoverImage = (file) => new Promise((resolve, reject) => {
+  const reader = new FileReader();
+  reader.onload = e => {
+    const img = new Image();
+    img.onload = () => {
+      const MAX_W = 640, MAX_H = 420;
+      let w = img.width, h = img.height;
+      const ratio = Math.min(MAX_W / w, MAX_H / h, 1);
+      w = Math.round(w * ratio); h = Math.round(h * ratio);
+      const canvas = document.createElement("canvas");
+      canvas.width = w; canvas.height = h;
+      canvas.getContext("2d").drawImage(img, 0, 0, w, h);
+      resolve(canvas.toDataURL("image/jpeg", 0.78));
+    };
+    img.onerror = reject;
+    img.src = e.target.result;
+  };
+  reader.onerror = reject;
+  reader.readAsDataURL(file);
+});
+
 const fsCreateCampaign = async (uid, userName, data) => {
   try {
     const code = generateInviteCode();
@@ -67,7 +88,7 @@ const fsCreateCampaign = async (uid, userName, data) => {
       createdAt: serverTimestamp(),
       isActive: true,
       maxPlayers: data.maxPlayers || 6,
-      coverImage: null,
+      coverImage: data.coverImage || null,
     });
     return { id: ref.id, code };
   } catch (e) { console.error(e); return null; }
@@ -953,13 +974,23 @@ function CreateCampaignModal({ onClose, onCreate }) {
   const [desc, setDesc] = useState("");
   const [system, setSystem] = useState("");
   const [maxPlayers, setMaxPlayers] = useState(6);
+  const [coverImage, setCoverImage] = useState(null);
+  const [coverLoading, setCoverLoading] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const coverInputRef = useRef(null);
+
+  const handleCoverFile = async (file) => {
+    if (!file || !file.type.startsWith("image/")) return;
+    setCoverLoading(true);
+    try { setCoverImage(await resizeCoverImage(file)); } catch(_) {}
+    setCoverLoading(false);
+  };
 
   const handleCreate = async () => {
     if (!name.trim()) { setError("Digite o nome da campanha."); return; }
     setLoading(true); setError("");
-    const ok = await onCreate({ name:name.trim(), description:desc.trim(), system:system.trim()||"Genérico", maxPlayers });
+    const ok = await onCreate({ name:name.trim(), description:desc.trim(), system:system.trim()||"Genérico", maxPlayers, coverImage });
     if (!ok) setError("Erro ao criar campanha. Verifique sua conexão e as regras do Firestore.");
     setLoading(false);
   };
@@ -971,6 +1002,36 @@ function CreateCampaignModal({ onClose, onCreate }) {
           Nova Campanha
         </div>
         {error && <div style={{padding:"10px 14px",background:"rgba(139,32,32,0.18)",border:"1px solid rgba(139,32,32,0.4)",borderRadius:6,fontFamily:"Cinzel,serif",fontSize:11,color:"#e07070",letterSpacing:1}}>{error}</div>}
+
+        {/* Cover image picker */}
+        <input ref={coverInputRef} type="file" accept="image/*" style={{display:"none"}} onChange={e=>e.target.files?.[0]&&handleCoverFile(e.target.files[0])}/>
+        <div
+          onClick={()=>coverInputRef.current?.click()}
+          onDragOver={e=>e.preventDefault()}
+          onDrop={e=>{e.preventDefault();e.dataTransfer.files?.[0]&&handleCoverFile(e.dataTransfer.files[0]);}}
+          style={{position:"relative",width:"100%",height:140,borderRadius:10,overflow:"hidden",cursor:"pointer",border:`2px dashed ${coverImage?"transparent":"rgba(176,48,216,0.3)"}`,background:coverImage?"transparent":"rgba(176,48,216,0.04)",transition:"all 0.2s",display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:6}}
+          onMouseEnter={e=>{if(!coverImage)e.currentTarget.style.borderColor="rgba(176,48,216,0.6)";}}
+          onMouseLeave={e=>{if(!coverImage)e.currentTarget.style.borderColor="rgba(176,48,216,0.3)";}}>
+          {coverImage
+            ? <>
+                <img src={coverImage} alt="capa" style={{position:"absolute",inset:0,width:"100%",height:"100%",objectFit:"cover"}}/>
+                <div style={{position:"absolute",inset:0,background:"rgba(0,0,0,0.45)",display:"flex",alignItems:"center",justifyContent:"center",gap:8,opacity:0,transition:"opacity 0.2s"}}
+                  onMouseEnter={e=>e.currentTarget.style.opacity="1"}
+                  onMouseLeave={e=>e.currentTarget.style.opacity="0"}>
+                  <span style={{color:"#fff",fontFamily:"Cinzel,serif",fontSize:11,letterSpacing:1}}>Trocar imagem</span>
+                  <button onClick={e=>{e.stopPropagation();setCoverImage(null);}} style={{background:"rgba(139,32,32,0.6)",border:"1px solid rgba(255,100,100,0.4)",borderRadius:4,color:"#ff9090",cursor:"pointer",fontSize:10,padding:"3px 8px",fontFamily:"Cinzel,serif",letterSpacing:0.5}}>Remover</button>
+                </div>
+              </>
+            : coverLoading
+              ? <div style={{width:22,height:22,border:"2px solid rgba(176,48,216,0.3)",borderTopColor:"#b030d8",borderRadius:"50%",animation:"spin 0.8s linear infinite"}}/>
+              : <>
+                  <div style={{fontSize:28,opacity:0.4}}>🖼</div>
+                  <div style={{fontFamily:"Cinzel,serif",fontSize:10,color:"rgba(176,48,216,0.7)",letterSpacing:1}}>Clique ou arraste uma imagem de capa</div>
+                  <div style={{fontSize:11,color:"var(--muted)"}}>JPG, PNG, WEBP</div>
+                </>
+          }
+        </div>
+
         <div style={{display:"flex",flexDirection:"column",gap:14}}>
           <div>
             <div style={{fontFamily:"Cinzel,serif",fontSize:9,letterSpacing:2,color:"var(--muted)",textTransform:"uppercase",marginBottom:6}}>Nome da Campanha *</div>
@@ -1051,6 +1112,64 @@ function JoinCampaignModal({ onClose, onJoin }) {
 function CampaignCard({ campaign, uid, onClick }) {
   const isMaster = campaign.masterId === uid;
   const memberCount = campaign.members?.length || 0;
+  const hasCover = !!campaign.coverImage;
+
+  if (hasCover) {
+    return (
+      <div onClick={onClick} style={{
+        borderRadius:10,cursor:"pointer",transition:"all 0.2s",
+        position:"relative",overflow:"hidden",
+        border:"1px solid var(--border)",
+        boxShadow:"0 4px 16px rgba(0,0,0,0.35)",
+      }}
+        onMouseEnter={e=>{e.currentTarget.style.transform="translateY(-3px)";e.currentTarget.style.boxShadow="0 12px 32px rgba(0,0,0,0.55)";e.currentTarget.style.borderColor="rgba(176,48,216,0.45)";}}
+        onMouseLeave={e=>{e.currentTarget.style.transform="translateY(0)";e.currentTarget.style.boxShadow="0 4px 16px rgba(0,0,0,0.35)";e.currentTarget.style.borderColor="var(--border)";}}>
+        {/* Cover image */}
+        <div style={{width:"100%",height:160,position:"relative",overflow:"hidden"}}>
+          <img src={campaign.coverImage} alt={campaign.name} style={{width:"100%",height:"100%",objectFit:"cover",display:"block"}}/>
+          <div style={{position:"absolute",inset:0,background:"linear-gradient(to bottom, rgba(0,0,0,0.1) 0%, rgba(0,0,0,0.75) 100%)"}}/>
+          {/* Badges over image */}
+          <div style={{position:"absolute",top:8,left:8,display:"flex",gap:6}}>
+            <span style={{fontFamily:"Cinzel,serif",fontSize:9,letterSpacing:0.5,color:"rgba(255,255,255,0.85)",background:"rgba(0,0,0,0.55)",padding:"3px 8px",borderRadius:4}}>
+              ◎ {memberCount}/{campaign.maxPlayers||6}
+            </span>
+          </div>
+          {isMaster && (
+            <div style={{position:"absolute",top:8,right:8,padding:"3px 8px",borderRadius:4,background:"rgba(176,48,216,0.7)",border:"1px solid rgba(176,48,216,0.5)",fontFamily:"Cinzel,serif",fontSize:8,letterSpacing:1,color:"#e8d0ff",textTransform:"uppercase"}}>
+              Mestre
+            </div>
+          )}
+          {/* Title over image */}
+          <div style={{position:"absolute",bottom:0,left:0,right:0,padding:"10px 14px 12px"}}>
+            <div style={{fontFamily:"Cinzel,serif",fontSize:14,fontWeight:700,color:"#fff",lineHeight:1.3,textShadow:"0 1px 4px rgba(0,0,0,0.8)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+              {campaign.name}
+            </div>
+            {campaign.system && (
+              <div style={{fontFamily:"Cinzel,serif",fontSize:9,letterSpacing:1,color:"rgba(255,220,100,0.9)",textTransform:"uppercase",marginTop:3}}>
+                ⬡ {campaign.system}
+              </div>
+            )}
+          </div>
+        </div>
+        {/* Bottom info strip */}
+        {(campaign.description || !campaign.isActive) && (
+          <div style={{padding:"10px 14px",background:"var(--card)"}}>
+            {campaign.description && (
+              <div style={{fontFamily:"'Crimson Pro',serif",fontSize:13,color:"var(--muted2)",lineHeight:1.4,display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical",overflow:"hidden"}}>
+                {campaign.description}
+              </div>
+            )}
+            {!campaign.isActive && (
+              <span style={{padding:"2px 7px",borderRadius:3,background:"rgba(255,255,255,0.05)",fontFamily:"Cinzel,serif",fontSize:8,letterSpacing:1,color:"var(--muted)",textTransform:"uppercase",marginTop:6,display:"inline-block"}}>
+                Arquivada
+              </span>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div onClick={onClick} style={{
       background:"var(--card)",border:"1px solid var(--border)",borderRadius:10,
@@ -1677,15 +1796,25 @@ function MasterSettings({ campaign, onBack }) {
   const [name, setName] = useState(campaign.name);
   const [desc, setDesc] = useState(campaign.description||"");
   const [maxPlayers, setMaxPlayers] = useState(campaign.maxPlayers||6);
+  const [coverImage, setCoverImage] = useState(campaign.coverImage||null);
+  const [coverLoading, setCoverLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState("");
+  const coverInputRef = useRef(null);
 
   const showMsg = (text) => { setMsg(text); setTimeout(()=>setMsg(""),2500); };
+
+  const handleCoverFile = async (file) => {
+    if (!file || !file.type.startsWith("image/")) return;
+    setCoverLoading(true);
+    try { setCoverImage(await resizeCoverImage(file)); } catch(_) {}
+    setCoverLoading(false);
+  };
 
   const handleSave = async () => {
     if (!name.trim()) return;
     setSaving(true);
-    try { await updateDoc(doc(db,"campaigns",campaign.id),{name:name.trim(),description:desc.trim(),maxPlayers}); showMsg("Salvo com sucesso!"); }
+    try { await updateDoc(doc(db,"campaigns",campaign.id),{name:name.trim(),description:desc.trim(),maxPlayers,coverImage:coverImage||null}); showMsg("Salvo com sucesso!"); }
     catch(e) { showMsg("Erro ao salvar."); }
     setSaving(false);
   };
@@ -1714,6 +1843,34 @@ function MasterSettings({ campaign, onBack }) {
         </div>
       )}
       <div style={{display:"flex",flexDirection:"column",gap:14}}>
+        {/* Cover image */}
+        <div>
+          <div style={{fontFamily:"Cinzel,serif",fontSize:9,letterSpacing:2,color:"var(--muted)",textTransform:"uppercase",marginBottom:6}}>Imagem de Capa</div>
+          <input ref={coverInputRef} type="file" accept="image/*" style={{display:"none"}} onChange={e=>e.target.files?.[0]&&handleCoverFile(e.target.files[0])}/>
+          <div
+            onClick={()=>coverInputRef.current?.click()}
+            onDragOver={e=>e.preventDefault()}
+            onDrop={e=>{e.preventDefault();e.dataTransfer.files?.[0]&&handleCoverFile(e.dataTransfer.files[0]);}}
+            style={{position:"relative",width:"100%",height:120,borderRadius:8,overflow:"hidden",cursor:"pointer",border:`2px dashed ${coverImage?"transparent":"rgba(176,48,216,0.3)"}`,background:coverImage?"transparent":"rgba(176,48,216,0.04)",transition:"all 0.2s",display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:4}}>
+            {coverImage
+              ? <>
+                  <img src={coverImage} alt="capa" style={{position:"absolute",inset:0,width:"100%",height:"100%",objectFit:"cover"}}/>
+                  <div style={{position:"absolute",inset:0,background:"rgba(0,0,0,0.45)",display:"flex",alignItems:"center",justifyContent:"center",gap:8,opacity:0,transition:"opacity 0.2s"}}
+                    onMouseEnter={e=>e.currentTarget.style.opacity="1"}
+                    onMouseLeave={e=>e.currentTarget.style.opacity="0"}>
+                    <span style={{color:"#fff",fontFamily:"Cinzel,serif",fontSize:10,letterSpacing:1}}>Trocar</span>
+                    <button onClick={e=>{e.stopPropagation();setCoverImage(null);}} style={{background:"rgba(139,32,32,0.6)",border:"1px solid rgba(255,100,100,0.4)",borderRadius:4,color:"#ff9090",cursor:"pointer",fontSize:9,padding:"2px 8px",fontFamily:"Cinzel,serif"}}>Remover</button>
+                  </div>
+                </>
+              : coverLoading
+                ? <div style={{width:20,height:20,border:"2px solid rgba(176,48,216,0.3)",borderTopColor:"#b030d8",borderRadius:"50%",animation:"spin 0.8s linear infinite"}}/>
+                : <>
+                    <span style={{fontSize:24,opacity:0.4}}>🖼</span>
+                    <span style={{fontFamily:"Cinzel,serif",fontSize:9,color:"rgba(176,48,216,0.7)",letterSpacing:1}}>Clique ou arraste uma imagem</span>
+                  </>
+            }
+          </div>
+        </div>
         <div>
           <div style={{fontFamily:"Cinzel,serif",fontSize:9,letterSpacing:2,color:"var(--muted)",textTransform:"uppercase",marginBottom:6}}>Nome</div>
           <input value={name} onChange={e=>setName(e.target.value)} maxLength={60}/>
