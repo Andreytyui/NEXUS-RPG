@@ -5471,7 +5471,7 @@ function MusicScreen({ nowPlaying, onNowPlaying, musicTokens, onMusicTokens, ytP
   const [selectedPlaylist, setSelectedPlaylist] = useState(null);
   const [tracks, setTracks] = useState([]);
   const [tracksLoading, setTracksLoading] = useState(false);
-  const [tab, setTab] = useState("youtube");
+  const [tab, setTab] = useState(() => (localStorage.getItem("nx_yt_token") || localStorage.getItem("nx_sp_token")) ? "youtube" : "local");
   const [loading, setLoading] = useState("");
   const [err, setErr] = useState("");
   const [spSetupOpen, setSpSetupOpen] = useState(false);
@@ -5489,6 +5489,8 @@ function MusicScreen({ nowPlaying, onNowPlaying, musicTokens, onMusicTokens, ytP
   const [localDragging, setLocalDragging] = useState(false);
   const [importing, setImporting] = useState(false);
   const [editingPl, setEditingPl] = useState(null);
+  const [localSearch, setLocalSearch] = useState("");
+  const [showLibrary, setShowLibrary] = useState(false);
   const fileInputRef = useRef(null);
 
   /* ── Persist local playlists ── */
@@ -5872,7 +5874,7 @@ function MusicScreen({ nowPlaying, onNowPlaying, musicTokens, onMusicTokens, ytP
       )}
 
       {/* ── Playlist grid ── */}
-      {(isConnected || tab === "local") && !selectedPlaylist && (
+      {(isConnected || ytTokenExpired || tab === "local") && !selectedPlaylist && (
         <div>
           <div style={{ display: "flex", gap: 8, marginBottom: 20, borderBottom: "1px solid var(--border)", paddingBottom: 12, alignItems: "center", flexWrap: "wrap" }}>
             {[
@@ -5919,46 +5921,104 @@ function MusicScreen({ nowPlaying, onNowPlaying, musicTokens, onMusicTokens, ytP
                 onDragOver={e => { e.preventDefault(); setLocalDragging(true); }}
                 onDragLeave={() => setLocalDragging(false)}
                 onDrop={e => { e.preventDefault(); setLocalDragging(false); if (e.dataTransfer.files?.length) importMp3Files(e.dataTransfer.files); }}
-                style={{ border: `2px dashed ${localDragging ? "var(--gold)" : "var(--border2)"}`, borderRadius: 12, padding: "28px 20px", textAlign: "center", marginBottom: 24, background: localDragging ? "rgba(201,168,76,0.06)" : "transparent", transition: "all 0.2s", cursor: "pointer" }}
+                style={{ border: `2px dashed ${localDragging ? "var(--gold)" : "var(--border2)"}`, borderRadius: 14, padding: "32px 24px", textAlign: "center", marginBottom: 20, background: localDragging ? "rgba(201,168,76,0.08)" : "var(--card)", transition: "all 0.2s", cursor: "pointer", position: "relative", overflow: "hidden" }}
                 onClick={() => fileInputRef.current?.click()}>
-                <div style={{ fontSize: 32, marginBottom: 8 }}>🎵</div>
-                <div style={{ fontFamily: "Cinzel,serif", fontSize: 11, color: "var(--gold2)", letterSpacing: 1, marginBottom: 4 }}>
+                {localDragging && <div style={{ position: "absolute", inset: 0, background: "rgba(201,168,76,0.04)", animation: "pulse 0.6s ease-in-out infinite alternate" }} />}
+                <div style={{ fontSize: 36, marginBottom: 10 }}>🎵</div>
+                <div style={{ fontFamily: "Cinzel,serif", fontSize: 12, color: localDragging ? "var(--gold)" : "var(--gold2)", letterSpacing: 1.5, marginBottom: 6, transition: "color 0.2s" }}>
                   {localDragging ? "Solte os arquivos aqui!" : "Arraste arquivos de áudio ou clique para importar"}
                 </div>
-                <div style={{ fontSize: 11, color: "var(--muted)" }}>MP3, WAV, OGG, FLAC, M4A, AAC</div>
+                <div style={{ fontSize: 11, color: "var(--muted)", letterSpacing: 0.5 }}>MP3 · WAV · OGG · FLAC · M4A · AAC · OPUS</div>
+                {importing && (
+                  <div style={{ marginTop: 12, display: "flex", alignItems: "center", justifyContent: "center", gap: 8, color: "var(--gold)", fontSize: 12 }}>
+                    <div style={{ width: 12, height: 12, border: "1.5px solid var(--border)", borderTopColor: "var(--gold)", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
+                    Importando arquivos...
+                  </div>
+                )}
               </div>
 
-              {/* Imported files summary */}
+              {/* Library stats + controls bar */}
               {importedFiles.length > 0 && (
-                <div style={{ marginBottom: 20, padding: "10px 14px", ...card, display: "flex", alignItems: "center", gap: 10 }}>
-                  <span style={{ fontSize: 18 }}>🎶</span>
-                  <div>
-                    <div style={{ fontFamily: "Cinzel,serif", fontSize: 10, color: "var(--gold2)", letterSpacing: 1 }}>Biblioteca Local</div>
-                    <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 1 }}>{importedFiles.length} arquivo{importedFiles.length !== 1 ? "s" : ""} importado{importedFiles.length !== 1 ? "s" : ""}</div>
+                <div style={{ marginBottom: 20, padding: "12px 16px", ...card, display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10, flex: 1, minWidth: 0 }}>
+                    <div style={{ width: 36, height: 36, borderRadius: 8, background: "rgba(201,168,76,0.1)", border: "1px solid rgba(201,168,76,0.2)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, flexShrink: 0 }}>🎶</div>
+                    <div>
+                      <div style={{ fontFamily: "Cinzel,serif", fontSize: 10, color: "var(--gold2)", letterSpacing: 1 }}>Biblioteca Local</div>
+                      <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 1 }}>
+                        {importedFiles.length} arquivo{importedFiles.length !== 1 ? "s" : ""} · {localPlaylists.length} playlist{localPlaylists.length !== 1 ? "s" : ""}
+                      </div>
+                    </div>
                   </div>
-                  <button className="btn-ghost" style={{ marginLeft: "auto", fontSize: 10, padding: "4px 12px" }}
+                  {/* Search filter */}
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 8, padding: "5px 10px", minWidth: 180 }}>
+                    <span style={{ color: "var(--muted)", fontSize: 12 }}>⌕</span>
+                    <input
+                      value={localSearch}
+                      onChange={e => setLocalSearch(e.target.value)}
+                      placeholder="Buscar playlists..."
+                      style={{ background: "transparent", border: "none", outline: "none", color: "var(--text)", fontSize: 12, width: "100%" }}
+                    />
+                    {localSearch && <span style={{ cursor: "pointer", color: "var(--muted)", fontSize: 11 }} onClick={() => setLocalSearch("")}>✕</span>}
+                  </div>
+                  <button className="btn-ghost" style={{ fontSize: 10, padding: "5px 12px", whiteSpace: "nowrap" }}
+                    onClick={() => setShowLibrary(v => !v)}>
+                    {showLibrary ? "▲ Ocultar arquivos" : "▼ Ver arquivos"}
+                  </button>
+                  <button className="btn-gold" style={{ fontSize: 10, padding: "5px 14px", whiteSpace: "nowrap" }}
                     onClick={() => { setEditingPl(null); setNewPlName(""); setSelectedFileIds(new Set()); setCreatePlOpen(true); }}>
                     + Nova Playlist
                   </button>
                 </div>
               )}
 
+              {/* Expandable file library */}
+              {showLibrary && importedFiles.length > 0 && (
+                <div style={{ ...card, marginBottom: 20, overflow: "hidden" }}>
+                  <div style={{ padding: "10px 14px", borderBottom: "1px solid var(--border)", display: "flex", alignItems: "center", gap: 8 }}>
+                    <span style={{ fontFamily: "Cinzel,serif", fontSize: 10, color: "var(--gold2)", letterSpacing: 1 }}>Todos os Arquivos</span>
+                    <span style={{ fontSize: 11, color: "var(--muted)" }}>({importedFiles.length})</span>
+                  </div>
+                  <div style={{ maxHeight: 240, overflowY: "auto" }}>
+                    {importedFiles.map((f, i) => (
+                      <div key={f.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "7px 14px", borderBottom: i < importedFiles.length - 1 ? "1px solid var(--border)" : "none", transition: "background 0.15s" }}
+                        onMouseEnter={e => e.currentTarget.style.background = "var(--card2)"}
+                        onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                        <span style={{ fontSize: 14, flexShrink: 0 }}>🎵</span>
+                        <span style={{ flex: 1, fontSize: 12, color: "var(--text)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{f.name?.replace(/\.[^.]+$/, "") || f.name}</span>
+                        <span style={{ fontSize: 10, color: "var(--muted)", flexShrink: 0 }}>{f.name?.split(".").pop()?.toUpperCase()}</span>
+                        <button style={{ background: "transparent", border: "none", cursor: "pointer", color: "var(--muted)", fontSize: 13, padding: "0 4px", flexShrink: 0 }}
+                          title="Remover arquivo"
+                          onClick={() => { if (window.confirm(`Remover "${f.name}" da biblioteca?`)) deleteImportedFile(f.id); }}
+                          onMouseEnter={e => e.currentTarget.style.color = "#e07070"}
+                          onMouseLeave={e => e.currentTarget.style.color = "var(--muted)"}>✕</button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {/* Local playlists grid */}
               {localPlaylists.length === 0 ? (
-                <div style={{ textAlign: "center", padding: "40px 20px", color: "var(--muted)" }}>
-                  <div style={{ fontSize: 28, marginBottom: 10 }}>🎼</div>
-                  <div style={{ marginBottom: 8, fontFamily: "Cinzel,serif", fontSize: 11, color: "var(--muted2)", letterSpacing: 1 }}>Nenhuma playlist local ainda</div>
-                  <div style={{ fontSize: 12, marginBottom: 16 }}>Importe arquivos de áudio e crie sua primeira playlist</div>
+                <div style={{ textAlign: "center", padding: "48px 20px", color: "var(--muted)" }}>
+                  <div style={{ fontSize: 40, marginBottom: 12 }}>🎼</div>
+                  <div style={{ marginBottom: 6, fontFamily: "Cinzel,serif", fontSize: 12, color: "var(--muted2)", letterSpacing: 1.5 }}>Nenhuma playlist local ainda</div>
+                  <div style={{ fontSize: 12, marginBottom: 20, color: "var(--muted)" }}>Importe arquivos de áudio acima e crie sua primeira playlist</div>
                   {importedFiles.length > 0 && (
-                    <button className="btn-gold" style={{ fontSize: 10 }}
+                    <button className="btn-gold" style={{ fontSize: 11, padding: "8px 20px" }}
                       onClick={() => { setEditingPl(null); setNewPlName(""); setSelectedFileIds(new Set()); setCreatePlOpen(true); }}>
                       + Criar Playlist
                     </button>
                   )}
                 </div>
-              ) : (
+              ) : (() => {
+                const filtered = localSearch.trim()
+                  ? localPlaylists.filter(pl => pl.name.toLowerCase().includes(localSearch.toLowerCase()))
+                  : localPlaylists;
+                return filtered.length === 0 ? (
+                  <div style={{ textAlign: "center", padding: "32px 20px", color: "var(--muted)", fontSize: 12 }}>Nenhuma playlist encontrada para "{localSearch}"</div>
+                ) : (
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(160px,1fr))", gap: 12 }}>
-                  {localPlaylists.map(pl => {
+                  {filtered.map(pl => {
                     const playing = nowPlaying?.playlistId === pl.id && nowPlaying?.svc === "local";
                     const accentColor = localAccent(pl.name);
                     const trackCount = pl.trackIds.length;
@@ -5993,7 +6053,8 @@ function MusicScreen({ nowPlaying, onNowPlaying, musicTokens, onMusicTokens, ytP
                     );
                   })}
                 </div>
-              )}
+                );
+              })()}
             </div>
           ) : !isTabConnected ? (
             <div style={{ textAlign: "center", padding: "60px 20px", color: "var(--muted)" }}>
@@ -6032,7 +6093,7 @@ function MusicScreen({ nowPlaying, onNowPlaying, musicTokens, onMusicTokens, ytP
       )}
 
       {/* ── Track list ── */}
-      {(isConnected || tab === "local") && selectedPlaylist && (
+      {(isConnected || ytTokenExpired || tab === "local") && selectedPlaylist && (
         <div>
           {tracksLoading ? (
             <div style={{ textAlign: "center", padding: "60px 20px", color: "var(--muted)" }}>
