@@ -79,7 +79,10 @@ service cloud.firestore {
             || isMaster(campaignId)
           );
 
-        allow update: if false;
+        // Only the owner can update their own sheet (e.g. "Ao Vivo" sync)
+        allow update: if request.auth != null
+          && isMember(campaignId)
+          && resource.data.ownerId == request.auth.uid;
       }
     }
 
