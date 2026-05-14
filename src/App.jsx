@@ -674,7 +674,7 @@ const navItems = [
   { id:"map",       icon:"⬙", label:"Mapas" },
   { id:"master",    icon:"◉", label:"Ajudante do Mestre" },
   { id:"music",     icon:"♪", label:"Trilhas" },
-  { id:"party",     icon:"◎", label:"Grupo" },
+  { id:"party",     icon:"◎", label:"Campanhas" },
 ];
 
 function Sidebar({ active, onNav, collapsed, setCollapsed, system, onChangeSystem, onLogout, campaignCount }) {
@@ -1106,7 +1106,7 @@ function CampaignList({ uid, userName, campaigns, loading, onOpenCampaign, onCre
         <div>
           <div style={{fontFamily:"Cinzel,serif",fontSize:11,letterSpacing:"0.08em",color:"var(--muted)",textTransform:"uppercase",marginBottom:6}}>Modo Multijogador</div>
           <h1 style={{fontFamily:"'Cinzel Decorative',serif",fontSize:22,fontWeight:700,background:"linear-gradient(135deg,#b030d8,#c8a8f0)",WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent",backgroundClip:"text"}}>
-            Grupo de Agentes
+            Campanhas
           </h1>
         </div>
         <div style={{display:"flex",gap:10}}>
@@ -1542,7 +1542,7 @@ function SharedSheetsPanel({ campaignId, uid, userName, isMaster, characters }) 
       {/* No characters hint */}
       {!sharing && characters.length === 0 && (
         <div style={{padding:"10px 14px",background:"rgba(176,48,216,0.06)",border:"1px solid rgba(176,48,216,0.18)",borderRadius:8,fontFamily:"'Crimson Pro',serif",fontSize:13,color:"var(--muted)",fontStyle:"italic",textAlign:"center"}}>
-          Crie um personagem na aba <strong style={{fontStyle:"normal",color:"var(--purple2)"}}>Fichas</strong> para poder compartilhar neste grupo.
+          Crie um personagem na aba <strong style={{fontStyle:"normal",color:"var(--purple2)"}}>Fichas</strong> para poder compartilhar nesta campanha.
         </div>
       )}
 
@@ -1551,7 +1551,7 @@ function SharedSheetsPanel({ campaignId, uid, userName, isMaster, characters }) 
           <div style={{fontFamily:"Cinzel,serif",fontSize:10,letterSpacing:2,color:"var(--muted)",textTransform:"uppercase"}}>Escolha uma Ficha para Compartilhar</div>
           {availableChars.length === 0 ? (
             <div style={{fontFamily:"'Crimson Pro',serif",fontSize:14,color:"var(--muted)",fontStyle:"italic",textAlign:"center",padding:"16px 0"}}>
-              Todas as suas fichas já estão compartilhadas neste grupo.
+              Todas as suas fichas já estão compartilhadas nesta campanha.
             </div>
           ) : availableChars.map(c=>(
             <div key={c.id||c.createdAt} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 14px",background:"var(--card2)",borderRadius:6,border:"1px solid var(--border)",flexWrap:"wrap",gap:8}}>
@@ -1585,7 +1585,7 @@ function SharedSheetsPanel({ campaignId, uid, userName, isMaster, characters }) 
           <div style={{fontSize:32}}>◈</div>
           <div style={{fontFamily:"Cinzel,serif",fontSize:10,letterSpacing:1,color:"var(--muted)",textTransform:"uppercase"}}>Nenhuma ficha compartilhada</div>
           <div style={{fontFamily:"'Crimson Pro',serif",fontSize:14,color:"var(--muted)",fontStyle:"italic"}}>
-            Compartilhe uma ficha para que o grupo possa acompanhar seu personagem.
+            Compartilhe uma ficha para que a campanha possa acompanhar seu personagem.
           </div>
         </div>
       )}
@@ -2361,7 +2361,7 @@ const NEWS_ITEMS = [
    TOPBAR
 ═══════════════════════════════ */
 function Topbar({ screen, system, onChangeSystem, onLogout }) {
-  const labels = { dashboard:"Painel", sheet:"Fichas de Personagem", map:"Editor de Mapas", master:"Ajudante do Mestre", music:"Trilhas Sonoras", party:"Grupo de Agentes" };
+  const labels = { dashboard:"Painel", sheet:"Fichas de Personagem", map:"Editor de Mapas", master:"Ajudante do Mestre", music:"Trilhas Sonoras", party:"Campanhas" };
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef(null);
   const fileInputRef = useRef(null);
