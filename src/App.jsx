@@ -1438,17 +1438,36 @@ function SharedSheetsPanel({ campaignId, uid, userName, isMaster, characters }) 
   const [loading, setLoading] = useState(true);
   const [sharing, setSharing] = useState(false);
   const [viewSheet, setViewSheet] = useState(null);
+  const sharedSheetsRef = useRef([]);
 
   const SHEET_LIMIT = 15;
 
   useEffect(()=>{
     const q = query(collection(db,"campaigns",campaignId,"sharedSheets"));
     const unsub = onSnapshot(q,snap=>{
-      setSharedSheets(snap.docs.map(d=>({id:d.id,...d.data()})));
+      const docs = snap.docs.map(d=>({id:d.id,...d.data()}));
+      setSharedSheets(docs);
+      sharedSheetsRef.current = docs;
       setLoading(false);
     });
     return unsub;
   },[campaignId]);
+
+  // Sync "Ao Vivo" sheets: whenever characters change or panel finishes loading,
+  // push latest character data to Firestore so other members see live updates.
+  useEffect(()=>{
+    if (loading || !characters?.length) return;
+    const myLiveSheets = sharedSheetsRef.current.filter(s => s.ownerId === uid && s.isLive);
+    if (!myLiveSheets.length) return;
+    myLiveSheets.forEach(sheet => {
+      const char = characters.find(c => String(c.id || c.createdAt) === sheet.characterId);
+      if (!char) return;
+      updateDoc(doc(db,"campaigns",campaignId,"sharedSheets",sheet.id), {
+        characterData: char,
+        characterName: char.form?.personagem || "Sem nome",
+      }).catch(console.error);
+    });
+  },[characters, loading]);
 
   const handleShare = async (character, isLive) => {
     if (sharedSheets.length >= SHEET_LIMIT) return;
