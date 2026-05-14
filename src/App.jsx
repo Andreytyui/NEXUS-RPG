@@ -1388,6 +1388,11 @@ function CampaignChat({ campaignId, uid, userName, userPhoto }) {
 function SharedSheetCard({ sheet, uid, isMaster, onView, onRemove }) {
   const canRemove = uid===sheet.ownerId||isMaster;
   const char = sheet.characterData;
+  const cs = char?.attrs
+    ? nexStats(char.nex ?? 5, char.classe?.id, char.attrs)
+    : { pv: 0, san: 0 };
+  const pvVal  = char?.pv  ?? cs.pv;
+  const sanVal = char?.san ?? cs.san;
   return (
     <div style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:10,padding:"16px",display:"flex",flexDirection:"column",gap:12,position:"relative",overflow:"hidden"}}>
       {sheet.isLive && (
@@ -1408,9 +1413,9 @@ function SharedSheetCard({ sheet, uid, isMaster, onView, onRemove }) {
       {char && (
         <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
           {[
-            {label:"PV",val:`${char.pv??0}`,color:"#e07070"},
-            {label:"SAN",val:`${char.san??0}`,color:"#70a0e0"},
-            {label:"NEX",val:`${char.nex??5}%`,color:"var(--gold)"},
+            {label:"PV",  val: String(pvVal),          color:"#e07070"},
+            {label:"SAN", val: String(sanVal),          color:"#70a0e0"},
+            {label:"NEX", val: `${char.nex ?? 5}%`,    color:"var(--gold)"},
           ].map(s=>(
             <div key={s.label} style={{padding:"3px 8px",borderRadius:4,background:"rgba(255,255,255,0.04)",border:"1px solid var(--border)"}}>
               <span style={{fontFamily:"Cinzel,serif",fontSize:8,color:s.color,letterSpacing:1}}>{s.label} </span>
