@@ -1407,7 +1407,6 @@ function SharedSheetCard({ sheet, uid, isMaster, onView, onRemove }) {
         <div style={{flex:1,minWidth:0}}>
           <div style={{fontFamily:"Cinzel,serif",fontSize:14,color:"var(--text)",marginBottom:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{sheet.characterName}</div>
           <div style={{fontFamily:"'Crimson Pro',serif",fontSize:13,color:"var(--muted2)"}}>{char?.classe?.name||"—"}</div>
-          <div style={{fontFamily:"Cinzel,serif",fontSize:8,letterSpacing:1,color:"var(--muted)",textTransform:"uppercase",marginTop:2}}>por {sheet.ownerName}</div>
         </div>
       </div>
       {char && (
