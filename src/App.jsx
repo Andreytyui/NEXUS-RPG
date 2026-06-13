@@ -1,5 +1,8 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, lazy, Suspense } from "react";
 import { createPortal } from "react-dom";
+import { ThemeStyles } from "./themes/ThemeProvider";
+import { ELEMENTOS } from "./components/systems/OrdemParanormal/elementos";
+import ElementoSymbol from "./components/systems/OrdemParanormal/ElementoSymbol";
 import { initializeApp } from "firebase/app";
 import {
   getAuth, onAuthStateChanged,
@@ -8,7 +11,11 @@ import {
   sendPasswordResetEmail, updateProfile, signOut,
   setPersistence, browserLocalPersistence, browserSessionPersistence,
 } from "firebase/auth";
-import { getFirestore, doc, setDoc, getDoc, updateDoc, deleteField, collection, addDoc, query, orderBy, limit, onSnapshot, getDocs, serverTimestamp, arrayUnion, arrayRemove, where, deleteDoc, startAfter } from "firebase/firestore";
+import { getFirestore, doc, setDoc, getDoc, updateDoc, deleteField, collection, addDoc, query, orderBy, limit, onSnapshot, getDocs, serverTimestamp, arrayUnion, arrayRemove, where, deleteDoc, startAfter, writeBatch, Timestamp } from "firebase/firestore";
+import { roadmapData } from './roadmapData';
+
+// System-specific sheets are code-split (Phase 3 theming architecture).
+const OrdemParanormalSheet = lazy(() => import("./components/systems/OrdemParanormal/OrdemParanormalSheet"));
 
 const firebaseApp = initializeApp({
   apiKey: "AIzaSyAunCnV2lla9DVIy_4A-ngR1W23dZNRUKU",
@@ -31,6 +38,57 @@ const fsDeleteMusicLink = async (uid, svc) => {
 };
 const fsGetMusicLinks = async (uid) => {
   try { const snap = await getDoc(doc(db, "users", uid)); return snap.exists() ? (snap.data().musicLinks || {}) : {}; } catch (_) { return {}; }
+};
+
+/* ── Firestore: fichas (fail-silent) ── */
+const fsSaveCharacter = async (uid, character) => {
+  if (!uid || !character) return;
+  try {
+    const charId = String(character.id || character.createdAt || Date.now());
+    await setDoc(doc(db, "users", uid, "characters", charId), { ...character, _updatedAt: Date.now() });
+  } catch (_) {}
+};
+const fsDeleteCharacter = async (uid, character) => {
+  if (!uid || !character) return;
+  try {
+    const charId = String(character.id || character.createdAt || Date.now());
+    await deleteDoc(doc(db, "users", uid, "characters", charId));
+  } catch (_) {}
+};
+const fsLoadCharacters = async (uid, systemId) => {
+  if (!uid) return null;
+  try {
+    const q = query(collection(db, "users", uid, "characters"), where("systemId", "==", systemId));
+    const snap = await getDocs(q);
+    if (snap.empty) return null;
+    return snap.docs.map(d => { const data = d.data(); delete data._updatedAt; return data; });
+  } catch (_) { return null; }
+};
+
+/* ── Firestore: plano do usuário (fail-silent) ── */
+const fsGetUserPlan = async (uid) => {
+  if (!uid) return 'free';
+  try {
+    const snap = await getDoc(doc(db, "users", uid));
+    return snap.exists() ? (snap.data().plan || 'free') : 'free';
+  } catch (_) { return 'free'; }
+};
+const fsEnsureUserDoc = async (uid, email) => {
+  if (!uid) return;
+  try {
+    await setDoc(doc(db, "users", uid), { email, plan: 'free' }, { merge: true });
+  } catch (_) {}
+};
+
+/* ── Criação de cobrança PIX ── */
+const createPixPayment = async (userId, userEmail) => {
+  const res = await fetch(`${API_BASE}/api/create-payment`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ userId, userEmail, planName: 'ordem' }),
+  });
+  if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || 'Erro ao gerar PIX'); }
+  return res.json();
 };
 
 /* ── Dice roller: parses "2d6+3", "1d20", "1d100-5" ── */
@@ -73,13 +131,157 @@ const resizeCoverImage = (file) => new Promise((resolve, reject) => {
   reader.readAsDataURL(file);
 });
 
+function CoverPreviewModal({ image: initialImage, onConfirm, onClose }) {
+  const fileInputRef = useRef(null);
+  const containerRef = useRef(null);
+  const lastMouse = useRef({ x: 0, y: 0 });
+
+  const [image, setImage] = useState(initialImage);
+  const [zoom, setZoom] = useState(1);
+  const [pos, setPos] = useState({ x: 0, y: 0 });
+  const [isDragging, setIsDragging] = useState(false);
+  const [imgNatural, setImgNatural] = useState({ w: 640, h: 420 });
+  const [contSize, setContSize] = useState({ w: 540, h: 304 });
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    setContSize({ w: el.offsetWidth, h: el.offsetHeight });
+  }, [image]);
+
+  useEffect(() => { setZoom(1); setPos({ x: 0, y: 0 }); }, [image]);
+
+  const baseScale = imgNatural.w > 0
+    ? Math.max(contSize.w / imgNatural.w, contSize.h / imgNatural.h)
+    : 1;
+  const totalScale = baseScale * zoom;
+
+  const clamp = (x, y, scale) => {
+    const hw = Math.max(0, (imgNatural.w * scale - contSize.w) / 2);
+    const hh = Math.max(0, (imgNatural.h * scale - contSize.h) / 2);
+    return { x: Math.max(-hw, Math.min(hw, x)), y: Math.max(-hh, Math.min(hh, y)) };
+  };
+
+  const onImgLoad = (e) => setImgNatural({ w: e.target.naturalWidth, h: e.target.naturalHeight });
+
+  const onMouseDown = (e) => { e.preventDefault(); setIsDragging(true); lastMouse.current = { x: e.clientX, y: e.clientY }; };
+  const onMouseMove = (e) => {
+    if (!isDragging) return;
+    const dx = e.clientX - lastMouse.current.x;
+    const dy = e.clientY - lastMouse.current.y;
+    lastMouse.current = { x: e.clientX, y: e.clientY };
+    setPos(prev => clamp(prev.x + dx, prev.y + dy, totalScale));
+  };
+  const onMouseUp = () => setIsDragging(false);
+
+  const onTouchStart = (e) => { if (e.touches.length===1) { setIsDragging(true); lastMouse.current = { x: e.touches[0].clientX, y: e.touches[0].clientY }; } };
+  const onTouchMove = (e) => {
+    if (!isDragging || e.touches.length!==1) return;
+    e.preventDefault();
+    const dx = e.touches[0].clientX - lastMouse.current.x;
+    const dy = e.touches[0].clientY - lastMouse.current.y;
+    lastMouse.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+    setPos(prev => clamp(prev.x + dx, prev.y + dy, totalScale));
+  };
+
+  const onZoom = (v) => { setZoom(v); setPos(prev => clamp(prev.x, prev.y, baseScale * v)); };
+
+  const handleConfirm = () => {
+    const OUT_W = 640, OUT_H = 360;
+    const canvas = document.createElement("canvas");
+    canvas.width = OUT_W; canvas.height = OUT_H;
+    const ctx = canvas.getContext("2d");
+    const img = new Image();
+    img.onload = () => {
+      const sx = OUT_W / contSize.w, sy = OUT_H / contSize.h;
+      ctx.translate(OUT_W/2 + pos.x * sx, OUT_H/2 + pos.y * sy);
+      ctx.scale(totalScale * sx, totalScale * sy);
+      ctx.drawImage(img, -img.naturalWidth/2, -img.naturalHeight/2);
+      onConfirm(canvas.toDataURL("image/jpeg", 0.85));
+    };
+    img.src = image;
+  };
+
+  const handleNewFile = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file || !file.type.startsWith("image/")) return;
+    try { setImage(await resizeCoverImage(file)); } catch(_) {}
+    e.target.value = "";
+  };
+
+  return createPortal(
+    <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.9)",zIndex:10000,display:"flex",alignItems:"center",justifyContent:"center",padding:"20px"}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:"#111",border:"1px solid rgba(255,255,255,0.1)",borderRadius:12,width:"100%",maxWidth:600,overflow:"hidden",boxShadow:"0 24px 64px rgba(0,0,0,0.8)"}}>
+
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"14px 20px",borderBottom:"1px solid rgba(255,255,255,0.08)"}}>
+          <span style={{fontFamily:"Cinzel,serif",fontSize:11,letterSpacing:"0.12em",color:"#ccc",textTransform:"uppercase"}}>Ajustar Imagem de Capa</span>
+          <span onClick={onClose} style={{cursor:"pointer",opacity:0.45,fontSize:20,color:"#fff",lineHeight:1}}>×</span>
+        </div>
+
+        <div style={{padding:"16px 20px",display:"flex",flexDirection:"column",gap:14}}>
+          {/* Crop area */}
+          <div
+            ref={containerRef}
+            onMouseDown={onMouseDown} onMouseMove={onMouseMove} onMouseUp={onMouseUp} onMouseLeave={onMouseUp}
+            onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onMouseUp}
+            style={{width:"100%",aspectRatio:"16/9",overflow:"hidden",position:"relative",
+              borderRadius:8,background:"#000",cursor:isDragging?"grabbing":"grab",userSelect:"none"}}>
+            <img
+              src={image} alt="" onLoad={onImgLoad} draggable={false}
+              style={{position:"absolute",left:"50%",top:"50%",maxWidth:"none",pointerEvents:"none",userSelect:"none",
+                transform:`translate(calc(-50% + ${pos.x}px), calc(-50% + ${pos.y}px)) scale(${totalScale})`,
+                transformOrigin:"center center"}}
+            />
+            <div style={{position:"absolute",inset:0,border:"2px solid rgba(176,48,216,0.4)",borderRadius:8,pointerEvents:"none"}}/>
+          </div>
+
+          {/* Zoom */}
+          <div style={{display:"flex",alignItems:"center",gap:12}}>
+            <span style={{fontFamily:"Cinzel,serif",fontSize:10,color:"#888",letterSpacing:"0.06em",minWidth:36,textTransform:"uppercase"}}>Zoom</span>
+            <input type="range" min={1} max={3} step={0.02} value={zoom}
+              onChange={e=>onZoom(+e.target.value)}
+              style={{flex:1,accentColor:"#9333ea",cursor:"pointer"}}/>
+            <span style={{fontFamily:"Cinzel,serif",fontSize:10,color:"#888",minWidth:36,textAlign:"right"}}>{Math.round(zoom*100)}%</span>
+          </div>
+          <div style={{fontFamily:"'Crimson Pro',serif",fontSize:13,color:"#666",textAlign:"center",fontStyle:"italic"}}>
+            Arraste para reposicionar · Use o slider para ajustar o zoom
+          </div>
+        </div>
+
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"14px 20px",borderTop:"1px solid rgba(255,255,255,0.08)"}}>
+          <button onClick={()=>fileInputRef.current?.click()}
+            style={{background:"none",border:"none",color:"#999",fontFamily:"Cinzel,serif",fontSize:11,cursor:"pointer",letterSpacing:"0.05em",padding:0,textDecoration:"underline",textUnderlineOffset:3}}>
+            Escolher outra imagem
+          </button>
+          <button onClick={handleConfirm}
+            style={{background:"#9333ea",border:"none",color:"#fff",fontFamily:"Cinzel,serif",fontSize:12,fontWeight:700,letterSpacing:"0.08em",padding:"10px 28px",borderRadius:8,cursor:"pointer"}}>
+            Confirmar
+          </button>
+        </div>
+        <input ref={fileInputRef} type="file" accept="image/*" style={{display:"none"}} onChange={handleNewFile}/>
+      </div>
+    </div>
+  , document.body);
+}
+
 const fsCreateCampaign = async (uid, userName, data) => {
   try {
+    const system = data.system || "Genérico";
+    const existingQ = query(
+      collection(db, "campaigns"),
+      where("masterId", "==", uid),
+      where("system", "==", system),
+      where("isActive", "==", true)
+    );
+    const existingSnap = await getDocs(existingQ);
+    if (existingSnap.size >= 3) {
+      return { limitError: `Você já possui 3 campanhas do sistema "${system}". Exclua uma antes de criar outra.` };
+    }
     const code = generateInviteCode();
     const ref = await addDoc(collection(db,"campaigns"), {
       name: data.name,
       description: data.description || "",
-      system: data.system || "Genérico",
+      system,
       masterId: uid,
       masterName: userName,
       inviteCode: code,
@@ -103,6 +305,15 @@ const fsJoinCampaign = async (uid, userName, code) => {
     const camp = campDoc.data();
     if (camp.members.includes(uid)) return { error: "Você já é membro desta campanha." };
     if (camp.members.length >= (camp.maxPlayers || 6)) return { error: "Campanha lotada." };
+    const campSystem = camp.system || "Genérico";
+    const memberLimitQ = query(
+      collection(db, "campaigns"),
+      where("members", "array-contains", uid),
+      where("system", "==", campSystem),
+      where("isActive", "==", true)
+    );
+    const memberLimitSnap = await getDocs(memberLimitQ);
+    if (memberLimitSnap.size >= 3) return { error: `Você já participa de 3 campanhas do sistema "${campSystem}".` };
     await updateDoc(doc(db,"campaigns",campDoc.id), {
       members: arrayUnion(uid),
       [`memberNames.${uid}`]: userName,
@@ -129,6 +340,23 @@ const fsSendMessage = async (campaignId, uid, userName, userPhoto, content, type
       ...(rollData ? {rollData} : {}),
     });
   } catch(e) { console.error(e); }
+};
+
+const MSG_TTL_MS = 24 * 60 * 60 * 1000;
+const getMsgCutoff = () => Timestamp.fromMillis(Date.now() - MSG_TTL_MS);
+
+const fsCleanOldMessages = async (campaignId) => {
+  try {
+    const q = query(
+      collection(db, "campaigns", campaignId, "messages"),
+      where("timestamp", "<", getMsgCutoff())
+    );
+    const snap = await getDocs(q);
+    if (snap.empty) return;
+    const batch = writeBatch(db);
+    snap.docs.forEach(d => batch.delete(d.ref));
+    await batch.commit();
+  } catch (e) { console.error(e); }
 };
 
 const fsSetTyping = async (campaignId, uid, userName, isTyping) => {
@@ -196,6 +424,7 @@ const G = () => (
     @keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-6px)}}
     @keyframes borderGlow{0%,100%{border-color:rgba(201,168,76,0.2)}50%{border-color:rgba(201,168,76,0.6)}}
     @keyframes critAura{0%,100%{box-shadow:0 0 8px 3px rgba(255,215,0,0.9),0 0 22px 8px rgba(255,180,0,0.55),0 0 44px 16px rgba(201,168,76,0.25);color:#ffe86a}50%{box-shadow:0 0 16px 6px rgba(255,215,0,1),0 0 40px 14px rgba(255,180,0,0.8),0 0 70px 28px rgba(201,168,76,0.45);color:#fff5a0}}
+    @keyframes critPopupGlow{0%,100%{box-shadow:0 0 0 1px rgba(255,200,0,0.6),0 6px 32px rgba(0,0,0,0.9),0 0 20px rgba(255,180,0,0.25)}50%{box-shadow:0 0 0 1px rgba(255,215,0,0.9),0 6px 32px rgba(0,0,0,0.9),0 0 40px rgba(255,180,0,0.55),0 0 80px rgba(201,168,76,0.2)}}
     @keyframes statCardIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
     @keyframes skeletonPulse{0%,100%{opacity:0.35}50%{opacity:0.6}}
     .logo-float{animation:float 4s ease-in-out infinite}
@@ -689,13 +918,30 @@ function Login({ onLogin }) {
 /* ═══════════════════════════════
    SIDEBAR
 ═══════════════════════════════ */
+const NavIco = ({ d, extra, size=18 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    {Array.isArray(d) ? d.map((p,i)=><path key={i} d={p}/>) : <path d={d}/>}
+    {extra}
+  </svg>
+);
+
 const navItems = [
-  { id:"dashboard", icon:"⬡", label:"Painel" },
-  { id:"sheet",     icon:"◈", label:"Fichas" },
-  { id:"map",       icon:"⬙", label:"Mapas" },
-  { id:"master",    icon:"◉", label:"Ajudante do Mestre" },
-  { id:"music",     icon:"♪", label:"Trilhas" },
-  { id:"party",     icon:"◎", label:"Campanhas" },
+  { id:"dashboard", label:"Painel",
+    svg: <NavIco d={["M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"]} extra={<polyline points="9 22 9 12 15 12 15 22"/>}/> },
+  { id:"sheet",     label:"Fichas",
+    svg: <NavIco d={["M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z","M14 2v6h6","M16 13H8","M16 17H8","M10 9H8"]}/> },
+  { id:"map",       label:"Mapas",
+    svg: <NavIco d={[]} extra={<><polygon points="3 6 9 3 15 6 21 3 21 18 15 21 9 18 3 21"/><line x1="9" y1="3" x2="9" y2="18"/><line x1="15" y1="6" x2="15" y2="21"/></>}/> },
+  { id:"master",    label:"Ajudante do Mestre",
+    svg: <NavIco d={[]} extra={<><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></>}/> },
+  { id:"music",     label:"Trilhas",
+    svg: <NavIco d={[]} extra={<><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></>}/> },
+  { id:"party",     label:"Campanhas",
+    svg: <NavIco d={[]} extra={<><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></>}/> },
+  { id:"roadmap",   label:"Roadmap",
+    svg: <NavIco d={["M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z","M4 22v-7"]}/> },
+  { id:"planos",    label:"Planos",
+    svg: <NavIco d={[]} extra={<><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></>}/> },
 ];
 
 function Sidebar({ active, onNav, collapsed, setCollapsed, system, onChangeSystem, onLogout, campaignCount }) {
@@ -735,21 +981,35 @@ function Sidebar({ active, onNav, collapsed, setCollapsed, system, onChangeSyste
     }}>
       {/* Logo */}
       <div style={{
-        padding: collapsed?"16px 0":"20px 20px",
+        padding: collapsed?"16px 0":"20px 16px",
         borderBottom:"1px solid var(--border)",
         display:"flex", alignItems:"center",
         justifyContent: collapsed?"center":"flex-start",
-        gap:12, cursor:"pointer",
+        gap:12, cursor:"pointer", position:"relative",
       }} onClick={()=>setCollapsed(c=>!c)}>
         <NexusLogo size={32} />
         {!collapsed && (
-          <div>
-            <div style={{fontFamily:"'Cinzel Decorative',serif", fontSize:14, fontWeight:700,
-              background:"linear-gradient(135deg,#c9a84c,#e8c96d)",
-              WebkitBackgroundClip:"text", WebkitTextFillColor:"transparent", backgroundClip:"text",
-              letterSpacing:2}}>NEXUS</div>
-            <div style={{fontFamily:"Cinzel,serif", fontSize:7, letterSpacing:2, color:"var(--muted)", textTransform:"uppercase"}}>RPG System</div>
-          </div>
+          <>
+            <div>
+              <div style={{fontFamily:"'Cinzel Decorative',serif", fontSize:14, fontWeight:700,
+                background:"linear-gradient(135deg,#c9a84c,#e8c96d)",
+                WebkitBackgroundClip:"text", WebkitTextFillColor:"transparent", backgroundClip:"text",
+                letterSpacing:2}}>NEXUS</div>
+              <div style={{fontFamily:"Cinzel,serif", fontSize:7, letterSpacing:2, color:"var(--muted)", textTransform:"uppercase"}}>RPG System</div>
+            </div>
+            <svg title="Recolher barra" width={16} height={16} viewBox="0 0 24 24" fill="none"
+              stroke="#c9a84c" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"
+              style={{marginLeft:"auto", flexShrink:0, opacity:0.75}}>
+              <path d="M15 18l-6-6 6-6"/>
+            </svg>
+          </>
+        )}
+        {collapsed && (
+          <svg title="Expandir barra" width={14} height={14} viewBox="0 0 24 24" fill="none"
+            stroke="#c9a84c" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"
+            style={{opacity:0.75}}>
+            <path d="M9 18l6-6-6-6"/>
+          </svg>
         )}
       </div>
 
@@ -784,31 +1044,61 @@ function Sidebar({ active, onNav, collapsed, setCollapsed, system, onChangeSyste
       )}
 
       {/* Nav */}
-      <nav style={{flex:1, padding:"10px 0", display:"flex", flexDirection:"column", gap:2}}>
-        {navItems.map(item => (
-          <button key={item.id} className={`nav-item ${active===item.id?"active":""}`}
-            onClick={()=>onNav(item.id)}
-            style={{justifyContent: collapsed?"center":"flex-start", paddingLeft: collapsed?0:14, borderLeft: active===item.id&&!collapsed?"2px solid var(--purple)":"2px solid transparent", position:"relative"}}
-            title={collapsed?item.label:""}>
-            <span style={{fontSize:16, minWidth:20, textAlign:"center", opacity:active===item.id?1:0.6, transition:"opacity 0.2s"}}>{item.icon}</span>
-            {!collapsed && item.label}
-            {!collapsed && item.id==="party" && campaignCount>0 && (
+      <nav style={{flex:1, padding:"8px 8px", display:"flex", flexDirection:"column", gap:1}}>
+        {navItems.map(item => {
+          const isActive = active === item.id;
+          return (
+            <button key={item.id} onClick={()=>onNav(item.id)}
+              title={collapsed ? item.label : ""}
+              style={{
+                display:"flex", alignItems:"center",
+                justifyContent: collapsed ? "center" : "flex-start",
+                gap:10, padding: collapsed ? "10px 0" : "10px 12px",
+                background: isActive ? "var(--purple-dim)" : "transparent",
+                border:"none", borderRadius:8,
+                cursor:"pointer", position:"relative",
+                fontFamily:"Cinzel,serif", fontSize:11, letterSpacing:"0.05em",
+                color: isActive ? "var(--purple2)" : "var(--muted2)",
+                fontWeight: isActive ? 600 : 400,
+                transition:"all 0.18s",
+                boxShadow: isActive ? "inset 0 0 0 1px var(--purple-glow)" : "none",
+              }}
+              onMouseEnter={e=>{ if(!isActive){ e.currentTarget.style.background="rgba(255,255,255,0.05)"; e.currentTarget.style.color="var(--text)"; }}}
+              onMouseLeave={e=>{ if(!isActive){ e.currentTarget.style.background="transparent"; e.currentTarget.style.color="var(--muted2)"; }}}>
               <span style={{
-                marginLeft:"auto",minWidth:18,height:18,borderRadius:9,
-                background:"rgba(176,48,216,0.8)",color:"#fff",
-                fontSize:9,fontWeight:700,fontFamily:"Cinzel,serif",
-                display:"flex",alignItems:"center",justifyContent:"center",padding:"0 5px",
-              }}>{campaignCount}</span>
-            )}
-            {collapsed && item.id==="party" && campaignCount>0 && (
-              <span style={{
-                position:"absolute",top:4,right:6,width:10,height:10,borderRadius:"50%",
-                background:"#b030d8",border:"2px solid var(--surface)",
-              }}/>
-            )}
-          </button>
-        ))}
+                display:"flex", alignItems:"center", justifyContent:"center",
+                minWidth:20, flexShrink:0,
+                color: isActive ? "var(--purple2)" : "var(--muted2)",
+                filter: isActive ? "drop-shadow(0 0 4px var(--purple-glow))" : "none",
+                transition:"all 0.18s",
+              }}>{item.svg}</span>
+              {!collapsed && <span style={{whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{item.label}</span>}
+            </button>
+          );
+        })}
       </nav>
+
+      {/* Collapse toggle button */}
+      <button onClick={()=>setCollapsed(c=>!c)} title={collapsed ? "Expandir barra" : "Recolher barra"}
+        style={{
+          display:"flex", alignItems:"center",
+          justifyContent: collapsed ? "center" : "flex-start",
+          gap:8, padding: collapsed ? "10px 0" : "10px 14px",
+          background:"none", border:"none", borderTop:"1px solid var(--border)",
+          cursor:"pointer", color:"var(--muted2)", width:"100%",
+          fontFamily:"Cinzel,serif", fontSize:10, letterSpacing:"0.06em",
+          transition:"all 0.18s", flexShrink:0,
+        }}
+        onMouseEnter={e=>{e.currentTarget.style.color="var(--gold)";e.currentTarget.style.background="rgba(201,168,76,0.05)";}}
+        onMouseLeave={e=>{e.currentTarget.style.color="var(--muted2)";e.currentTarget.style.background="none";}}
+      >
+        <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+          {collapsed
+            ? <><path d="M13 17l5-5-5-5"/><path d="M6 17l5-5-5-5"/></>
+            : <><path d="M11 17l-5-5 5-5"/><path d="M18 17l-5-5 5-5"/></>}
+        </svg>
+        {!collapsed && <span>Recolher</span>}
+      </button>
 
       {/* User */}
       {collapsed ? (
@@ -975,6 +1265,7 @@ function CreateCampaignModal({ onClose, onCreate }) {
   const [system, setSystem] = useState("");
   const [maxPlayers, setMaxPlayers] = useState(6);
   const [coverImage, setCoverImage] = useState(null);
+  const [coverPreview, setCoverPreview] = useState(null);
   const [coverLoading, setCoverLoading] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -983,7 +1274,7 @@ function CreateCampaignModal({ onClose, onCreate }) {
   const handleCoverFile = async (file) => {
     if (!file || !file.type.startsWith("image/")) return;
     setCoverLoading(true);
-    try { setCoverImage(await resizeCoverImage(file)); } catch(_) {}
+    try { setCoverPreview(await resizeCoverImage(file)); } catch(_) {}
     setCoverLoading(false);
   };
 
@@ -991,11 +1282,15 @@ function CreateCampaignModal({ onClose, onCreate }) {
     if (!name.trim()) { setError("Digite o nome da campanha."); return; }
     setLoading(true); setError("");
     const ok = await onCreate({ name:name.trim(), description:desc.trim(), system:system.trim()||"Genérico", maxPlayers, coverImage });
+    if (ok?.limitError) { setError(ok.limitError); setLoading(false); return; }
     if (!ok) setError("Erro ao criar campanha. Verifique sua conexão e as regras do Firestore.");
     setLoading(false);
   };
 
-  return createPortal(
+  return (
+    <>
+    {coverPreview && <CoverPreviewModal image={coverPreview} onConfirm={(img)=>{setCoverImage(img);setCoverPreview(null);}} onClose={()=>setCoverPreview(null)}/>}
+    {createPortal(
     <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.78)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:"20px"}}>
       <div onClick={e=>e.stopPropagation()} style={{background:"var(--surface)",border:"1px solid var(--border2)",borderRadius:12,padding:"28px",width:"100%",maxWidth:440,display:"flex",flexDirection:"column",gap:20,boxShadow:"0 24px 64px rgba(0,0,0,0.7)"}}>
         <div style={{fontFamily:"'Cinzel Decorative',serif",fontSize:18,background:"linear-gradient(135deg,#b030d8,#c8a8f0)",WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent",backgroundClip:"text"}}>
@@ -1061,7 +1356,9 @@ function CreateCampaignModal({ onClose, onCreate }) {
         </div>
       </div>
     </div>
-  , document.body);
+  , document.body)}
+  </>
+  );
 }
 
 function JoinCampaignModal({ onClose, onJoin }) {
@@ -1146,7 +1443,7 @@ function CampaignCard({ campaign, uid, onClick }) {
             </div>
             {campaign.system && (
               <div style={{fontFamily:"Cinzel,serif",fontSize:9,letterSpacing:1,color:"rgba(255,220,100,0.9)",textTransform:"uppercase",marginTop:3}}>
-                ⬡ {campaign.system}
+                {campaign.system}
               </div>
             )}
           </div>
@@ -1196,7 +1493,7 @@ function CampaignCard({ campaign, uid, onClick }) {
       )}
       <div style={{display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
         {campaign.system && (
-          <span style={{fontFamily:"Cinzel,serif",fontSize:9,letterSpacing:1,color:"var(--gold)",textTransform:"uppercase"}}>⬡ {campaign.system}</span>
+          <span style={{fontFamily:"Cinzel,serif",fontSize:9,letterSpacing:1,color:"var(--gold)",textTransform:"uppercase"}}>{campaign.system}</span>
         )}
         <span style={{fontFamily:"Cinzel,serif",fontSize:9,letterSpacing:1,color:"var(--muted)"}}>◎ {memberCount}/{campaign.maxPlayers||6}</span>
         {!campaign.isActive && (
@@ -1212,6 +1509,7 @@ function CampaignCard({ campaign, uid, onClick }) {
 function CampaignList({ uid, userName, campaigns, loading, onOpenCampaign, onCreateCampaign, onJoinCampaign }) {
   const active = campaigns.filter(c=>c.isActive);
   const archived = campaigns.filter(c=>!c.isActive);
+  const masterActive = active.filter(c=>c.masterId===uid);
 
   if (loading) return (
     <div className="fade" style={{display:"flex",alignItems:"center",justifyContent:"center",minHeight:320}}>
@@ -1224,8 +1522,11 @@ function CampaignList({ uid, userName, campaigns, loading, onOpenCampaign, onCre
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-end",flexWrap:"wrap",gap:12}}>
         <div>
           <div style={{fontFamily:"Cinzel,serif",fontSize:11,letterSpacing:"0.08em",color:"var(--muted)",textTransform:"uppercase",marginBottom:6}}>Modo Multijogador</div>
-          <h1 style={{fontFamily:"'Cinzel Decorative',serif",fontSize:22,fontWeight:700,background:"linear-gradient(135deg,#b030d8,#c8a8f0)",WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent",backgroundClip:"text"}}>
-            Campanhas
+          <h1 style={{fontFamily:"'Cinzel Decorative',serif",fontSize:22,fontWeight:700,display:"flex",alignItems:"baseline",gap:8}}>
+            <span style={{background:"linear-gradient(135deg,#b030d8,#c8a8f0)",WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent",backgroundClip:"text"}}>Campanhas:</span>
+            <span style={{fontFamily:"'Cinzel Decorative',serif",fontSize:22,fontWeight:700,color:"#fff",WebkitTextFillColor:"#fff"}}>
+              {masterActive.length}/3
+            </span>
           </h1>
         </div>
         <div style={{display:"flex",gap:10}}>
@@ -1354,7 +1655,13 @@ function CampaignChat({ campaignId, uid, userName, userPhoto }) {
   useEffect(() => {
     setLoading(true);
     setChatError("");
-    const q = query(collection(db,"campaigns",campaignId,"messages"),orderBy("timestamp","desc"),limit(LIMIT));
+    fsCleanOldMessages(campaignId);
+    const q = query(
+      collection(db,"campaigns",campaignId,"messages"),
+      where("timestamp",">=",getMsgCutoff()),
+      orderBy("timestamp","desc"),
+      limit(LIMIT)
+    );
     const unsub = onSnapshot(q, snap => {
       const msgs = snap.docs.map(d=>({id:d.id,...d.data()})).reverse();
       setMessages(msgs);
@@ -1413,7 +1720,7 @@ function CampaignChat({ campaignId, uid, userName, userPhoto }) {
 
   const loadMore = async () => {
     if (!lastDoc||!hasMore) return;
-    const q = query(collection(db,"campaigns",campaignId,"messages"),orderBy("timestamp","desc"),startAfter(lastDoc),limit(LIMIT));
+    const q = query(collection(db,"campaigns",campaignId,"messages"),where("timestamp",">=",getMsgCutoff()),orderBy("timestamp","desc"),startAfter(lastDoc),limit(LIMIT));
     const snap = await getDocs(q);
     const older = snap.docs.map(d=>({id:d.id,...d.data()})).reverse();
     setMessages(prev=>[...older,...prev]);
@@ -1607,6 +1914,29 @@ function SharedSheetsPanel({ campaignId, uid, userName, isMaster, characters }) 
     try { await deleteDoc(doc(db,"campaigns",campaignId,"sharedSheets",sheetId)); } catch(e){console.error(e);}
   };
 
+  // Visibility: hide private sheets from non-owner non-master members
+  const visibleSheets = sharedSheets.filter(s =>
+    s.ownerId === uid || isMaster || !s.characterData?.isPrivate
+  );
+
+  // Edit permission for a given sheet
+  const canEditSheet = (sheet) => {
+    if (sheet.ownerId === uid) return true;
+    if (isMaster && sheet.characterData?.allowMasterEdit !== false) return true;
+    if (sheet.characterData?.allowAnyEdit === true) return true;
+    return false;
+  };
+
+  // Save edits made by master/member to the sharedSheets document
+  const handleSheetUpdate = async (sheet, updated) => {
+    try {
+      await updateDoc(doc(db,"campaigns",campaignId,"sharedSheets",sheet.id), {
+        characterData: updated,
+        characterName: updated.form?.personagem || sheet.characterName,
+      });
+    } catch(e) { console.error(e); }
+  };
+
   const mySharedCharIds = sharedSheets.filter(s=>s.ownerId===uid).map(s=>s.characterId);
   const availableChars = characters.filter(c=>!mySharedCharIds.includes(String(c.id||c.createdAt)));
   const atLimit = sharedSheets.length >= SHEET_LIMIT;
@@ -1709,9 +2039,9 @@ function SharedSheetsPanel({ campaignId, uid, userName, isMaster, characters }) 
         </div>
       )}
 
-      {sharedSheets.length > 0 && (
+      {visibleSheets.length > 0 && (
         <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(260px,1fr))",gap:14}}>
-          {sharedSheets.map(sheet=>(
+          {visibleSheets.map(sheet=>(
             <SharedSheetCard key={sheet.id} sheet={sheet} uid={uid} isMaster={isMaster}
               onView={()=>setViewSheet(sheet)} onRemove={()=>handleRemove(sheet.id)}/>
           ))}
@@ -1721,7 +2051,12 @@ function SharedSheetsPanel({ campaignId, uid, userName, isMaster, characters }) 
       {viewSheet && createPortal(
         <div onClick={()=>setViewSheet(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.88)",zIndex:9999,overflowY:"auto",padding:"20px"}}>
           <div onClick={e=>e.stopPropagation()} style={{maxWidth:960,margin:"0 auto",background:"var(--bg)",borderRadius:10,overflow:"hidden"}}>
-            <FullSheet character={viewSheet.characterData} onBack={()=>setViewSheet(null)} onUpdate={()=>{}}/>
+            <FullSheet character={viewSheet.characterData} onBack={()=>setViewSheet(null)}
+              onUpdate={canEditSheet(viewSheet) ? (updated)=>handleSheetUpdate(viewSheet,updated) : ()=>{}}
+              onRoll={roll=>{ fsSendMessage(campaignId,uid,userName,null,
+                `${roll.charName} rolou ${roll.expr||roll.attr} → [${roll.rolls.join(",")}] = ${roll.result}`,
+                "roll",{expr:roll.expr||roll.attr,rolls:roll.rolls,total:roll.result,sides:parseInt((roll.dice||"D20").slice(1)),count:roll.rolls.length,crit:roll.crit});
+              }}/>
           </div>
         </div>
       , document.body)}
@@ -1730,12 +2065,18 @@ function SharedSheetsPanel({ campaignId, uid, userName, isMaster, characters }) 
 }
 
 function MembersPanel({ campaign, uid, isMaster }) {
-  const memberIds = campaign.members||[];
+  const memberIds   = campaign.members||[];
   const memberNames = campaign.memberNames||{};
+  const admins      = campaign.admins||[];
   const [copied, setCopied] = useState(false);
 
   const copyCode = () => {
     navigator.clipboard?.writeText(campaign.inviteCode).then(()=>{setCopied(true);setTimeout(()=>setCopied(false),2000);});
+  };
+
+  const toggleAdmin = async (memberId, isAdminNow) => {
+    const op = isAdminNow ? arrayRemove(memberId) : arrayUnion(memberId);
+    await updateDoc(doc(db,"campaigns",campaign.id),{ admins: op }).catch(()=>{});
   };
 
   return (
@@ -1755,9 +2096,10 @@ function MembersPanel({ campaign, uid, isMaster }) {
         Membros — {memberIds.length}/{campaign.maxPlayers||6}
       </div>
       {memberIds.map(memberId=>{
-        const isSelf = memberId===uid;
-        const isMasterMember = memberId===campaign.masterId;
-        const name = memberNames[memberId]||"Agente";
+        const isSelf        = memberId===uid;
+        const isMasterMember= memberId===campaign.masterId;
+        const isAdminMember = admins.includes(memberId);
+        const name          = memberNames[memberId]||"Agente";
         return (
           <div key={memberId} style={{display:"flex",alignItems:"center",gap:12,padding:"10px 12px",background:"var(--card)",borderRadius:8,border:"1px solid var(--border)"}}>
             <div style={{width:36,height:36,borderRadius:"50%",background:"linear-gradient(135deg,rgba(176,48,216,0.28),rgba(176,48,216,0.08))",border:"1px solid rgba(176,48,216,0.22)",display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"Cinzel,serif",fontSize:14,color:"#c8a8f0",flexShrink:0}}>
@@ -1767,18 +2109,31 @@ function MembersPanel({ campaign, uid, isMaster }) {
               <div style={{fontFamily:"Cinzel,serif",fontSize:13,color:"var(--text)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
                 {name}{isSelf&&" (você)"}
               </div>
-              {isMasterMember&&<div style={{fontFamily:"Cinzel,serif",fontSize:8,letterSpacing:1,color:"#c8a8f0",textTransform:"uppercase"}}>◉ Mestre</div>}
+              <div style={{display:"flex",gap:6,marginTop:2}}>
+                {isMasterMember && <span style={{fontFamily:"Cinzel,serif",fontSize:8,letterSpacing:1,color:"#c8a8f0",textTransform:"uppercase"}}>◉ Mestre</span>}
+                {isAdminMember && !isMasterMember && <span style={{fontFamily:"Cinzel,serif",fontSize:8,letterSpacing:1,color:"#c9a84c",textTransform:"uppercase"}}>★ Admin</span>}
+              </div>
             </div>
-            {isMaster&&!isMasterMember && (
-              <button onClick={async()=>{if(window.confirm(`Remover ${name} da campanha?`)){await updateDoc(doc(db,"campaigns",campaign.id),{members:arrayRemove(memberId)});}}}
+            {/* Botão Admin — só mestre pode promover/rebaixar (nunca aplica no próprio mestre) */}
+            {isMaster && !isMasterMember && (
+              <button onClick={()=>toggleAdmin(memberId, isAdminMember)}
+                style={{padding:"4px 8px",borderRadius:4,background: isAdminMember?"rgba(201,168,76,0.15)":"rgba(255,255,255,0.05)",border:`1px solid ${isAdminMember?"rgba(201,168,76,0.4)":"rgba(255,255,255,0.12)"}`,cursor:"pointer",fontFamily:"Cinzel,serif",fontSize:8,letterSpacing:1,color: isAdminMember?"#c9a84c":"var(--muted)",textTransform:"uppercase",transition:"all 0.2s"}}
+                title={isAdminMember?"Remover Admin":"Tornar Admin"}>
+                {isAdminMember?"★ Admin":"☆ Admin"}
+              </button>
+            )}
+            {/* Botão Remover — só mestre pode remover players (nunca o mestre) */}
+            {isMaster && !isMasterMember && (
+              <button onClick={async()=>{if(window.confirm(`Remover ${name} da campanha?`)){await updateDoc(doc(db,"campaigns",campaign.id),{members:arrayRemove(memberId),admins:arrayRemove(memberId)});}}}
                 style={{padding:"5px 10px",borderRadius:4,background:"rgba(139,32,32,0.1)",border:"1px solid rgba(139,32,32,0.25)",cursor:"pointer",fontFamily:"Cinzel,serif",fontSize:8,letterSpacing:1,color:"#e07070",textTransform:"uppercase",transition:"all 0.2s"}}
                 onMouseEnter={e=>{e.currentTarget.style.background="rgba(139,32,32,0.22)"}}
                 onMouseLeave={e=>{e.currentTarget.style.background="rgba(139,32,32,0.1)"}}>
                 Remover
               </button>
             )}
-            {isSelf&&!isMasterMember && (
-              <button onClick={async()=>{if(window.confirm("Sair desta campanha?")){await updateDoc(doc(db,"campaigns",campaign.id),{members:arrayRemove(uid)});}}}
+            {/* Botão Sair — apenas para players não-mestre (o mestre NUNCA pode ser expulso, só sai) */}
+            {isSelf && !isMasterMember && (
+              <button onClick={async()=>{if(window.confirm("Sair desta campanha?")){await updateDoc(doc(db,"campaigns",campaign.id),{members:arrayRemove(uid),admins:arrayRemove(uid)});}}}
                 style={{padding:"5px 10px",borderRadius:4,background:"rgba(139,32,32,0.1)",border:"1px solid rgba(139,32,32,0.25)",cursor:"pointer",fontFamily:"Cinzel,serif",fontSize:8,letterSpacing:1,color:"#e07070",textTransform:"uppercase",transition:"all 0.2s"}}
                 onMouseEnter={e=>{e.currentTarget.style.background="rgba(139,32,32,0.22)"}}
                 onMouseLeave={e=>{e.currentTarget.style.background="rgba(139,32,32,0.1)"}}>
@@ -1792,11 +2147,13 @@ function MembersPanel({ campaign, uid, isMaster }) {
   );
 }
 
-function MasterSettings({ campaign, onBack }) {
+function MasterSettings({ campaign, onBack, isMaster=true }) {
   const [name, setName] = useState(campaign.name);
+  const [system, setSystem] = useState(campaign.system||"");
   const [desc, setDesc] = useState(campaign.description||"");
   const [maxPlayers, setMaxPlayers] = useState(campaign.maxPlayers||6);
   const [coverImage, setCoverImage] = useState(campaign.coverImage||null);
+  const [coverPreview, setCoverPreview] = useState(null);
   const [coverLoading, setCoverLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState("");
@@ -1807,14 +2164,14 @@ function MasterSettings({ campaign, onBack }) {
   const handleCoverFile = async (file) => {
     if (!file || !file.type.startsWith("image/")) return;
     setCoverLoading(true);
-    try { setCoverImage(await resizeCoverImage(file)); } catch(_) {}
+    try { setCoverPreview(await resizeCoverImage(file)); } catch(_) {}
     setCoverLoading(false);
   };
 
   const handleSave = async () => {
     if (!name.trim()) return;
     setSaving(true);
-    try { await updateDoc(doc(db,"campaigns",campaign.id),{name:name.trim(),description:desc.trim(),maxPlayers,coverImage:coverImage||null}); showMsg("Salvo com sucesso!"); }
+    try { await updateDoc(doc(db,"campaigns",campaign.id),{name:name.trim(),system:system.trim(),description:desc.trim(),maxPlayers,coverImage:coverImage||null}); showMsg("Salvo com sucesso!"); }
     catch(e) { showMsg("Erro ao salvar."); }
     setSaving(false);
   };
@@ -1833,6 +2190,8 @@ function MasterSettings({ campaign, onBack }) {
   };
 
   return (
+    <>
+    {coverPreview && <CoverPreviewModal image={coverPreview} onConfirm={(img)=>{setCoverImage(img);setCoverPreview(null);}} onClose={()=>setCoverPreview(null)}/>}
     <div style={{overflowY:"auto",padding:"16px 4px",display:"flex",flexDirection:"column",gap:20}}>
       <div style={{fontFamily:"Cinzel,serif",fontSize:10,letterSpacing:"0.1em",color:"var(--muted)",textTransform:"uppercase",paddingBottom:6,borderBottom:"1px solid var(--border)"}}>
         Configurações da Campanha
@@ -1876,6 +2235,10 @@ function MasterSettings({ campaign, onBack }) {
           <input value={name} onChange={e=>setName(e.target.value)} maxLength={60}/>
         </div>
         <div>
+          <div style={{fontFamily:"Cinzel,serif",fontSize:9,letterSpacing:2,color:"var(--muted)",textTransform:"uppercase",marginBottom:6}}>Sistema</div>
+          <input value={system} onChange={e=>setSystem(e.target.value)} maxLength={40} placeholder="ex: Ordem Paranormal, D&D 5e, Tormenta 20…"/>
+        </div>
+        <div>
           <div style={{fontFamily:"Cinzel,serif",fontSize:9,letterSpacing:2,color:"var(--muted)",textTransform:"uppercase",marginBottom:6}}>Descrição</div>
           <textarea value={desc} onChange={e=>setDesc(e.target.value)} maxLength={300} rows={3}
             style={{resize:"vertical",fontFamily:"'Crimson Pro',serif",fontSize:15,background:"var(--card2)",border:"1px solid var(--border)",borderRadius:5,color:"var(--text)",outline:"none",padding:"11px 14px",width:"100%",boxSizing:"border-box"}}/>
@@ -1888,25 +2251,1349 @@ function MasterSettings({ campaign, onBack }) {
       <button onClick={handleSave} disabled={saving||!name.trim()} className="btn-gold" style={{alignSelf:"flex-start",padding:"9px 22px",opacity:saving||!name.trim()?0.5:1}}>
         {saving?"Salvando...":"Salvar Alterações"}
       </button>
-      <div style={{display:"flex",flexDirection:"column",gap:12,paddingTop:16,borderTop:"1px solid var(--border)"}}>
-        <div style={{fontFamily:"Cinzel,serif",fontSize:10,letterSpacing:"0.1em",color:"var(--muted)",textTransform:"uppercase"}}>
-          Ações do Mestre
+      {/* Ações exclusivas do Mestre — admin não tem acesso */}
+      {isMaster && (
+        <div style={{display:"flex",flexDirection:"column",gap:12,paddingTop:16,borderTop:"1px solid var(--border)"}}>
+          <div style={{fontFamily:"Cinzel,serif",fontSize:10,letterSpacing:"0.1em",color:"var(--muted)",textTransform:"uppercase"}}>
+            Ações do Mestre
+          </div>
+          <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
+            <button onClick={handleRegenCode} className="btn-ghost" style={{padding:"9px 18px",fontSize:9}}>
+              🔄 Regenerar Código de Convite
+            </button>
+            <button onClick={handleArchive} style={{
+              padding:"9px 18px",borderRadius:4,cursor:"pointer",fontFamily:"Cinzel,serif",fontSize:9,letterSpacing:1,textTransform:"uppercase",
+              background:campaign.isActive?"rgba(139,32,32,0.1)":"rgba(106,170,122,0.1)",
+              border:campaign.isActive?"1px solid rgba(139,32,32,0.3)":"1px solid rgba(106,170,122,0.3)",
+              color:campaign.isActive?"#e07070":"#6aaa7a",transition:"all 0.2s",
+            }}>
+              {campaign.isActive?"📁 Arquivar Campanha":"📂 Reativar Campanha"}
+            </button>
+          </div>
         </div>
-        <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
-          <button onClick={handleRegenCode} className="btn-ghost" style={{padding:"9px 18px",fontSize:9}}>
-            🔄 Regenerar Código de Convite
+      )}
+      {!isMaster && (
+        <div style={{padding:"10px 14px",background:"rgba(201,168,76,0.07)",border:"1px solid rgba(201,168,76,0.2)",borderRadius:6,fontFamily:"Cinzel,serif",fontSize:10,color:"#c9a84c",letterSpacing:1}}>
+          ★ Você é Admin — pode editar nome, descrição e configurações. Apenas o Mestre pode arquivar ou regenerar o código.
+        </div>
+      )}
+    </div>
+    </>
+  );
+}
+
+function SheetRollPanel({ campaigns, uid, userName, userPhoto, onRollReady }) {
+  const active = campaigns.filter(c => c.isActive !== false);
+  const [selId, setSelId] = useState(() => active[0]?.id ?? null);
+  const campaign = active.find(c => c.id === selId) ?? active[0] ?? null;
+
+  useEffect(() => { onRollReady?.(campaign ?? null); }, [campaign?.id]);
+
+  return (
+    <div style={{
+      width:284, flexShrink:0,
+      background:"var(--surface)", border:"1px solid var(--border)", borderRadius:8,
+      display:"flex", flexDirection:"column",
+      height:"calc(100vh - 150px)", position:"sticky", top:0, overflow:"hidden",
+    }}>
+      <div style={{padding:"10px 14px 9px", borderBottom:"1px solid var(--border)", flexShrink:0}}>
+        <div style={{fontFamily:"Cinzel,serif",fontSize:7,color:"var(--muted)",letterSpacing:2,textTransform:"uppercase",marginBottom:4}}>Campanha</div>
+        {active.length > 1 ? (
+          <select value={selId??""} onChange={e=>setSelId(e.target.value)}
+            style={{background:"transparent",border:"none",color:"var(--text)",fontFamily:"Cinzel,serif",fontSize:11,outline:"none",width:"100%",cursor:"pointer",appearance:"none"}}>
+            {active.map(c=><option key={c.id} value={c.id} style={{background:"#111"}}>{c.name}</option>)}
+          </select>
+        ) : (
+          <div style={{fontFamily:"Cinzel,serif",fontSize:11,color:"var(--text)",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>
+            {campaign?.name ?? "Nenhuma campanha ativa"}
+          </div>
+        )}
+      </div>
+      {campaign
+        ? <RollFeed campaignId={campaign.id} uid={uid}/>
+        : <div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",padding:20,textAlign:"center",fontFamily:"Cinzel,serif",fontSize:10,color:"rgba(255,255,255,0.2)",lineHeight:1.6}}>
+            Entre em uma campanha<br/>para ver o histórico de dados
+          </div>}
+    </div>
+  );
+}
+
+function RollFeed({ campaignId, uid }) {
+  const [rolls, setRolls] = useState([]);
+  const [filter, setFilter] = useState("all");
+
+  useEffect(()=>{
+    fsCleanOldMessages(campaignId);
+    const q = query(
+      collection(db,"campaigns",campaignId,"messages"),
+      where("type","==","roll"),
+      limit(80)
+    );
+    const unsub = onSnapshot(q, snap=>{
+      const cutoff = Date.now() - MSG_TTL_MS;
+      const data = snap.docs
+        .map(d=>({id:d.id,...d.data()}))
+        .filter(d=>(d.timestamp?.seconds??0)*1000 > cutoff)
+        .sort((a,b)=>(b.timestamp?.seconds??0)-(a.timestamp?.seconds??0));
+      setRolls(data);
+    }, ()=>{});
+    return unsub;
+  },[campaignId]);
+
+  const shown = filter==="mine" ? rolls.filter(r=>r.userId===uid) : rolls;
+
+  const fmtTime = (ts) => {
+    if (!ts?.toDate) return "";
+    const d = ts.toDate();
+    return `${String(d.getDate()).padStart(2,"0")}/${String(d.getMonth()+1).padStart(2,"0")}/${String(d.getFullYear()).slice(-2)} ${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`;
+  };
+
+  return (
+    <div style={{display:"flex",flexDirection:"column",height:"100%",overflow:"hidden"}}>
+      {/* filter bar */}
+      <div style={{display:"flex",gap:8,padding:"12px 14px 10px",borderBottom:"1px solid rgba(255,255,255,0.06)",flexShrink:0}}>
+        {[["all","Todos"],["mine","Meus"]].map(([v,l])=>(
+          <button key={v} onClick={()=>setFilter(v)} style={{
+            padding:"5px 16px",borderRadius:6,border:"1px solid",cursor:"pointer",
+            fontFamily:"Cinzel,serif",fontSize:10,letterSpacing:1,transition:"all 0.18s",
+            background:filter===v?"#7c3aed":"transparent",
+            borderColor:filter===v?"#7c3aed":"rgba(255,255,255,0.12)",
+            color:filter===v?"#fff":"rgba(255,255,255,0.5)",
+          }}>{l}</button>
+        ))}
+        <span style={{marginLeft:"auto",fontFamily:"Cinzel,serif",fontSize:9,color:"rgba(255,255,255,0.3)",alignSelf:"center",letterSpacing:1}}>
+          {shown.length} rolagem{shown.length!==1?"s":""}
+        </span>
+      </div>
+      {/* cards */}
+      <div style={{flex:1,overflowY:"auto",padding:"10px 12px",display:"flex",flexDirection:"column",gap:8}}>
+        {shown.length===0 && (
+          <div style={{textAlign:"center",color:"rgba(255,255,255,0.25)",fontFamily:"Cinzel,serif",fontSize:11,paddingTop:32}}>
+            Nenhuma rolagem ainda.<br/>Use /2d6+3 no chat ou role pela ficha.
+          </div>
+        )}
+        {shown.map(r=>{
+          const rd = r.rollData || {};
+          const rolls = rd.rolls || [];
+          const expr  = rd.expr || r.content?.match(/rolou (.+?) →/i)?.[1] || "?";
+          const total = rd.total ?? "?";
+          const sides = rd.sides || 20;
+          return (
+            <div key={r.id} style={{border:"1px solid rgba(124,58,237,0.35)",borderRadius:8,padding:"11px 13px",background:"rgba(124,58,237,0.06)"}}>
+              <div style={{fontFamily:"Cinzel,serif",fontSize:11,color:"rgba(255,255,255,0.85)",marginBottom:8,fontWeight:600}}>{r.userName}</div>
+              <div style={{display:"flex",alignItems:"center",gap:10}}>
+                <div style={{width:38,height:38,background:"#7c3aed",borderRadius:7,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+                  <svg width={20} height={20} viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="1.5"><polygon points="12 2 22 8.5 22 15.5 12 22 2 15.5 2 8.5 12 2"/></svg>
+                </div>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontFamily:"Cinzel,serif",fontSize:12,color:"#fff",fontWeight:600,marginBottom:2}}>Resultado</div>
+                  {rolls.length>0 && <div style={{fontSize:11,color:"rgba(255,255,255,0.5)"}}>[{rolls.join(", ")}]</div>}
+                  <div style={{fontSize:11,color:"rgba(255,255,255,0.4)"}}>{expr}</div>
+                </div>
+                <div style={{fontSize:26,fontWeight:700,color:"#fff",flexShrink:0}}>= {total}</div>
+              </div>
+              <div style={{textAlign:"right",fontSize:10,color:"rgba(255,255,255,0.3)",marginTop:6,fontFamily:"Cinzel,serif"}}>{fmtTime(r.timestamp)}</div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/* ── CAMPAIGN MAP TAB ── */
+function CampaignMapTab({ campaignId, uid, isMaster }) {
+  const canvasRef    = useRef(null);
+  const containerRef = useRef(null);
+  const isDownRef    = useRef(false);
+  const panStartRef  = useRef(null);
+  const saveTimer    = useRef(null);
+  const stateRef     = useRef({});
+
+  const [hasMap,     setHasMap]     = useState(false);
+  const [cols,       setCols]       = useState(20);
+  const [rows,       setRows]       = useState(15);
+  const [tiles,      setTiles]      = useState([]);
+  const [fog,        setFog]        = useState([]);
+  const [mapName,    setMapName]    = useState('');
+  const [tool,       setTool]       = useState('reveal');
+  const [selTile,    setSelTile]    = useState('grass');
+  const [cellSize,   setCellSize]   = useState(36);
+  const [pan,        setPan]        = useState({ x:20, y:20 });
+  const [hovered,    setHovered]    = useState(null);
+  const [saving,     setSaving]     = useState(false);
+  const [showImport, setShowImport] = useState(false);
+  const [showTiles,  setShowTiles]  = useState(false);
+  const [savedMaps,  setSavedMaps]  = useState(() => { try { return JSON.parse(localStorage.getItem('nexus_maps')||'[]'); } catch { return []; } });
+
+  stateRef.current = { cols, rows, tiles, fog, tool, selTile, cellSize, pan, hovered, isMaster, mapName };
+
+  // ── Firestore real-time listener
+  useEffect(() => {
+    const ref = doc(db, 'campaigns', campaignId, 'map', 'current');
+    const unsub = onSnapshot(ref, snap => {
+      if (snap.exists()) {
+        const d = snap.data();
+        setHasMap(true);
+        setCols(d.cols || 20);
+        setRows(d.rows || 15);
+        setTiles(d.tiles || []);
+        setFog(d.fog   || []);
+        setMapName(d.name || 'Mapa');
+      } else {
+        setHasMap(false);
+      }
+    });
+    return () => unsub();
+  }, [campaignId]);
+
+  // ── canvas resize observer
+  useEffect(() => {
+    const container = containerRef.current;
+    const canvas    = canvasRef.current;
+    if (!container || !canvas) return;
+    const ro = new ResizeObserver(() => {
+      canvas.width  = container.clientWidth;
+      canvas.height = container.clientHeight;
+      draw();
+    });
+    ro.observe(container);
+    return () => ro.disconnect();
+  }, []);
+
+  useEffect(() => { draw(); }, [tiles, fog, cellSize, pan, hovered, hasMap]);
+
+  function draw() {
+    const canvas = canvasRef.current;
+    if (!canvas || canvas.width === 0) return;
+    const ctx = canvas.getContext('2d');
+    const { cols, rows, tiles, fog, cellSize: cs, pan:{ x:ox, y:oy }, hovered, isMaster } = stateRef.current;
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = '#0e0e16';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    ctx.fillStyle = 'rgba(255,255,255,0.03)';
+    for (let gx = ((ox%40)+40)%40; gx < canvas.width; gx += 40)
+      for (let gy = ((oy%40)+40)%40; gy < canvas.height; gy += 40)
+        ctx.fillRect(gx, gy, 2, 2);
+
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        const idx = r * cols + c;
+        const x = c * cs + ox;
+        const y = r * cs + oy;
+        if (x + cs < 0 || y + cs < 0 || x > canvas.width || y > canvas.height) continue;
+
+        const tile   = MAP_TILES[tiles[idx]] || null;
+        const fogged = fog[idx];
+
+        ctx.fillStyle = tile ? tile.color : '#1a1a26';
+        ctx.fillRect(x, y, cs, cs);
+
+        ctx.strokeStyle = 'rgba(255,255,255,0.05)';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(x+0.5, y+0.5, cs-1, cs-1);
+
+        if (fogged) {
+          if (isMaster) {
+            ctx.fillStyle = 'rgba(0,0,0,0.52)';
+            ctx.fillRect(x, y, cs, cs);
+            ctx.strokeStyle = 'rgba(80,80,140,0.22)';
+            ctx.lineWidth = 1;
+            for (let d = -cs; d < cs*2; d += 7) {
+              ctx.beginPath(); ctx.moveTo(x+d, y); ctx.lineTo(x+d+cs, y+cs); ctx.stroke();
+            }
+          } else {
+            ctx.fillStyle = '#06060a';
+            ctx.fillRect(x, y, cs, cs);
+          }
+        }
+
+        if (isMaster && hovered && hovered.r === r && hovered.c === c) {
+          ctx.fillStyle = 'rgba(255,255,255,0.13)';
+          ctx.fillRect(x, y, cs, cs);
+          ctx.strokeStyle = 'rgba(176,48,216,0.85)';
+          ctx.lineWidth = 2;
+          ctx.strokeRect(x+1, y+1, cs-2, cs-2);
+        }
+      }
+    }
+
+    ctx.strokeStyle = 'rgba(176,48,216,0.3)';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(ox, oy, cols*cs, rows*cs);
+  }
+
+  function scheduleSave(newTiles, newFog) {
+    clearTimeout(saveTimer.current);
+    setSaving(true);
+    saveTimer.current = setTimeout(async () => {
+      const { cols, rows, mapName } = stateRef.current;
+      try {
+        await setDoc(doc(db, 'campaigns', campaignId, 'map', 'current'), {
+          tiles: newTiles, fog: newFog, cols, rows,
+          name: mapName || 'Mapa',
+          updatedAt: serverTimestamp(), updatedBy: uid,
+        });
+      } catch(_) {}
+      setSaving(false);
+    }, 350);
+  }
+
+  function cellAt(e) {
+    const canvas = canvasRef.current;
+    if (!canvas) return null;
+    const rect = canvas.getBoundingClientRect();
+    const { cols, rows, cellSize: cs, pan:{ x:ox, y:oy } } = stateRef.current;
+    const c = Math.floor((e.clientX - rect.left - ox) / cs);
+    const r = Math.floor((e.clientY - rect.top  - oy) / cs);
+    if (c < 0 || r < 0 || c >= cols || r >= rows) return null;
+    return { r, c, idx: r * cols + c };
+  }
+
+  function applyTool(cell) {
+    if (!cell || !isMaster) return;
+    const { tool, selTile } = stateRef.current;
+    const { idx } = cell;
+    if (tool === 'reveal') {
+      setFog(prev => { const n=[...prev]; n[idx]=false; scheduleSave(stateRef.current.tiles, n); return n; });
+    } else if (tool === 'fog') {
+      setFog(prev => { const n=[...prev]; n[idx]=true;  scheduleSave(stateRef.current.tiles, n); return n; });
+    } else if (tool === 'paint') {
+      setTiles(prev => { const n=[...prev]; n[idx]=selTile; scheduleSave(n, stateRef.current.fog); return n; });
+    } else if (tool === 'erase') {
+      setTiles(prev => { const n=[...prev]; n[idx]=null; scheduleSave(n, stateRef.current.fog); return n; });
+    }
+  }
+
+  function onDown(e) {
+    isDownRef.current = true;
+    const { tool } = stateRef.current;
+    if (!isMaster || tool === 'pan' || e.button === 1) {
+      panStartRef.current = { mx:e.clientX, my:e.clientY, ox:stateRef.current.pan.x, oy:stateRef.current.pan.y };
+      return;
+    }
+    if (e.button !== 0) return;
+    applyTool(cellAt(e));
+  }
+
+  function onMove(e) {
+    const cell = cellAt(e);
+    if (isMaster) setHovered(cell ? { r:cell.r, c:cell.c } : null);
+    if (!isDownRef.current) return;
+    if (panStartRef.current) {
+      const { mx, my, ox, oy } = panStartRef.current;
+      setPan({ x: ox + e.clientX - mx, y: oy + e.clientY - my });
+      return;
+    }
+    applyTool(cell);
+  }
+
+  function onUp() { isDownRef.current = false; panStartRef.current = null; }
+
+  function onWheel(e) {
+    e.preventDefault();
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const mx = e.clientX - rect.left;
+    const my = e.clientY - rect.top;
+    const { cellSize: cs, pan:{ x:ox, y:oy } } = stateRef.current;
+    const newCs = Math.max(10, Math.min(80, cs + (e.deltaY < 0 ? 3 : -3)));
+    const ratio = newCs / cs;
+    setCellSize(newCs);
+    setPan({ x: mx - (mx-ox)*ratio, y: my - (my-oy)*ratio });
+  }
+
+  function importMap(map) {
+    const newTiles = [...map.tiles];
+    const newFog   = [...map.fog];
+    setCols(map.cols); setRows(map.rows);
+    setTiles(newTiles); setFog(newFog);
+    setMapName(map.name); setHasMap(true);
+    setPan({ x:20, y:20 }); setShowImport(false);
+    setDoc(doc(db, 'campaigns', campaignId, 'map', 'current'), {
+      tiles: newTiles, fog: newFog,
+      cols: map.cols, rows: map.rows, name: map.name,
+      updatedAt: serverTimestamp(), updatedBy: uid,
+    }).catch(()=>{});
+  }
+
+  function revealAll() { const n=Array(rows*cols).fill(false); setFog(n); scheduleSave(tiles, n); }
+  function fogAll()    { const n=Array(rows*cols).fill(true);  setFog(n); scheduleSave(tiles, n); }
+
+  const TOOLS_C = [
+    { id:'reveal', icon:'👁️', label:'Revelar' },
+    { id:'fog',    icon:'🌫️', label:'Névoa'   },
+    { id:'pan',    icon:'✋',  label:'Mover'   },
+    { id:'paint',  icon:'🖌️', label:'Pintar'  },
+    { id:'erase',  icon:'⬜',  label:'Apagar'  },
+  ];
+
+  const cursor = isMaster
+    ? ({ reveal:'cell', fog:'cell', pan: panStartRef.current?'grabbing':'grab', paint:'crosshair', erase:'crosshair' }[tool] || 'crosshair')
+    : (panStartRef.current ? 'grabbing' : 'grab');
+
+  const ImportModal = () => (
+    <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.78)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:1000 }}>
+      <div style={{ background:'var(--card)', border:'1px solid var(--border)', borderRadius:12, padding:28, width:420, maxHeight:'68vh', display:'flex', flexDirection:'column', gap:14 }}>
+        <div style={{ fontFamily:'Cinzel Decorative,serif', fontSize:16, color:'var(--gold)' }}>Importar Mapa Salvo</div>
+        <div style={{ fontSize:12, color:'var(--muted)', fontFamily:'Crimson Pro,serif' }}>Selecione um mapa criado no Editor de Mapas para carregar nesta sessão.</div>
+        <div style={{ overflowY:'auto', display:'flex', flexDirection:'column', gap:6 }}>
+          {savedMaps.length === 0
+            ? <div style={{ color:'var(--muted)', fontSize:13, textAlign:'center', padding:28 }}>Nenhum mapa salvo.<br/>Crie um no Editor de Mapas primeiro.</div>
+            : savedMaps.map(m => (
+              <button key={m.id} onClick={() => importMap(m)}
+                style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'10px 14px', borderRadius:8, border:'1px solid var(--border)', background:'transparent', color:'var(--text)', cursor:'pointer', textAlign:'left', transition:'all .15s' }}
+                onMouseEnter={e=>{ e.currentTarget.style.borderColor='rgba(176,48,216,0.5)'; e.currentTarget.style.background='rgba(176,48,216,0.08)'; }}
+                onMouseLeave={e=>{ e.currentTarget.style.borderColor='var(--border)'; e.currentTarget.style.background='transparent'; }}>
+                <span style={{ fontFamily:'Cinzel,serif', fontSize:13 }}>🗺️ {m.name}</span>
+                <span style={{ fontSize:10, color:'var(--muted)' }}>{m.cols}×{m.rows} · {m.savedAt}</span>
+              </button>
+            ))
+          }
+        </div>
+        <button onClick={() => setShowImport(false)} style={{ padding:'6px 14px', borderRadius:6, border:'1px solid var(--border)', background:'transparent', color:'var(--muted)', cursor:'pointer', fontFamily:'Cinzel,serif', fontSize:11, alignSelf:'flex-end' }}>Fechar</button>
+      </div>
+    </div>
+  );
+
+  // ── Empty state
+  if (!hasMap) {
+    return (
+      <div style={{ display:'flex', flexDirection:'column', flex:1, overflow:'hidden' }}>
+        <div style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', flex:1, gap:16, textAlign:'center' }}>
+          <div style={{ fontSize:58, opacity:0.35 }}>🗺️</div>
+          <div style={{ fontFamily:'Cinzel Decorative,serif', fontSize:17, color:'var(--gold)', opacity:0.7 }}>Sem mapa ativo</div>
+          <div style={{ fontFamily:'Crimson Pro,serif', fontSize:14, color:'var(--muted)', maxWidth:340, lineHeight:1.8 }}>
+            {isMaster ? 'Importe um dos seus mapas salvos para iniciar a sessão.' : 'Aguardando o Mestre carregar um mapa para a sessão.'}
+          </div>
+          {isMaster && (
+            <button onClick={() => setShowImport(true)}
+              style={{ padding:'10px 22px', borderRadius:8, border:'1px solid rgba(176,48,216,0.5)', background:'rgba(176,48,216,0.15)', color:'#e0c8ff', cursor:'pointer', fontFamily:'Cinzel,serif', fontSize:11, letterSpacing:1, marginTop:8 }}>
+              🗺️ Importar Mapa
+            </button>
+          )}
+        </div>
+        {showImport && <ImportModal />}
+      </div>
+    );
+  }
+
+  // ── Map active
+  return (
+    <div style={{ display:'flex', flexDirection:'column', flex:1, overflow:'hidden', userSelect:'none' }}>
+
+      {/* Mestre: toolbar de controle */}
+      {isMaster && (
+        <div style={{ display:'flex', alignItems:'center', gap:6, padding:'6px 10px', background:'var(--card)', borderBottom:'1px solid var(--border)', flexWrap:'wrap', flexShrink:0 }}>
+          <span style={{ fontFamily:'Cinzel,serif', fontSize:10, color:'var(--gold)', letterSpacing:1, maxWidth:120, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>🗺️ {mapName}</span>
+          <div style={{ width:1, height:18, background:'var(--border)' }} />
+          {TOOLS_C.map(t => (
+            <button key={t.id} onClick={() => setTool(t.id)} title={t.label}
+              style={{ padding:'4px 7px', borderRadius:6, fontSize:14, cursor:'pointer',
+                border:`1px solid ${tool===t.id ? 'rgba(176,48,216,0.7)' : 'var(--border)'}`,
+                background: tool===t.id ? 'rgba(176,48,216,0.2)' : 'transparent' }}>
+              {t.icon}
+            </button>
+          ))}
+          <div style={{ width:1, height:18, background:'var(--border)' }} />
+          <button onClick={revealAll} style={{ padding:'3px 8px', borderRadius:6, border:'1px solid var(--border)', background:'transparent', color:'var(--muted)', cursor:'pointer', fontSize:10, fontFamily:'Cinzel,serif' }}>👁 Revelar tudo</button>
+          <button onClick={fogAll}    style={{ padding:'3px 8px', borderRadius:6, border:'1px solid var(--border)', background:'transparent', color:'var(--muted)', cursor:'pointer', fontSize:10, fontFamily:'Cinzel,serif' }}>🌫 Cobrir tudo</button>
+          <div style={{ width:1, height:18, background:'var(--border)' }} />
+          <button onClick={() => setShowTiles(p => !p)}
+            style={{ padding:'3px 8px', borderRadius:6, border:`1px solid ${showTiles ? 'rgba(176,48,216,0.5)' : 'var(--border)'}`, background: showTiles ? 'rgba(176,48,216,0.18)' : 'transparent', color: showTiles ? '#e0c8ff' : 'var(--muted)', cursor:'pointer', fontSize:10, fontFamily:'Cinzel,serif' }}>
+            🎨 Tiles
           </button>
-          <button onClick={handleArchive} style={{
-            padding:"9px 18px",borderRadius:4,cursor:"pointer",fontFamily:"Cinzel,serif",fontSize:9,letterSpacing:1,textTransform:"uppercase",
-            background:campaign.isActive?"rgba(139,32,32,0.1)":"rgba(106,170,122,0.1)",
-            border:campaign.isActive?"1px solid rgba(139,32,32,0.3)":"1px solid rgba(106,170,122,0.3)",
-            color:campaign.isActive?"#e07070":"#6aaa7a",transition:"all 0.2s",
-          }}>
-            {campaign.isActive?"📁 Arquivar Campanha":"📂 Reativar Campanha"}
+          <button onClick={() => setShowImport(true)} style={{ padding:'3px 8px', borderRadius:6, border:'1px solid var(--border)', background:'transparent', color:'var(--muted)', cursor:'pointer', fontSize:10, fontFamily:'Cinzel,serif' }}>
+            📂 Trocar mapa
+          </button>
+          <div style={{ flex:1 }} />
+          <span style={{ fontSize:10, fontFamily:'Cinzel,serif', color: saving ? 'rgba(176,48,216,0.7)' : 'rgba(255,255,255,0.2)' }}>
+            {saving ? '↑ Sincronizando…' : '✓ Ao vivo'}
+          </span>
+        </div>
+      )}
+
+      {/* Jogador: barra de info */}
+      {!isMaster && (
+        <div style={{ display:'flex', alignItems:'center', gap:8, padding:'6px 12px', background:'var(--card)', borderBottom:'1px solid var(--border)', flexShrink:0 }}>
+          <span style={{ fontSize:10, color:'var(--muted)', fontFamily:'Cinzel,serif', letterSpacing:1 }}>🗺️ {mapName}</span>
+          <span style={{ fontSize:10, color:'rgba(255,255,255,0.2)', fontFamily:'Cinzel,serif' }}>· {cols}×{rows}</span>
+          <div style={{ flex:1 }} />
+          <span style={{ fontSize:10, color:'rgba(80,200,80,0.7)', fontFamily:'Cinzel,serif' }}>● Ao vivo</span>
+        </div>
+      )}
+
+      <div style={{ display:'flex', flex:1, overflow:'hidden' }}>
+
+        {/* Paleta de tiles (mestre) */}
+        {isMaster && showTiles && (
+          <div style={{ width:136, background:'var(--card)', borderRight:'1px solid var(--border)', padding:'8px 6px', overflowY:'auto', display:'flex', flexDirection:'column', gap:3, flexShrink:0 }}>
+            {Object.entries(MAP_TILES).map(([key, tile]) => {
+              const active = selTile===key && tool==='paint';
+              return (
+                <button key={key} onClick={() => { setSelTile(key); setTool('paint'); }}
+                  style={{ display:'flex', alignItems:'center', gap:6, padding:'4px 6px', borderRadius:6, cursor:'pointer', width:'100%', textAlign:'left',
+                    border:`1px solid ${active ? 'rgba(176,48,216,0.7)' : 'var(--border)'}`,
+                    background: active ? 'rgba(176,48,216,0.15)' : 'transparent' }}>
+                  <div style={{ width:13, height:13, borderRadius:2, background:tile.color, border:`1px solid ${tile.border}`, flexShrink:0 }} />
+                  <span style={{ fontSize:9, color: active ? '#e0c8ff' : 'var(--muted)', fontFamily:'Cinzel,serif' }}>{tile.label}</span>
+                </button>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Canvas */}
+        <div ref={containerRef} style={{ flex:1, overflow:'hidden', position:'relative', background:'#0e0e16', cursor }}>
+          <canvas ref={canvasRef} style={{ display:'block' }}
+            onMouseDown={onDown} onMouseMove={onMove}
+            onMouseUp={onUp}     onMouseLeave={onUp}
+            onWheel={onWheel}    onContextMenu={e => e.preventDefault()} />
+
+          <div style={{ position:'absolute', bottom:8, right:10, fontSize:10, color:'rgba(255,255,255,0.2)', fontFamily:'Cinzel,serif', pointerEvents:'none' }}>
+            {cols}×{rows}{isMaster && hovered ? ` · (${hovered.c+1},${hovered.r+1})` : ''}
+          </div>
+          {!isMaster && (
+            <div style={{ position:'absolute', bottom:8, left:10, fontSize:10, color:'rgba(255,255,255,0.18)', fontFamily:'Cinzel,serif', pointerEvents:'none' }}>
+              🎲 Arraste para mover · Scroll para zoom
+            </div>
+          )}
+          {isMaster && (
+            <div style={{ position:'absolute', bottom:8, left:10, fontSize:10, color:'rgba(176,48,216,0.45)', fontFamily:'Cinzel,serif', pointerEvents:'none' }}>
+              {TOOLS_C.find(t=>t.id===tool)?.icon} {TOOLS_C.find(t=>t.id===tool)?.label}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {showImport && <ImportModal />}
+    </div>
+  );
+}
+
+/* ── BESTIARY TAB ── */
+const BESTIARY_SYSTEMS = ['Genérico','Ordem Paranormal','Tormenta 20','D&D 5e'];
+const EMPTY_CREATURE   = { name:'', system:'Genérico', hp:'', ac:'', initiative:'', description:'', attacks:'' };
+const EMPTY_OP_CREATURE = {
+  name:'', system:'Ordem Paranormal',
+  imageUrl:'', vd:'', category:'',
+  hpMax:'', hpCurrent:'',
+  agi:'', atFor:'', atInt:'', pre:'', vig:'',
+  defesa:'', deslocamento:'',
+  perPercepcao:'', perIniciativa:'', perFortitude:'', perReflexos:'', perVontade:'',
+  sentidos:'', elementosSecundarios:'',
+  imunidades:'', resBalistico:'', resImpacto:'', resPerfuracao:'',
+  vulnerabilidades:'', presencaPerturbadora:'',
+  acoes:[], poderes:[], descricaoTexto:'', enigmas:[],
+};
+
+function rollDiceStr(notation) {
+  const m = String(notation).match(/(\d+)d(\d+)([+-]\d+)?/i);
+  if (!m) return null;
+  const cnt=parseInt(m[1]), sides=parseInt(m[2]), mod=m[3]?parseInt(m[3]):0;
+  let sum=mod; const rolls=[];
+  for (let i=0;i<cnt;i++){ const r=Math.floor(Math.random()*sides)+1; rolls.push(r); sum+=r; }
+  return { total:sum, rolls, notation };
+}
+
+function BestiaryTab({ campaignId }) {
+  const [creatures,    setCreatures]   = useState([]);
+  const [search,       setSearch]      = useState('');
+  const [filterSys,    setFilterSys]   = useState('Todos');
+  const [modal,        setModal]       = useState(null);
+  const [form,         setForm]        = useState(EMPTY_CREATURE);
+  const [saving,       setSaving]      = useState(false);
+  const [viewCreature, setViewCreature]= useState(null);
+  const [rollResult,   setRollResult]  = useState(null);
+  const [opTab,        setOpTab]       = useState('STATUS');
+  const [opCombTab,    setOpCombTab]   = useState('AÇÕES');
+  const [opExpAcao,    setOpExpAcao]   = useState(null);
+
+  const SYS_COLORS = { 'Genérico':'#8888aa', 'Ordem Paranormal':'#b030d8', 'Tormenta 20':'#d4621e', 'D&D 5e':'#4a6fa5' };
+  const OPC = '#b030d8';
+  const isOP = sys => sys === 'Ordem Paranormal';
+
+  useEffect(() => {
+    const ref = collection(db, 'campaigns', campaignId, 'bestiary');
+    const q   = query(ref, orderBy('createdAt', 'desc'));
+    const unsub = onSnapshot(q, snap => {
+      setCreatures(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    });
+    return () => unsub();
+  }, [campaignId]);
+
+  function openNew() { setForm(EMPTY_CREATURE); setModal('new'); }
+  function openEdit(c) {
+    if (isOP(c.system)) {
+      setForm({
+        name:c.name||'', system:'Ordem Paranormal',
+        imageUrl:c.imageUrl||'', vd:c.vd||'', category:c.category||'',
+        hpMax:c.hpMax||'', hpCurrent:c.hpCurrent||'',
+        agi:c.agi||'', atFor:c.atFor||'', atInt:c.atInt||'', pre:c.pre||'', vig:c.vig||'',
+        defesa:c.defesa||'', deslocamento:c.deslocamento||'',
+        perPercepcao:c.perPercepcao||'', perIniciativa:c.perIniciativa||'',
+        perFortitude:c.perFortitude||'', perReflexos:c.perReflexos||'',
+        perVontade:c.perVontade||'',
+        sentidos:c.sentidos||'', elementosSecundarios:c.elementosSecundarios||'',
+        imunidades:c.imunidades||'', resBalistico:c.resBalistico||'',
+        resImpacto:c.resImpacto||'', resPerfuracao:c.resPerfuracao||'',
+        vulnerabilidades:c.vulnerabilidades||'', presencaPerturbadora:c.presencaPerturbadora||'',
+        acoes:c.acoes||[], poderes:c.poderes||[], descricaoTexto:c.descricaoTexto||'', enigmas:c.enigmas||[],
+      });
+    } else {
+      setForm({ name:c.name||'', system:c.system||'Genérico', hp:c.hp||'', ac:c.ac||'', initiative:c.initiative||'', description:c.description||'', attacks:c.attacks||'' });
+    }
+    setModal(c);
+  }
+
+  async function saveCreature() {
+    if (!form.name.trim()) return;
+    setSaving(true);
+    try {
+      const data = { ...form, name: form.name.trim() };
+      if (modal === 'new') {
+        await addDoc(collection(db, 'campaigns', campaignId, 'bestiary'), { ...data, createdAt: serverTimestamp() });
+      } else {
+        await updateDoc(doc(db, 'campaigns', campaignId, 'bestiary', modal.id), data);
+      }
+      setModal(null);
+    } catch(_) {}
+    setSaving(false);
+  }
+
+  async function deleteCreature(id) {
+    if (!window.confirm('Remover esta criatura do bestiário?')) return;
+    await deleteDoc(doc(db, 'campaigns', campaignId, 'bestiary', id)).catch(()=>{});
+  }
+
+  async function updateHP(creature, delta) {
+    const max = parseInt(creature.hpMax)||0;
+    const cur = parseInt(creature.hpCurrent != null ? creature.hpCurrent : creature.hpMax)||max;
+    const next = Math.max(0, Math.min(max, cur + delta));
+    await updateDoc(doc(db, 'campaigns', campaignId, 'bestiary', creature.id), { hpCurrent: next }).catch(()=>{});
+    setViewCreature(v => v && v.id === creature.id ? { ...v, hpCurrent: next } : v);
+  }
+
+  function doRoll(notation) { const r = rollDiceStr(notation); if (r) setRollResult(r); }
+
+  const filtered = creatures.filter(c =>
+    (filterSys === 'Todos' || c.system === filterSys) &&
+    c.name.toLowerCase().includes(search.toLowerCase())
+  );
+
+  const sL = { fontSize:9, color:'var(--muted)', fontFamily:'Cinzel,serif', letterSpacing:1, textTransform:'uppercase', display:'block', marginBottom:3 };
+  const sI = { background:'var(--card2)', border:'1px solid var(--border)', borderRadius:5, color:'var(--text)', padding:'7px 10px', fontFamily:'Cinzel,serif', fontSize:12, outline:'none', width:'100%', boxSizing:'border-box' };
+  const sT = { ...sI, fontFamily:'Crimson Pro,serif', fontSize:13, resize:'vertical', minHeight:52 };
+
+  function fld(label, key, opts={}) {
+    const val = form[key] !== undefined ? form[key] : '';
+    return (
+      <div style={{ display:'flex', flexDirection:'column', gap:3 }}>
+        <span style={sL}>{label}</span>
+        {opts.textarea
+          ? <textarea value={val} onChange={e=>setForm(p=>({...p,[key]:e.target.value}))} rows={opts.rows||3} style={sT}/>
+          : <input value={val} onChange={e=>setForm(p=>({...p,[key]:e.target.value}))}
+              type={opts.type||'text'} placeholder={opts.placeholder||''}
+              style={{ ...sI, ...(opts.mono ? {fontFamily:'monospace',fontSize:13} : {}) }}/>
+        }
+      </div>
+    );
+  }
+
+  // OP action helpers
+  function opAddAcao()       { setForm(p=>({...p,acoes:[...(p.acoes||[]),{tipo:'PADRÃO',nome:'',conteudo:'texto',descricao:'',ataques:[]}]})); }
+  function opRemAcao(i)      { setForm(p=>({...p,acoes:(p.acoes||[]).filter((_,j)=>j!==i)})); }
+  function opSetAcao(i,k,v)  { setForm(p=>{ const a=[...(p.acoes||[])]; a[i]={...a[i],[k]:v}; return {...p,acoes:a}; }); }
+  function opAddAtk(ai)      { setForm(p=>{ const a=[...(p.acoes||[])]; a[ai]={...a[ai],ataques:[...(a[ai].ataques||[]),{arma:'',alcance:'Corpo a corpo',hits:'',teste:'',dano:'',critico:''}]}; return {...p,acoes:a}; }); }
+  function opRemAtk(ai,ji)   { setForm(p=>{ const a=[...(p.acoes||[])]; a[ai]={...a[ai],ataques:(a[ai].ataques||[]).filter((_,j)=>j!==ji)}; return {...p,acoes:a}; }); }
+  function opSetAtk(ai,ji,k,v){ setForm(p=>{ const a=[...(p.acoes||[])]; const atk=[...a[ai].ataques]; atk[ji]={...atk[ji],[k]:v}; a[ai]={...a[ai],ataques:atk}; return {...p,acoes:a}; }); }
+  function opAddPod()        { setForm(p=>({...p,poderes:[...(p.poderes||[]),{nome:'',desc:''}]})); }
+  function opRemPod(i)       { setForm(p=>({...p,poderes:(p.poderes||[]).filter((_,j)=>j!==i)})); }
+  function opSetPod(i,k,v)   { setForm(p=>{ const pd=[...(p.poderes||[])]; pd[i]={...pd[i],[k]:v}; return {...p,poderes:pd}; }); }
+  function opAddEni()        { setForm(p=>({...p,enigmas:[...(p.enigmas||[]),{titulo:'',texto:''}]})); }
+  function opRemEni(i)       { setForm(p=>({...p,enigmas:(p.enigmas||[]).filter((_,j)=>j!==i)})); }
+  function opSetEni(i,k,v)   { setForm(p=>{ const en=[...(p.enigmas||[])]; en[i]={...en[i],[k]:v}; return {...p,enigmas:en}; }); }
+
+  const DiceBtn = ({n}) => (
+    <button onClick={()=>doRoll(n)} title={`Rolar ${n}`}
+      style={{ background:'transparent', border:'none', cursor:'pointer', padding:'2px 3px', color:OPC, display:'inline-flex', alignItems:'center', lineHeight:1 }}>
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><polygon points="12 2 22 8.5 22 15.5 12 22 2 15.5 2 8.5 12 2"/></svg>
+    </button>
+  );
+  const SecH  = ({children}) => <div style={{ fontFamily:'Cinzel Decorative,serif', fontSize:14, color:'var(--text)', margin:'14px 0 7px' }}>{children}</div>;
+  const InfoL = ({children}) => <div style={{ fontFamily:'Cinzel,serif', fontSize:10, letterSpacing:1, color:'rgba(255,255,255,0.65)', textTransform:'uppercase', marginBottom:3 }}>{children}</div>;
+  const SecF  = ({children}) => <div style={{ fontFamily:'Cinzel,serif', fontSize:9, letterSpacing:2, textTransform:'uppercase', color:OPC, borderBottom:`1px solid rgba(176,48,216,0.3)`, paddingBottom:5, marginBottom:8, marginTop:6 }}>{children}</div>;
+
+  const vc = viewCreature;
+  const vcHpMax = vc ? parseInt(vc.hpMax)||0 : 0;
+  const vcHpCur = vc ? parseInt(vc.hpCurrent != null ? vc.hpCurrent : vc.hpMax)||vcHpMax : 0;
+  const vcHpPct = vcHpMax > 0 ? vcHpCur/vcHpMax : 1;
+  const OP_PERICIAS = [['PERCEPÇÃO','perPercepcao'],['INICIATIVA','perIniciativa'],['FORTITUDE','perFortitude'],['REFLEXOS','perReflexos'],['VONTADE','perVontade']];
+  const OP_ATTRS    = [['AGI','agi'],['FOR','atFor'],['INT','atInt'],['PRE','pre'],['VIG','vig']];
+
+  return (
+    <div style={{ display:'flex', flexDirection:'column', flex:1, overflow:'hidden' }}>
+
+      {/* Roll result overlay */}
+      {rollResult && (
+        <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.65)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:1200 }}
+          onClick={()=>setRollResult(null)}>
+          <div style={{ background:'var(--card)', border:`1px solid ${OPC}55`, borderRadius:12, padding:'28px 36px', textAlign:'center', minWidth:200 }}>
+            <div style={{ fontFamily:'Cinzel,serif', fontSize:9, letterSpacing:2, color:'var(--muted)', marginBottom:6 }}>RESULTADO</div>
+            <div style={{ fontFamily:'Cinzel Decorative,serif', fontSize:52, color:OPC, lineHeight:1 }}>{rollResult.total}</div>
+            <div style={{ fontFamily:'Cinzel,serif', fontSize:11, color:'var(--muted)', marginTop:5 }}>{rollResult.notation}</div>
+            <div style={{ fontFamily:'Crimson Pro,serif', fontSize:12, color:'rgba(255,255,255,0.4)', marginTop:5 }}>[{rollResult.rolls.join(', ')}]</div>
+            <div style={{ fontSize:10, color:'var(--muted)', marginTop:12 }}>clique para fechar</div>
+          </div>
+        </div>
+      )}
+
+      {/* OP Sheet View Modal */}
+      {vc && isOP(vc.system) && (
+        <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.88)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:1100, padding:16 }}>
+          <div style={{ background:'var(--bg)', border:'1px solid var(--border)', borderRadius:12, width:'100%', maxWidth:500, maxHeight:'92vh', display:'flex', flexDirection:'column', overflow:'hidden' }}>
+            {/* Header */}
+            <div style={{ position:'relative', height: vc.imageUrl ? 130 : 70, flexShrink:0 }}>
+              {vc.imageUrl && <img src={vc.imageUrl} alt="" style={{ width:'100%', height:'100%', objectFit:'cover', display:'block' }}/>}
+              <div style={{ position:'absolute', inset:0, background:'linear-gradient(to bottom,rgba(0,0,0,0.1) 0%,rgba(0,0,0,0.85) 100%)' }}/>
+              <div style={{ position:'absolute', top:10, left:12 }}>
+                <button onClick={()=>{ setViewCreature(null); openEdit(vc); }}
+                  style={{ background:'rgba(0,0,0,0.5)', border:'1px solid rgba(255,255,255,0.15)', borderRadius:5, color:'rgba(255,255,255,0.75)', cursor:'pointer', padding:'3px 9px', fontFamily:'Cinzel,serif', fontSize:9, letterSpacing:1 }}>✏️ Editar</button>
+              </div>
+              <button onClick={()=>{ setViewCreature(null); setOpTab('STATUS'); setOpCombTab('AÇÕES'); setOpExpAcao(null); }}
+                style={{ position:'absolute', top:10, right:12, background:'rgba(0,0,0,0.5)', border:'1px solid rgba(255,255,255,0.15)', borderRadius:6, color:'rgba(255,255,255,0.8)', cursor:'pointer', padding:'4px 10px', fontFamily:'Cinzel,serif', fontSize:10, letterSpacing:1 }}>✕</button>
+              <div style={{ position:'absolute', bottom:10, left:14 }}>
+                <div style={{ fontFamily:'Cinzel Decorative,serif', fontSize:17, color:'#fff', textShadow:'0 1px 6px rgba(0,0,0,0.9)', lineHeight:1.2 }}>{vc.name}</div>
+                {(vc.vd||vc.category) && <div style={{ fontFamily:'Cinzel,serif', fontSize:9, letterSpacing:1, color:'rgba(255,255,255,0.7)', marginTop:2 }}>
+                  {vc.vd && `VD: ${vc.vd}`}{vc.vd&&vc.category&&' · '}{vc.category}
+                </div>}
+              </div>
+            </div>
+            {/* HP Bar */}
+            {vcHpMax > 0 && (
+              <div style={{ background:'rgba(0,0,0,0.4)', padding:'8px 14px', flexShrink:0 }}>
+                <div style={{ display:'flex', alignItems:'center', background:'var(--card)', borderRadius:8, overflow:'hidden' }}>
+                  <button onClick={()=>updateHP(vc,-10)} style={{ padding:'8px 11px', background:'rgba(255,255,255,0.06)', border:'none', color:'rgba(255,255,255,0.6)', cursor:'pointer', fontSize:14, fontFamily:'monospace' }}>«</button>
+                  <button onClick={()=>updateHP(vc,-1)}  style={{ padding:'8px 8px',  background:'rgba(255,255,255,0.04)', border:'none', color:'rgba(255,255,255,0.6)', cursor:'pointer', fontSize:14, fontFamily:'monospace' }}>‹</button>
+                  <div style={{ flex:1, position:'relative', textAlign:'center', padding:'8px 0' }}>
+                    <div style={{ position:'absolute', left:0, top:0, bottom:0, width:`${vcHpPct*100}%`, background:'linear-gradient(90deg,#8b1c1c,#b02020)', opacity:0.7, transition:'width .2s' }}/>
+                    <span style={{ position:'relative', fontFamily:'Cinzel,serif', fontSize:15, letterSpacing:2, color:'#fff', fontWeight:600 }}>{vcHpCur} / {vcHpMax}</span>
+                  </div>
+                  <button onClick={()=>updateHP(vc,1)}   style={{ padding:'8px 8px',  background:'rgba(255,255,255,0.04)', border:'none', color:'rgba(255,255,255,0.6)', cursor:'pointer', fontSize:14, fontFamily:'monospace' }}>›</button>
+                  <button onClick={()=>updateHP(vc,10)}  style={{ padding:'8px 11px', background:'rgba(255,255,255,0.06)', border:'none', color:'rgba(255,255,255,0.6)', cursor:'pointer', fontSize:14, fontFamily:'monospace' }}>»</button>
+                </div>
+              </div>
+            )}
+            {/* Sheet Tabs */}
+            <div style={{ display:'flex', borderBottom:'1px solid var(--border)', flexShrink:0 }}>
+              {['STATUS','COMBATE','DESCRIÇÃO'].map(t=>(
+                <button key={t} onClick={()=>setOpTab(t)}
+                  style={{ flex:1, padding:'10px 4px', fontFamily:'Cinzel,serif', fontSize:10, letterSpacing:1, border:'none', background:'transparent', cursor:'pointer', color:opTab===t?'#fff':'var(--muted)', borderBottom:opTab===t?`2px solid ${OPC}`:'2px solid transparent', transition:'color .15s' }}>
+                  {t}
+                </button>
+              ))}
+            </div>
+            {/* Content */}
+            <div style={{ flex:1, overflowY:'auto', padding:'0 16px 16px' }}>
+              {opTab==='STATUS' && (
+                <div>
+                  <div style={{ display:'grid', gridTemplateColumns:'repeat(5,1fr)', gap:8, padding:'14px 0 10px' }}>
+                    {OP_ATTRS.map(([l,k])=> vc[k] ? (
+                      <div key={k} style={{ textAlign:'center' }}>
+                        <div style={{ fontSize:8, color:'var(--muted)', fontFamily:'Cinzel,serif', letterSpacing:1, textTransform:'uppercase', marginBottom:3 }}>{l}</div>
+                        <div style={{ fontFamily:'Cinzel,serif', fontSize:22, color:'var(--text)', fontWeight:700 }}>{vc[k]}</div>
+                      </div>
+                    ) : null)}
+                  </div>
+                  {(vc.defesa||vc.deslocamento) && (
+                    <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12, marginBottom:12, paddingBottom:12, borderBottom:'1px solid var(--border)' }}>
+                      {vc.defesa && <div style={{ textAlign:'center' }}><div style={sL}>DEFESA</div><div style={{ fontFamily:'Cinzel,serif', fontSize:26, color:'var(--text)', fontWeight:700 }}>{vc.defesa}</div></div>}
+                      {vc.deslocamento && <div style={{ textAlign:'center' }}><div style={sL}>DESLOCAMENTO</div><div style={{ fontFamily:'Cinzel,serif', fontSize:17, color:'var(--text)', fontWeight:600, marginTop:4 }}>{vc.deslocamento}</div></div>}
+                    </div>
+                  )}
+                  {OP_PERICIAS.some(([,k])=>vc[k]) && (
+                    <div>
+                      <SecH>Perícias</SecH>
+                      {OP_PERICIAS.filter(([,k])=>vc[k]).map(([l,k])=>(
+                        <div key={k} style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'8px 12px', background:'rgba(255,255,255,0.04)', borderRadius:6, marginBottom:4 }}>
+                          <span style={{ fontFamily:'Cinzel,serif', fontSize:10, letterSpacing:1, textTransform:'uppercase', color:'rgba(255,255,255,0.7)' }}>{l}</span>
+                          <div style={{ display:'flex', alignItems:'center', gap:3 }}>
+                            <span style={{ fontFamily:'Cinzel,serif', fontSize:13, color:'var(--text)' }}>{vc[k]}</span>
+                            <DiceBtn n={vc[k]}/>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {vc.sentidos && <div><SecH>Sentidos</SecH>{vc.sentidos.split('\n').map((l,i)=>l.trim()&&<InfoL key={i}>{l}</InfoL>)}</div>}
+                  {vc.elementosSecundarios && <div><SecH>Elementos secundários</SecH>{vc.elementosSecundarios.split('\n').map((l,i)=>l.trim()&&<InfoL key={i}>{l}</InfoL>)}</div>}
+                  {vc.imunidades && <div><SecH>Imunidades</SecH>{vc.imunidades.split('\n').map((l,i)=>l.trim()&&<InfoL key={i}>{l}</InfoL>)}</div>}
+                  {(vc.resBalistico||vc.resImpacto||vc.resPerfuracao) && (
+                    <div><SecH>Resistências</SecH>
+                      {vc.resBalistico&&<InfoL>BALÍSTICO: {vc.resBalistico}</InfoL>}
+                      {vc.resImpacto&&<InfoL>IMPACTO: {vc.resImpacto}</InfoL>}
+                      {vc.resPerfuracao&&<InfoL>PERFURAÇÃO: {vc.resPerfuracao}</InfoL>}
+                    </div>
+                  )}
+                  {vc.vulnerabilidades && <div><SecH>Vulnerabilidades</SecH>{vc.vulnerabilidades.split('\n').map((l,i)=>l.trim()&&<InfoL key={i}>{l}</InfoL>)}</div>}
+                </div>
+              )}
+              {opTab==='COMBATE' && (
+                <div style={{ paddingTop:12 }}>
+                  {vc.presencaPerturbadora && (
+                    <div style={{ marginBottom:14 }}>
+                      <div style={sL}>PRESENÇA PERTURBADORA</div>
+                      <div style={{ fontFamily:'Crimson Pro,serif', fontSize:14, color:'var(--text)' }}>{vc.presencaPerturbadora}</div>
+                    </div>
+                  )}
+                  <div style={{ display:'flex', gap:14, marginBottom:14 }}>
+                    {['AÇÕES','PODERES'].map(ct=>(
+                      <button key={ct} onClick={()=>setOpCombTab(ct)}
+                        style={{ fontFamily:'Cinzel,serif', fontSize:10, letterSpacing:1, border:'none', background:'transparent', cursor:'pointer', color:opCombTab===ct?OPC:'var(--muted)', borderBottom:opCombTab===ct?`1px solid ${OPC}`:'1px solid transparent', padding:'2px 2px 4px' }}>
+                        {ct}
+                      </button>
+                    ))}
+                  </div>
+                  {opCombTab==='AÇÕES' && (
+                    <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
+                      {(vc.acoes||[]).length===0 && <div style={{ color:'var(--muted)', fontFamily:'Crimson Pro,serif', fontSize:14, padding:16, textAlign:'center' }}>Nenhuma ação registrada.</div>}
+                      {(vc.acoes||[]).map((acao,i)=>{
+                        const exp = opExpAcao===i;
+                        return (
+                          <div key={i} style={{ background:'var(--card)', border:'1px solid var(--border)', borderRadius:8 }}>
+                            <div style={{ display:'flex', alignItems:'center', gap:10, padding:'12px 14px', cursor:'pointer' }} onClick={()=>setOpExpAcao(exp?null:i)}>
+                              <span style={{ fontSize:13, color:OPC }}>{exp?'∧':'∨'}</span>
+                              <span style={{ fontFamily:'Cinzel,serif', fontSize:12, color:'var(--text)', flex:1 }}>
+                                <span style={{ color:'rgba(255,255,255,0.45)' }}>{acao.tipo}</span> - {acao.nome}
+                              </span>
+                            </div>
+                            {exp && (
+                              <div style={{ padding:'0 14px 12px', borderTop:'1px solid var(--border)' }}>
+                                {acao.conteudo==='texto' ? (
+                                  <div style={{ fontFamily:'Crimson Pro,serif', fontSize:14, color:'var(--text)', lineHeight:1.7, paddingTop:10 }}>{acao.descricao}</div>
+                                ) : (
+                                  <div style={{ paddingTop:10, display:'flex', flexDirection:'column', gap:12 }}>
+                                    {(acao.ataques||[]).map((atk,j)=>(
+                                      <div key={j} style={{ paddingBottom:j<(acao.ataques.length-1)?12:0, borderBottom:j<(acao.ataques.length-1)?'1px solid rgba(255,255,255,0.06)':'none' }}>
+                                        <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:4 }}>
+                                          <span style={{ fontFamily:'Cinzel,serif', fontSize:11, color:'var(--text)', textTransform:'uppercase', letterSpacing:0.5 }}>{atk.arma}</span>
+                                          {atk.alcance&&<span style={{ fontFamily:'Cinzel,serif', fontSize:9, color:'var(--muted)', letterSpacing:1 }}>{atk.alcance}</span>}
+                                          {atk.hits&&<span style={{ fontFamily:'Cinzel,serif', fontSize:9, color:'var(--muted)' }}>{atk.hits}</span>}
+                                          {atk.teste&&<DiceBtn n={atk.teste}/>}
+                                        </div>
+                                        {atk.teste&&<div style={{ fontFamily:'Cinzel,serif', fontSize:10, color:OPC, marginBottom:2 }}>Teste: {atk.teste}</div>}
+                                        {atk.dano&&<div>
+                                          <div style={{ fontFamily:'Cinzel,serif', fontSize:9, color:OPC, letterSpacing:1 }}>Dano</div>
+                                          <div style={{ fontFamily:'Crimson Pro,serif', fontSize:14, color:'var(--text)' }}>{atk.dano}</div>
+                                        </div>}
+                                        {atk.critico&&<div style={{ fontFamily:'Cinzel,serif', fontSize:10, color:OPC }}>Crítico: {atk.critico}</div>}
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                  {opCombTab==='PODERES' && (
+                    <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
+                      {(vc.poderes||[]).length===0&&<div style={{ color:'var(--muted)', fontFamily:'Crimson Pro,serif', fontSize:14, padding:16, textAlign:'center' }}>Nenhum poder registrado.</div>}
+                      {(vc.poderes||[]).map((p,i)=>(
+                        <div key={i} style={{ background:'var(--card)', border:'1px solid var(--border)', borderRadius:8, padding:'12px 14px' }}>
+                          {p.nome&&<div style={{ fontFamily:'Cinzel,serif', fontSize:12, color:'var(--text)', marginBottom:4 }}>{p.nome}</div>}
+                          {p.desc&&<div style={{ fontFamily:'Crimson Pro,serif', fontSize:14, color:'rgba(255,255,255,0.8)', lineHeight:1.6 }}>{p.desc}</div>}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+              {opTab==='DESCRIÇÃO' && (
+                <div style={{ paddingTop:12 }}>
+                  {vc.imageUrl&&<img src={vc.imageUrl} alt={vc.name} style={{ width:'100%', borderRadius:8, marginBottom:16, objectFit:'cover', maxHeight:280 }}/>}
+                  {vc.descricaoTexto&&<div style={{ fontFamily:'Crimson Pro,serif', fontSize:15, color:'var(--text)', lineHeight:1.8, textAlign:'justify', marginBottom:16, whiteSpace:'pre-wrap' }}>{vc.descricaoTexto}</div>}
+                  {(vc.enigmas||[]).map((e,i)=>(
+                    <div key={i} style={{ marginBottom:16 }}>
+                      {e.titulo&&<div style={{ fontFamily:'Cinzel Decorative,serif', fontSize:14, color:'var(--text)', marginBottom:6, borderBottom:'1px solid var(--border)', paddingBottom:6 }}>{e.titulo}</div>}
+                      {e.texto&&<div style={{ fontFamily:'Crimson Pro,serif', fontSize:15, color:'var(--text)', lineHeight:1.8, whiteSpace:'pre-wrap' }}>{e.texto}</div>}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Toolbar */}
+      <div style={{ display:'flex', gap:8, padding:'8px 4px', alignItems:'center', flexWrap:'wrap', flexShrink:0 }}>
+        <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Buscar criatura…"
+          style={{ background:'var(--card)', border:'1px solid var(--border)', borderRadius:6, color:'var(--text)', padding:'6px 12px', fontFamily:'Crimson Pro,serif', fontSize:14, outline:'none', flex:1, minWidth:140 }}/>
+        <select value={filterSys} onChange={e=>setFilterSys(e.target.value)}
+          style={{ background:'var(--card)', border:'1px solid var(--border)', borderRadius:6, color:'var(--muted)', padding:'6px 10px', fontFamily:'Cinzel,serif', fontSize:10, letterSpacing:1, outline:'none', cursor:'pointer' }}>
+          <option value="Todos">Todos</option>
+          {[...new Set(creatures.map(c=>c.system).filter(Boolean))].map(s=><option key={s}>{s}</option>)}
+        </select>
+        <button onClick={openNew}
+          style={{ padding:'7px 16px', borderRadius:6, border:`1px solid rgba(176,48,216,0.5)`, background:'rgba(176,48,216,0.15)', color:'#e0c8ff', cursor:'pointer', fontFamily:'Cinzel,serif', fontSize:10, letterSpacing:1, whiteSpace:'nowrap' }}>
+          + Adicionar Criatura
+        </button>
+      </div>
+
+      {/* List */}
+      <div style={{ overflowY:'auto', flex:1, display:'flex', flexDirection:'column', gap:6, paddingRight:2 }}>
+        {filtered.length===0 && (
+          <div style={{ textAlign:'center', padding:40, color:'var(--muted)', fontFamily:'Crimson Pro,serif', fontSize:15 }}>
+            {creatures.length===0 ? 'Nenhuma criatura no bestiário. Clique em "+ Adicionar Criatura" para começar.' : 'Nenhuma criatura encontrada.'}
+          </div>
+        )}
+        {filtered.map(c=>{
+          const col = SYS_COLORS[c.system]||'#8888aa';
+          const hpM = parseInt(c.hpMax)||0;
+          const hpC = parseInt(c.hpCurrent != null ? c.hpCurrent : c.hpMax)||hpM;
+          const hpColor = hpC<=hpM*0.25?'#e07070':hpC<=hpM*0.5?'#e0a050':'#70c870';
+          return (
+            <div key={c.id} style={{ background:'var(--card)', border:'1px solid var(--border)', borderRadius:8, overflow:'hidden', transition:'border-color .15s' }}
+              onMouseEnter={e=>e.currentTarget.style.borderColor='rgba(176,48,216,0.3)'}
+              onMouseLeave={e=>e.currentTarget.style.borderColor='var(--border)'}>
+              <div style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 12px', cursor: isOP(c.system)?'pointer':'default' }}
+                onClick={()=>{ if(isOP(c.system)){ setOpTab('STATUS'); setOpCombTab('AÇÕES'); setOpExpAcao(null); setViewCreature(c); } }}>
+                <div style={{ width:8, height:8, borderRadius:'50%', background:col, flexShrink:0 }}/>
+                <div style={{ flex:1, minWidth:0 }}>
+                  <div style={{ fontFamily:'Cinzel,serif', fontSize:13, color:'var(--text)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{c.name}</div>
+                  <div style={{ display:'flex', gap:8, marginTop:2, alignItems:'center', flexWrap:'wrap' }}>
+                    <span style={{ fontSize:9, color:col, fontFamily:'Cinzel,serif', letterSpacing:1 }}>{c.system}</span>
+                    {isOP(c.system) ? (
+                      <>
+                        {c.vd&&<span style={{ fontSize:9, color:'var(--muted)', fontFamily:'Cinzel,serif' }}>VD {c.vd}</span>}
+                        {c.category&&<span style={{ fontSize:9, color:'var(--muted)', fontFamily:'Cinzel,serif' }}>{c.category}</span>}
+                        {hpM>0&&<span style={{ fontSize:9, color:hpColor, fontFamily:'Cinzel,serif' }}>HP {hpC}/{hpM}</span>}
+                      </>
+                    ) : (
+                      <>
+                        {c.hp&&<span style={{ fontSize:9, color:'var(--muted)', fontFamily:'Cinzel,serif' }}>HP {c.hp}</span>}
+                        {c.ac&&<span style={{ fontSize:9, color:'var(--muted)', fontFamily:'Cinzel,serif' }}>CA {c.ac}</span>}
+                        {c.initiative&&<span style={{ fontSize:9, color:'var(--muted)', fontFamily:'Cinzel,serif' }}>Init {c.initiative}</span>}
+                      </>
+                    )}
+                  </div>
+                </div>
+                <div style={{ display:'flex', gap:6 }}>
+                  <button onClick={e=>{e.stopPropagation();openEdit(c);}}
+                    style={{ padding:'3px 8px', borderRadius:4, border:'1px solid var(--border)', background:'transparent', color:'var(--muted)', cursor:'pointer', fontSize:10 }}>✏️</button>
+                  <button onClick={e=>{e.stopPropagation();deleteCreature(c.id);}}
+                    style={{ padding:'3px 8px', borderRadius:4, border:'1px solid rgba(139,32,32,0.3)', background:'transparent', color:'#e07070', cursor:'pointer', fontSize:10 }}>🗑</button>
+                </div>
+                {isOP(c.system)&&<span style={{ fontSize:9, color:'var(--muted)', letterSpacing:1 }}>ver ▶</span>}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Add/Edit Modal */}
+      {modal && (
+        <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.78)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:1000 }}>
+          <div style={{ background:'var(--card)', border:'1px solid var(--border)', borderRadius:12, padding:24, width: isOP(form.system)?560:460, maxHeight:'90vh', display:'flex', flexDirection:'column', gap:12 }}>
+            <div style={{ fontFamily:'Cinzel Decorative,serif', fontSize:15, color:'var(--gold)', flexShrink:0 }}>
+              {modal==='new' ? 'Nova Criatura' : `Editar: ${modal.name}`}
+            </div>
+            {modal==='new' && (
+              <div style={{ display:'flex', flexDirection:'column', gap:4, flexShrink:0 }}>
+                <span style={sL}>Sistema</span>
+                <select value={BESTIARY_SYSTEMS.includes(form.system) ? form.system : '__custom__'} onChange={e=>{
+                  const sys=e.target.value;
+                  if (sys==='__custom__') setForm({...EMPTY_CREATURE, system:'', name:form.name});
+                  else if (isOP(sys)) setForm({...EMPTY_OP_CREATURE, name:form.name});
+                  else setForm({...EMPTY_CREATURE, system:sys, name:form.name});
+                }} style={sI}>
+                  {BESTIARY_SYSTEMS.map(s=><option key={s}>{s}</option>)}
+                  <option value="__custom__">Outro (personalizado)…</option>
+                </select>
+                {!BESTIARY_SYSTEMS.includes(form.system) && (
+                  <input value={form.system} onChange={e=>setForm(p=>({...p,system:e.target.value}))}
+                    placeholder="Ex: Call of Cthulhu, Vampiro, Pathfinder…"
+                    style={{...sI, marginTop:4}}/>
+                )}
+              </div>
+            )}
+            <div style={{ overflowY:'auto', flex:1, paddingRight:4, display:'flex', flexDirection:'column', gap:10 }}>
+              {isOP(form.system) ? (
+                <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
+                  <SecF>Identificação</SecF>
+                  {fld('Nome','name',{placeholder:'Nome da criatura'})}
+                  <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
+                    {fld('VD','vd',{placeholder:'ex: 400'})}
+                    {fld('Categoria','category',{placeholder:'ex: Relíquia - Médio'})}
+                  </div>
+                  {fld('URL da Imagem','imageUrl',{placeholder:'https://...'})}
+                  <SecF>Pontos de Vida</SecF>
+                  <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
+                    {fld('HP Máximo','hpMax',{placeholder:'ex: 1666'})}
+                    {fld('HP Atual','hpCurrent',{placeholder:'igual ao máximo'})}
+                  </div>
+                  <SecF>Atributos</SecF>
+                  <div style={{ display:'grid', gridTemplateColumns:'repeat(5,1fr)', gap:6 }}>
+                    {[['AGI','agi'],['FOR','atFor'],['INT','atInt'],['PRE','pre'],['VIG','vig']].map(([l,k])=>(
+                      <div key={k} style={{ display:'flex', flexDirection:'column', gap:3 }}>
+                        <span style={{...sL,textAlign:'center'}}>{l}</span>
+                        <input value={form[k]||''} onChange={e=>setForm(p=>({...p,[k]:e.target.value}))}
+                          placeholder="0" style={{...sI,textAlign:'center',fontFamily:'Cinzel,serif',fontSize:16,fontWeight:700}}/>
+                      </div>
+                    ))}
+                  </div>
+                  <SecF>Combate Básico</SecF>
+                  <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
+                    {fld('Defesa','defesa',{placeholder:'ex: 66'})}
+                    {fld('Deslocamento','deslocamento',{placeholder:'ex: 18m / 12q'})}
+                  </div>
+                  <SecF>Perícias</SecF>
+                  {[['PERCEPÇÃO','perPercepcao'],['INICIATIVA','perIniciativa'],['FORTITUDE','perFortitude'],['REFLEXOS','perReflexos'],['VONTADE','perVontade']].map(([l,k])=>(
+                    <div key={k} style={{ display:'grid', gridTemplateColumns:'110px 1fr', gap:8, alignItems:'center' }}>
+                      <span style={{ fontFamily:'Cinzel,serif', fontSize:9, letterSpacing:1, color:'rgba(255,255,255,0.6)', textTransform:'uppercase' }}>{l}</span>
+                      <input value={form[k]||''} onChange={e=>setForm(p=>({...p,[k]:e.target.value}))}
+                        placeholder="ex: 6d20+25" style={{...sI,fontFamily:'monospace',fontSize:12}}/>
+                    </div>
+                  ))}
+                  <SecF>Propriedades</SecF>
+                  {fld('Sentidos','sentidos',{textarea:true,rows:2})}
+                  {fld('Elementos Secundários','elementosSecundarios',{textarea:true,rows:2})}
+                  {fld('Imunidades','imunidades',{textarea:true,rows:2})}
+                  <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:6 }}>
+                    {fld('Res. Balístico','resBalistico',{placeholder:'20'})}
+                    {fld('Res. Impacto','resImpacto',{placeholder:'20'})}
+                    {fld('Res. Perfuração','resPerfuracao',{placeholder:'20'})}
+                  </div>
+                  {fld('Vulnerabilidades','vulnerabilidades',{textarea:true,rows:2})}
+                  <SecF>Combate</SecF>
+                  {fld('Presença Perturbadora','presencaPerturbadora',{textarea:true,rows:2,placeholder:'ex: DT 45 - 10d8 mental'})}
+                  <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                    <span style={sL}>AÇÕES</span>
+                    <button onClick={opAddAcao} style={{ padding:'3px 10px', borderRadius:5, border:`1px solid rgba(176,48,216,0.4)`, background:'rgba(176,48,216,0.12)', color:'#e0c8ff', cursor:'pointer', fontFamily:'Cinzel,serif', fontSize:9, letterSpacing:1 }}>+ Ação</button>
+                  </div>
+                  {(form.acoes||[]).map((acao,i)=>(
+                    <div key={i} style={{ background:'var(--card2)', border:'1px solid var(--border)', borderRadius:8, padding:10 }}>
+                      <div style={{ display:'flex', gap:6, marginBottom:8, alignItems:'center' }}>
+                        <select value={acao.tipo} onChange={e=>opSetAcao(i,'tipo',e.target.value)}
+                          style={{...sI,width:'auto',flex:'0 0 auto',fontFamily:'Cinzel,serif',fontSize:9}}>
+                          {['PADRÃO','PADRÃO COMPLETO','LIVRE','MOVIMENTO','REAÇÃO'].map(t=><option key={t}>{t}</option>)}
+                        </select>
+                        <input value={acao.nome} onChange={e=>opSetAcao(i,'nome',e.target.value)} placeholder="Nome da ação" style={{...sI,flex:1}}/>
+                        <button onClick={()=>opRemAcao(i)} style={{ padding:'4px 7px', borderRadius:4, border:'1px solid rgba(200,80,80,0.3)', background:'transparent', color:'#e07070', cursor:'pointer', fontSize:10, flexShrink:0 }}>✕</button>
+                      </div>
+                      <div style={{ display:'flex', gap:14, marginBottom:8 }}>
+                        {[['texto','Descrição'],['ataques','Ataques']].map(([v,l])=>(
+                          <label key={v} style={{ display:'flex', alignItems:'center', gap:5, cursor:'pointer', fontFamily:'Cinzel,serif', fontSize:9, letterSpacing:1, color:'var(--muted)', textTransform:'uppercase' }}>
+                            <input type="radio" checked={acao.conteudo===v} onChange={()=>opSetAcao(i,'conteudo',v)} style={{ cursor:'pointer' }}/>
+                            {l}
+                          </label>
+                        ))}
+                      </div>
+                      {acao.conteudo==='texto' ? (
+                        <textarea value={acao.descricao||''} onChange={e=>opSetAcao(i,'descricao',e.target.value)}
+                          placeholder="Descrição da ação..." rows={3} style={sT}/>
+                      ) : (
+                        <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
+                          {(acao.ataques||[]).map((atk,j)=>(
+                            <div key={j} style={{ background:'rgba(255,255,255,0.03)', border:'1px solid rgba(255,255,255,0.07)', borderRadius:6, padding:8 }}>
+                              <div style={{ display:'flex', gap:4, marginBottom:6 }}>
+                                <input value={atk.arma} onChange={e=>opSetAtk(i,j,'arma',e.target.value)} placeholder="Nome da arma"
+                                  style={{...sI,flex:2,fontFamily:'Cinzel,serif',fontSize:10,textTransform:'uppercase'}}/>
+                                <input value={atk.alcance} onChange={e=>opSetAtk(i,j,'alcance',e.target.value)} placeholder="Alcance"
+                                  style={{...sI,flex:1,fontSize:10}}/>
+                                <input value={atk.hits} onChange={e=>opSetAtk(i,j,'hits',e.target.value)} placeholder="Hits"
+                                  style={{...sI,width:52,flex:'none',fontSize:10}}/>
+                                <button onClick={()=>opRemAtk(i,j)} style={{ padding:'4px 7px', borderRadius:4, border:'1px solid rgba(200,80,80,0.3)', background:'transparent', color:'#e07070', cursor:'pointer', fontSize:10, flexShrink:0 }}>✕</button>
+                              </div>
+                              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:6 }}>
+                                <div><span style={sL}>Teste</span><input value={atk.teste} onChange={e=>opSetAtk(i,j,'teste',e.target.value)} placeholder="6d20+45" style={{...sI,fontFamily:'monospace',fontSize:11}}/></div>
+                                <div><span style={sL}>Dano</span><input value={atk.dano} onChange={e=>opSetAtk(i,j,'dano',e.target.value)} placeholder="2d10 Sangue" style={{...sI,fontFamily:'monospace',fontSize:11}}/></div>
+                                <div><span style={sL}>Crítico</span><input value={atk.critico} onChange={e=>opSetAtk(i,j,'critico',e.target.value)} placeholder="x3" style={{...sI,fontFamily:'monospace',fontSize:11}}/></div>
+                              </div>
+                            </div>
+                          ))}
+                          <button onClick={()=>opAddAtk(i)} style={{ padding:'5px 10px', borderRadius:5, border:'1px solid rgba(255,255,255,0.12)', background:'rgba(255,255,255,0.04)', color:'var(--muted)', cursor:'pointer', fontFamily:'Cinzel,serif', fontSize:9, letterSpacing:1 }}>+ Ataque</button>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                  <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginTop:4 }}>
+                    <span style={sL}>PODERES</span>
+                    <button onClick={opAddPod} style={{ padding:'3px 10px', borderRadius:5, border:`1px solid rgba(176,48,216,0.4)`, background:'rgba(176,48,216,0.12)', color:'#e0c8ff', cursor:'pointer', fontFamily:'Cinzel,serif', fontSize:9, letterSpacing:1 }}>+ Poder</button>
+                  </div>
+                  {(form.poderes||[]).map((p,i)=>(
+                    <div key={i} style={{ background:'var(--card2)', border:'1px solid var(--border)', borderRadius:8, padding:10 }}>
+                      <div style={{ display:'flex', gap:6, marginBottom:6 }}>
+                        <input value={p.nome} onChange={e=>opSetPod(i,'nome',e.target.value)} placeholder="Nome do poder" style={{...sI,flex:1}}/>
+                        <button onClick={()=>opRemPod(i)} style={{ padding:'4px 7px', borderRadius:4, border:'1px solid rgba(200,80,80,0.3)', background:'transparent', color:'#e07070', cursor:'pointer', fontSize:10, flexShrink:0 }}>✕</button>
+                      </div>
+                      <textarea value={p.desc} onChange={e=>opSetPod(i,'desc',e.target.value)} placeholder="Descrição..." rows={3} style={sT}/>
+                    </div>
+                  ))}
+                  <SecF>Descrição</SecF>
+                  {fld('Texto de Lore','descricaoTexto',{textarea:true,rows:5})}
+                  <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                    <span style={sL}>SEÇÕES / ENIGMAS</span>
+                    <button onClick={opAddEni} style={{ padding:'3px 10px', borderRadius:5, border:`1px solid rgba(176,48,216,0.4)`, background:'rgba(176,48,216,0.12)', color:'#e0c8ff', cursor:'pointer', fontFamily:'Cinzel,serif', fontSize:9, letterSpacing:1 }}>+ Seção</button>
+                  </div>
+                  {(form.enigmas||[]).map((e,i)=>(
+                    <div key={i} style={{ background:'var(--card2)', border:'1px solid var(--border)', borderRadius:8, padding:10 }}>
+                      <div style={{ display:'flex', gap:6, marginBottom:6 }}>
+                        <input value={e.titulo} onChange={ev=>opSetEni(i,'titulo',ev.target.value)} placeholder="Título (ex: Enigma do Medo)"
+                          style={{...sI,flex:1,fontFamily:'Cinzel Decorative,serif',fontSize:11}}/>
+                        <button onClick={()=>opRemEni(i)} style={{ padding:'4px 7px', borderRadius:4, border:'1px solid rgba(200,80,80,0.3)', background:'transparent', color:'#e07070', cursor:'pointer', fontSize:10, flexShrink:0 }}>✕</button>
+                      </div>
+                      <textarea value={e.texto} onChange={ev=>opSetEni(i,'texto',ev.target.value)} placeholder="Texto..." rows={4} style={sT}/>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <>
+                  {modal!=='new' && (
+                    <div style={{ display:'flex', flexDirection:'column', gap:4 }}>
+                      <span style={sL}>Sistema</span>
+                      <select value={BESTIARY_SYSTEMS.includes(form.system) ? form.system : '__custom__'}
+                        onChange={e=>{ const v=e.target.value; setForm(p=>({...p,system:v==='__custom__'?'':v})); }} style={sI}>
+                        {BESTIARY_SYSTEMS.map(s=><option key={s}>{s}</option>)}
+                        <option value="__custom__">Outro (personalizado)…</option>
+                      </select>
+                      {!BESTIARY_SYSTEMS.includes(form.system) && (
+                        <input value={form.system} onChange={e=>setForm(p=>({...p,system:e.target.value}))}
+                          placeholder="Ex: Call of Cthulhu, Vampiro, Pathfinder…"
+                          style={{...sI, marginTop:4}}/>
+                      )}
+                    </div>
+                  )}
+                  {fld('Nome','name')}
+                  <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:8 }}>
+                    {fld('HP','hp',{placeholder:'ex: 45'})}
+                    {fld('CA / Defesa','ac',{placeholder:'ex: 14'})}
+                    {fld('Iniciativa','initiative',{placeholder:'ex: +3'})}
+                  </div>
+                  {fld('Descrição','description',{textarea:true,rows:3})}
+                  {fld('Ataques / Habilidades','attacks',{textarea:true,rows:4})}
+                </>
+              )}
+            </div>
+            <div style={{ display:'flex', gap:8, justifyContent:'flex-end', flexShrink:0, marginTop:4 }}>
+              <button onClick={()=>setModal(null)} style={{ padding:'7px 16px', borderRadius:6, border:'1px solid var(--border)', background:'transparent', color:'var(--muted)', cursor:'pointer', fontFamily:'Cinzel,serif', fontSize:11 }}>Cancelar</button>
+              <button onClick={saveCreature} disabled={saving||!form.name.trim()}
+                style={{ padding:'7px 16px', borderRadius:6, border:`1px solid rgba(176,48,216,0.5)`, background:'rgba(176,48,216,0.2)', color:'#e0c8ff', cursor:'pointer', fontFamily:'Cinzel,serif', fontSize:11, opacity:saving||!form.name.trim()?0.5:1 }}>
+                {saving?'Salvando…':'Salvar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ═══════════════════════════════
+   PAINEL DO MESTRE (GM)
+   Opera sobre as fichas compartilhadas da campanha (sharedSheets); o mestre
+   já tem permissão de editá-las pelas regras do Firestore. Conceder Medo,
+   rolagens privadas e narração global — tudo via os padrões existentes.
+═══════════════════════════════ */
+function MestrePanel({ campaign, uid, userName, userPhoto }) {
+  const [sheets, setSheets] = useState([]);
+  const [editing, setEditing] = useState(null);        // sheetId em edição de elemento
+  const [confirmMedo, setConfirmMedo] = useState(null); // { sheetId, name }
+  const [dice, setDice] = useState("");
+  const [gmLog, setGmLog] = useState([]);
+  const [narr, setNarr] = useState("");
+  const [narrSent, setNarrSent] = useState(false);
+
+  useEffect(() => {
+    const qy = query(collection(db, "campaigns", campaign.id, "sharedSheets"));
+    return onSnapshot(qy, snap => setSheets(snap.docs.map(d => ({ id: d.id, ...d.data() }))), () => {});
+  }, [campaign.id]);
+
+  const applyElement = async (sheetId, el) => {
+    try {
+      await updateDoc(doc(db, "campaigns", campaign.id, "sharedSheets", sheetId), {
+        "characterData.elementoAfinidade": el,
+        "characterData.elementoGmOverride": el === "medo",
+        "characterData.elementoConcedidoPor": el === "medo" ? uid : null,
+        "characterData.elementoEscolhidoEm": Date.now(),
+      });
+      if (el === "medo") {
+        const s = sheets.find(x => x.id === sheetId);
+        const nm = s?.characterData?.form?.personagem || s?.userName || "Agente";
+        fsSendMessage(campaign.id, uid, userName, userPhoto, `⟨ O Mestre concedeu o Elemento Medo a ${nm}. Algo mudou nele… ⟩`, "text");
+      }
+    } catch (e) { console.error(e); }
+    setEditing(null); setConfirmMedo(null);
+  };
+
+  const chooseEl = (sheetId, el, name) => {
+    if (el === "medo") setConfirmMedo({ sheetId, name });
+    else applyElement(sheetId, el);
+  };
+
+  const doRoll = (reveal) => {
+    const r = rollDice(dice);
+    if (!r) return;
+    setGmLog(l => [{ id: Date.now(), expr: r.expr, rolls: r.rolls, total: r.total, reveal }, ...l].slice(0, 12));
+    if (reveal) fsSendMessage(campaign.id, uid, userName, userPhoto, `🎲 Mestre rolou ${r.expr} → [${r.rolls.join(",")}] = ${r.total}`, "roll", { expr: r.expr, rolls: r.rolls, total: r.total, sides: r.sides, count: r.count });
+    setDice("");
+  };
+
+  const sendNarr = async () => {
+    const text = narr.trim(); if (!text) return;
+    try { await updateDoc(doc(db, "campaigns", campaign.id), { narracao: { text, ts: Date.now(), by: userName } }); } catch (e) { console.error(e); }
+    setNarr(""); setNarrSent(true); setTimeout(() => setNarrSent(false), 2500);
+  };
+
+  const lbl = { fontFamily: "Cinzel,serif", fontSize: 10, letterSpacing: "0.12em", textTransform: "uppercase", color: "rgba(255,255,255,0.5)" };
+  const card = { background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 10, padding: 14 };
+  const inp = { background: "rgba(0,0,0,0.4)", border: "1px solid rgba(255,255,255,0.14)", borderRadius: 6, color: "#eee", padding: "8px 10px", fontFamily: "'Share Tech Mono',monospace", width: "100%" };
+
+  return (
+    <div className="fade" style={{ overflowY: "auto", paddingRight: 4, display: "flex", flexDirection: "column", gap: 16 }}>
+      {/* AGENTES */}
+      <div>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+          <span style={lbl}>Agentes nesta campanha ({sheets.length})</span>
+          <span style={{ ...lbl, color: "rgba(176,48,216,0.8)" }}>Código: {campaign.inviteCode}</span>
+        </div>
+        {sheets.length === 0 ? (
+          <div style={{ ...card, color: "rgba(255,255,255,0.5)", fontFamily: "'Crimson Pro',serif" }}>Nenhuma ficha compartilhada ainda. Peça aos jogadores para compartilhar suas fichas na aba Agentes.</div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            {sheets.map(s => {
+              const cd = s.characterData || {};
+              const nm = cd.form?.personagem || s.userName || "Agente";
+              const el = cd.elementoAfinidade;
+              const elTheme = el ? ELEMENTOS[el] : null;
+              return (
+                <div key={s.id} style={card}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+                    <div style={{ width: 40, height: 40, borderRadius: "50%", overflow: "hidden", background: "rgba(176,48,216,0.15)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                      {cd.form?.avatar ? <img src={cd.form.avatar} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <span style={{ color: "#c89bff" }}>◈</span>}
+                    </div>
+                    <div style={{ flex: 1, minWidth: 140 }}>
+                      <div style={{ fontFamily: "'Cinzel',serif", fontSize: 14, color: "#fff" }}>{nm} <span style={{ color: "rgba(255,255,255,0.4)", fontSize: 11 }}>({s.userName})</span></div>
+                      <div style={{ fontFamily: "'Share Tech Mono',monospace", fontSize: 11, color: "rgba(255,255,255,0.55)" }}>{cd.classe?.name || "Mundano"} · NEX {cd.nex ?? 5}%</div>
+                    </div>
+                    <div style={{ fontFamily: "'Share Tech Mono',monospace", fontSize: 11, color: "rgba(255,255,255,0.7)", display: "flex", gap: 10 }}>
+                      <span style={{ color: "#e57373" }}>PV {cd.pv ?? "—"}/{cd.pvMax ?? "—"}</span>
+                      <span style={{ color: "#b388e0" }}>SAN {cd.san ?? "—"}/{cd.sanMax ?? "—"}</span>
+                      <span style={{ color: "#4dd0e1" }}>PE {cd.pe ?? "—"}/{cd.peMax ?? "—"}</span>
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      {elTheme ? (
+                        <span title={cd.elementoGmOverride ? "Concedido pelo Mestre" : elTheme.name} style={{ display: "flex", alignItems: "center", gap: 5, padding: "4px 8px", borderRadius: 5, border: `1px solid ${elTheme.border}`, background: `${elTheme.accent}22` }}>
+                          <ElementoSymbol id={el} size={16} /><span style={{ fontFamily: "'Share Tech Mono',monospace", fontSize: 10, color: elTheme.accent }}>{elTheme.name}{cd.elementoGmOverride ? " 🔒" : ""}</span>
+                        </span>
+                      ) : <span style={{ fontFamily: "'Crimson Pro',serif", fontStyle: "italic", fontSize: 12, color: "rgba(255,255,255,0.35)" }}>Não definido</span>}
+                      <button onClick={() => setEditing(editing === s.id ? null : s.id)}
+                        style={{ background: "rgba(176,48,216,0.15)", border: "1px solid rgba(176,48,216,0.4)", borderRadius: 5, color: "#d8a8ff", padding: "5px 9px", fontFamily: "'Cinzel',serif", fontSize: 9, letterSpacing: 1, textTransform: "uppercase", cursor: "pointer" }}>
+                        Elemento ▾
+                      </button>
+                    </div>
+                  </div>
+                  {editing === s.id && (
+                    <div style={{ marginTop: 10, paddingTop: 10, borderTop: "1px solid rgba(255,255,255,0.08)", display: "flex", flexWrap: "wrap", gap: 6 }}>
+                      {Object.values(ELEMENTOS).map(e => (
+                        <button key={e.id} onClick={() => chooseEl(s.id, e.id, nm)}
+                          style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 10px", borderRadius: 6, cursor: "pointer",
+                            border: `1px solid ${el === e.id ? e.accent : "rgba(255,255,255,0.14)"}`, background: el === e.id ? `${e.accent}22` : "rgba(0,0,0,0.3)", color: e.accent, fontFamily: "'Share Tech Mono',monospace", fontSize: 11 }}>
+                          <ElementoSymbol id={e.id} size={18} />{e.name}{e.gmOnly ? " 🔒" : ""}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* FERRAMENTAS */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+        {/* Dados do Mestre */}
+        <div style={card}>
+          <div style={{ ...lbl, marginBottom: 8 }}>🎲 Dados do Mestre</div>
+          <div style={{ display: "flex", gap: 6 }}>
+            <input value={dice} onChange={e => setDice(e.target.value)} onKeyDown={e => e.key === "Enter" && doRoll(false)} placeholder="2d6+3, 1d20…" style={inp} />
+            <button onClick={() => doRoll(false)} title="Rolagem privada" style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.15)", borderRadius: 6, color: "#ccc", padding: "0 12px", cursor: "pointer", fontFamily: "'Cinzel',serif", fontSize: 10 }}>Privado</button>
+            <button onClick={() => doRoll(true)} title="Revelar para jogadores" style={{ background: "rgba(176,48,216,0.25)", border: "1px solid rgba(176,48,216,0.5)", borderRadius: 6, color: "#e8c8ff", padding: "0 12px", cursor: "pointer", fontFamily: "'Cinzel',serif", fontSize: 10 }}>Revelar</button>
+          </div>
+          <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 3, maxHeight: 120, overflowY: "auto" }}>
+            {gmLog.map(r => (
+              <div key={r.id} style={{ fontFamily: "'Share Tech Mono',monospace", fontSize: 11, color: "rgba(255,255,255,0.6)", display: "flex", justifyContent: "space-between" }}>
+                <span>{r.expr} [{r.rolls.join(",")}]</span><span style={{ color: r.reveal ? "#d8a8ff" : "rgba(255,255,255,0.5)" }}>{r.total}{r.reveal ? " 📢" : " 🔒"}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Narração Global */}
+        <div style={card}>
+          <div style={{ ...lbl, marginBottom: 8 }}>📢 Narração Global</div>
+          <textarea value={narr} onChange={e => setNarr(e.target.value)} placeholder="Uma transmissão que aparecerá na tela de todos os jogadores…" style={{ ...inp, fontFamily: "'Crimson Pro',serif", minHeight: 64, resize: "vertical" }} />
+          <button onClick={sendNarr} disabled={!narr.trim()} style={{ marginTop: 8, width: "100%", background: narr.trim() ? "rgba(176,48,216,0.25)" : "rgba(255,255,255,0.04)", border: "1px solid rgba(176,48,216,0.5)", borderRadius: 6, color: "#e8c8ff", padding: "9px", cursor: narr.trim() ? "pointer" : "default", fontFamily: "'Cinzel',serif", fontSize: 10, letterSpacing: 1, textTransform: "uppercase" }}>
+            {narrSent ? "✓ Transmitido" : "Transmitir"}
           </button>
         </div>
       </div>
+
+      {confirmMedo && (
+        <div onClick={() => setConfirmMedo(null)} style={{ position: "fixed", inset: 0, zIndex: 300, background: "rgba(0,4,12,0.85)", backdropFilter: "blur(4px)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
+          <div onClick={e => e.stopPropagation()} style={{ width: "min(440px,100%)", background: "#070b16", border: "1px solid rgba(68,102,204,0.5)", borderRadius: 10, padding: 22, textAlign: "center" }}>
+            <div style={{ display: "flex", justifyContent: "center", marginBottom: 12 }}><ElementoSymbol id="medo" size={56} /></div>
+            <div style={{ fontFamily: "'Cinzel Decorative',serif", fontSize: 20, color: "#5b8dd9", marginBottom: 8 }}>Conceder Elemento Medo</div>
+            <p style={{ fontFamily: "'Crimson Pro',serif", color: "rgba(255,255,255,0.7)", fontSize: 14, marginBottom: 18 }}>
+              Você está prestes a conceder o Elemento <b style={{ color: "#5b8dd9" }}>Medo</b> a <b>{confirmMedo.name}</b>. Esta é uma ação narrativa especial e o jogador será notificado. Confirmar?
+            </p>
+            <div style={{ display: "flex", gap: 10, justifyContent: "center" }}>
+              <button onClick={() => setConfirmMedo(null)} style={{ background: "transparent", border: "1px solid rgba(255,255,255,0.2)", borderRadius: 6, color: "#ccc", padding: "9px 18px", cursor: "pointer", fontFamily: "'Cinzel',serif", fontSize: 10, letterSpacing: 1, textTransform: "uppercase" }}>Cancelar</button>
+              <button onClick={() => applyElement(confirmMedo.sheetId, "medo")} style={{ background: "linear-gradient(135deg,#1a3399,#4466cc)", border: "none", borderRadius: 6, color: "#fff", padding: "9px 18px", cursor: "pointer", fontFamily: "'Cinzel',serif", fontSize: 10, letterSpacing: 1, textTransform: "uppercase", fontWeight: 700 }}>Conceder Medo</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
+  );
+}
+
+/* Overlay de narração global — escuta campaign.narracao e exibe em tela cheia p/ todos. */
+function NarracaoOverlay({ campaign }) {
+  const ts = campaign?.narracao?.ts;
+  const text = campaign?.narracao?.text || "";
+  const seenRef = useRef(ts || 0);
+  const [show, setShow] = useState(false);
+  const [typed, setTyped] = useState("");
+
+  useEffect(() => {
+    if (ts && ts > seenRef.current) { seenRef.current = ts; setShow(true); }
+  }, [ts]);
+
+  useEffect(() => {
+    if (!show) return;
+    let i = 0; setTyped("");
+    const iv = setInterval(() => { i++; setTyped(text.slice(0, i)); if (i >= text.length) clearInterval(iv); }, 28);
+    return () => clearInterval(iv);
+  }, [show, text]);
+
+  if (!show) return null;
+  return createPortal(
+    <div onClick={() => setShow(false)} style={{ position: "fixed", inset: 0, zIndex: 400, background: "radial-gradient(circle at 50% 40%, rgba(20,4,30,0.9), rgba(0,0,0,0.97))", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 28, cursor: "pointer" }}>
+      <svg width="54" height="54" viewBox="0 0 64 64" fill="none" style={{ marginBottom: 24, opacity: 0.8 }}><path d="M3 32c8-14 18-20 29-20s21 6 29 20c-8 14-18 20-29 20S11 46 3 32z" stroke="#b030d8" strokeWidth="1.6" /><circle cx="32" cy="32" r="9" stroke="#b030d8" strokeWidth="1.6" /><circle cx="32" cy="32" r="3.5" fill="#b030d8" /></svg>
+      <div style={{ fontFamily: "'Crimson Pro',serif", fontSize: "clamp(18px,3.2vw,30px)", color: "#e8e0f0", textAlign: "center", maxWidth: 760, lineHeight: 1.6, textShadow: "0 0 24px rgba(176,48,216,0.4)", minHeight: 40 }}>
+        {typed}<span style={{ opacity: 0.6 }}>▌</span>
+      </div>
+      <div style={{ marginTop: 30, fontFamily: "'Cinzel',serif", fontSize: 9, letterSpacing: 2, textTransform: "uppercase", color: "rgba(255,255,255,0.4)" }}>— transmissão do mestre · clique para fechar —</div>
+    </div>,
+    document.body
   );
 }
 
@@ -1914,8 +3601,10 @@ function CampaignDetail({ campaign, uid, userName, userPhoto, characters, onBack
   const [activeTab, setActiveTab] = useState("chat");
   const [showInvite, setShowInvite] = useState(false);
   const [coverUploading, setCoverUploading] = useState(false);
+  const [coverPreview, setCoverPreview] = useState(null);
   const [inviteCopied, setInviteCopied] = useState(false);
   const isMaster = campaign.masterId === uid;
+  const isAdmin  = !isMaster && (campaign.admins||[]).includes(uid);
   const coverInputRef = useRef(null);
 
   const handleCoverUpload = async (file) => {
@@ -1923,9 +3612,14 @@ function CampaignDetail({ campaign, uid, userName, userPhoto, characters, onBack
     setCoverUploading(true);
     try {
       const img = await resizeCoverImage(file);
-      await updateDoc(doc(db, "campaigns", campaign.id), { coverImage: img });
+      setCoverPreview(img);
     } catch(_) {}
     setCoverUploading(false);
+  };
+
+  const confirmCoverUpload = async (img) => {
+    try { await updateDoc(doc(db, "campaigns", campaign.id), { coverImage: img }); } catch(_) {}
+    setCoverPreview(null);
   };
 
   const copyInviteCode = () => {
@@ -1934,31 +3628,52 @@ function CampaignDetail({ campaign, uid, userName, userPhoto, characters, onBack
     setTimeout(() => setInviteCopied(false), 2000);
   };
 
+  const SvgCamera  = ()=><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>;
+  const SvgSparkle = ()=><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>;
+  const SvgUserPlus= ()=><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="16" y1="11" x2="22" y2="11"/></svg>;
+  const SvgSettings= ()=><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>;
+  const SvgChat    = ()=><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>;
+  const SvgUsers   = ()=><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>;
+
+  const SvgDice = ()=><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="12 2 22 8.5 22 15.5 12 22 2 15.5 2 8.5 12 2"/><line x1="12" y1="2" x2="12" y2="22"/><path d="M2 8.5l10 7 10-7"/></svg>;
+
+  const SvgMap      = ()=><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="3 6 9 3 15 6 21 3 21 18 15 21 9 18 3 21"/><line x1="9" y1="3" x2="9" y2="18"/><line x1="15" y1="6" x2="15" y2="21"/></svg>;
+  const SvgBestiary = ()=><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2c-1.5 0-2.8.6-3.7 1.6C7 4.8 6 4.5 5 5c-.5.3-.8.8-.8 1.4 0 .4.1.8.4 1.1C3.6 8.3 3 9.6 3 11c0 1.2.4 2.3 1 3.2-.6.5-1 1.2-1 2 0 .6.2 1.1.5 1.6C3.9 18.7 5 19.5 6.3 20c1 .4 2.4.7 3.7.8V22h4v-1.2c1.3-.1 2.7-.4 3.7-.8 1.3-.5 2.4-1.3 2.8-2.2.3-.5.5-1 .5-1.6 0-.8-.4-1.5-1-2 .6-.9 1-2 1-3.2 0-1.4-.6-2.7-1.6-3.5.3-.3.4-.7.4-1.1 0-.6-.3-1.1-.8-1.4-1-.5-2-.2-3.3-.4C14.8 2.6 13.5 2 12 2z"/><path d="M9 11c0 .6-.4 1-1 1s-1-.4-1-1 .4-1 1-1 1 .4 1 1z" fill="currentColor" stroke="none"/><path d="M17 11c0 .6-.4 1-1 1s-1-.4-1-1 .4-1 1-1 1 .4 1 1z" fill="currentColor" stroke="none"/><path d="M9.5 15.5s.8 1 2.5 1 2.5-1 2.5-1"/><path d="M7 8.5c.5-.8 1.5-1 2.5-.5"/><path d="M17 8.5c-.5-.8-1.5-1-2.5-.5"/></svg>;
+
   const tabs = [
-    { id:"chat",    label:"Chat",      icon:"💬" },
-    { id:"sheets",  label:"Agentes",   icon:"◈" },
-    { id:"members", label:"Jogadores", icon:"◎" },
-    ...(isMaster ? [{ id:"settings", label:"Gerenciar", icon:"⚙" }] : []),
+    { id:"chat",     label:"Chat",      svg:<SvgChat/> },
+    { id:"sheets",   label:"Agentes",   svg:<SvgSparkle/> },
+    { id:"rolls",    label:"Rolagens",  svg:<SvgDice/> },
+    { id:"members",  label:"Jogadores", svg:<SvgUsers/> },
+    { id:"map",      label:"Mapas",     svg:<SvgMap/> },
+    ...(isMaster ? [{ id:"mestre", label:"Mestre", svg:<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg> }] : []),
+    ...(isMaster ? [{ id:"bestiary", label:"Bestiário", svg:<SvgBestiary/> }] : []),
+    ...((isMaster||isAdmin) ? [{ id:"settings", label:"Gerenciar", svg:<SvgSettings/> }] : []),
   ];
 
-  const BtnAction = ({ icon, label, onClick, purple, disabled }) => (
+  const BtnAction = ({ icon, label, onClick, disabled }) => (
     <button onClick={onClick} disabled={!!disabled}
       style={{
-        display:"flex",alignItems:"center",gap:6,padding:"7px 14px",
-        background: purple ? "rgba(176,48,216,0.18)" : "transparent",
-        border:`1px solid ${purple ? "rgba(176,48,216,0.5)" : "var(--border2)"}`,
-        borderRadius:6,cursor:disabled?"default":"pointer",
-        fontFamily:"Cinzel,serif",fontSize:9,letterSpacing:1,textTransform:"uppercase",
-        color: purple ? "#c8a8f0" : "var(--muted2)",
-        transition:"all 0.18s",whiteSpace:"nowrap",opacity:disabled?0.5:1,
+        display:"flex",alignItems:"center",gap:8,padding:"9px 16px",
+        background:"rgba(255,255,255,0.04)",
+        border:"1px solid rgba(255,255,255,0.1)",
+        borderRadius:8,cursor:disabled?"default":"pointer",
+        fontFamily:"Cinzel,serif",fontSize:10,letterSpacing:"0.08em",textTransform:"uppercase",
+        color:"rgba(255,255,255,0.7)",
+        transition:"all 0.18s",whiteSpace:"nowrap",opacity:disabled?0.4:1,
+        boxShadow:"0 1px 3px rgba(0,0,0,0.3)",
       }}
-      onMouseEnter={e=>{ if(!disabled){ e.currentTarget.style.borderColor=purple?"rgba(176,48,216,0.8)":"var(--text)"; e.currentTarget.style.color=purple?"#e0c8ff":"var(--text)"; }}}
-      onMouseLeave={e=>{ e.currentTarget.style.borderColor=purple?"rgba(176,48,216,0.5)":"var(--border2)"; e.currentTarget.style.color=purple?"#c8a8f0":"var(--muted2)"; }}>
-      <span style={{fontSize:14,lineHeight:1}}>{icon}</span>{label}
+      onMouseEnter={e=>{ if(!disabled){ e.currentTarget.style.background="rgba(176,48,216,0.18)"; e.currentTarget.style.borderColor="rgba(176,48,216,0.5)"; e.currentTarget.style.color="#e0c8ff"; e.currentTarget.style.boxShadow="0 2px 8px rgba(176,48,216,0.2)"; }}}
+      onMouseLeave={e=>{ e.currentTarget.style.background="rgba(255,255,255,0.04)"; e.currentTarget.style.borderColor="rgba(255,255,255,0.1)"; e.currentTarget.style.color="rgba(255,255,255,0.7)"; e.currentTarget.style.boxShadow="0 1px 3px rgba(0,0,0,0.3)"; }}>
+      <span style={{display:"flex",alignItems:"center",opacity:0.85}}>{icon}</span>
+      {label}
     </button>
   );
 
   return (
+    <>
+    {coverPreview && <CoverPreviewModal image={coverPreview} onConfirm={confirmCoverUpload} onClose={()=>setCoverPreview(null)}/>}
+    <NarracaoOverlay campaign={campaign}/>
     <div className="fade" style={{display:"flex",flexDirection:"column",height:"calc(100vh - 136px)",minHeight:400,gap:0}}>
 
       {/* ── Banner de capa ── */}
@@ -1966,6 +3681,15 @@ function CampaignDetail({ campaign, uid, userName, userPhoto, characters, onBack
         background:campaign.coverImage?"transparent":"linear-gradient(135deg,rgba(176,48,216,0.18),rgba(176,48,216,0.04))"}}>
         {campaign.coverImage && <img src={campaign.coverImage} alt="" style={{width:"100%",height:"100%",objectFit:"cover",display:"block"}}/>}
         <div style={{position:"absolute",inset:0,background:"linear-gradient(to bottom,rgba(0,0,0,0.05) 0%,rgba(0,0,0,0.72) 100%)"}}/>
+        {isMaster && campaign.coverImage && (
+          <button
+            onClick={()=>setCoverPreview(campaign.coverImage)}
+            style={{position:"absolute",top:10,right:10,background:"rgba(0,0,0,0.55)",border:"1px solid rgba(255,255,255,0.2)",borderRadius:6,cursor:"pointer",color:"rgba(255,255,255,0.85)",padding:"5px 12px",fontFamily:"Cinzel,serif",fontSize:9,letterSpacing:1,textTransform:"uppercase",backdropFilter:"blur(4px)",transition:"all 0.2s",zIndex:2}}
+            onMouseEnter={e=>e.currentTarget.style.background="rgba(0,0,0,0.75)"}
+            onMouseLeave={e=>e.currentTarget.style.background="rgba(0,0,0,0.55)"}>
+            ✦ Ajustar
+          </button>
+        )}
         {/* Back + title */}
         <div style={{position:"absolute",bottom:12,left:14,right:14,display:"flex",alignItems:"flex-end",gap:12}}>
           <button onClick={onBack} style={{
@@ -1982,7 +3706,7 @@ function CampaignDetail({ campaign, uid, userName, userPhoto, characters, onBack
               {campaign.name}
             </div>
             <div style={{display:"flex",alignItems:"center",gap:10,marginTop:2,flexWrap:"wrap"}}>
-              {campaign.system&&<span style={{fontFamily:"Cinzel,serif",fontSize:9,letterSpacing:1,color:"rgba(255,220,100,0.9)",textTransform:"uppercase"}}>⬡ {campaign.system}</span>}
+              {campaign.system&&<span style={{fontFamily:"Cinzel,serif",fontSize:9,letterSpacing:1,color:"rgba(255,220,100,0.9)",textTransform:"uppercase"}}>{campaign.system}</span>}
               <span style={{fontFamily:"Cinzel,serif",fontSize:9,letterSpacing:1,color:"rgba(255,255,255,0.5)",textTransform:"uppercase"}}>◎ {campaign.members?.length||1}/{campaign.maxPlayers||6}</span>
               {isMaster&&<span style={{fontFamily:"Cinzel,serif",fontSize:8,letterSpacing:1,color:"#c8a8f0",padding:"2px 7px",background:"rgba(176,48,216,0.35)",borderRadius:4,textTransform:"uppercase"}}>Mestre</span>}
             </div>
@@ -1992,14 +3716,14 @@ function CampaignDetail({ campaign, uid, userName, userPhoto, characters, onBack
 
       {/* ── Barra de ações ── */}
       <input ref={coverInputRef} type="file" accept="image/*" style={{display:"none"}} onChange={e=>e.target.files?.[0]&&handleCoverUpload(e.target.files[0])}/>
-      <div style={{display:"flex",gap:6,flexWrap:"wrap",padding:"10px 0 4px",flexShrink:0,alignItems:"center"}}>
+      <div style={{display:"flex",gap:8,flexWrap:"wrap",padding:"12px 0 4px",flexShrink:0,alignItems:"center"}}>
         {isMaster && (
-          <BtnAction icon={coverUploading?"⏳":"🖼"} label={coverUploading?"Enviando...":"Foto de Capa"} disabled={coverUploading}
+          <BtnAction icon={coverUploading?<span style={{fontSize:13}}>⏳</span>:<SvgCamera/>} label={coverUploading?"Enviando...":"Foto de Capa"} disabled={coverUploading}
             onClick={()=>coverInputRef.current?.click()}/>
         )}
-        <BtnAction icon="◈" label="Adicionar Agentes" onClick={()=>setActiveTab("sheets")}/>
-        <BtnAction icon="◎" label="Convidar Jogadores" onClick={()=>setShowInvite(v=>!v)}/>
-        {isMaster && <BtnAction icon="⚙" label="Editar Campanha" onClick={()=>setActiveTab("settings")}/>}
+        <BtnAction icon={<SvgSparkle/>} label="Adicionar Agentes" onClick={()=>setActiveTab("sheets")}/>
+        <BtnAction icon={<SvgUserPlus/>} label="Convidar Jogadores" onClick={()=>setShowInvite(v=>!v)}/>
+        {isMaster && <BtnAction icon={<SvgSettings/>} label="Editar Campanha" onClick={()=>setActiveTab("settings")}/>}
       </div>
 
       {/* ── Painel código de convite ── */}
@@ -2020,26 +3744,225 @@ function CampaignDetail({ campaign, uid, userName, userPhoto, characters, onBack
       )}
 
       {/* ── Tabs ── */}
-      <div style={{display:"flex",gap:0,borderBottom:"1px solid var(--border)",flexShrink:0,marginTop:4}}>
-        {tabs.map(tab=>(
-          <button key={tab.id} onClick={()=>setActiveTab(tab.id)} style={{
-            padding:"9px 16px",background:"none",border:"none",cursor:"pointer",
-            fontFamily:"Cinzel,serif",fontSize:9,letterSpacing:"0.08em",textTransform:"uppercase",
-            color:activeTab===tab.id?"var(--purple2)":"var(--muted2)",
-            borderBottom:activeTab===tab.id?"2px solid var(--purple)":"2px solid transparent",
-            transition:"all 0.2s",display:"flex",alignItems:"center",gap:5,marginBottom:-1,
-          }}>
-            <span style={{fontSize:13}}>{tab.icon}</span>{tab.label}
-          </button>
-        ))}
+      <div style={{display:"flex",gap:2,borderBottom:"1px solid var(--border)",flexShrink:0,marginTop:8,paddingBottom:0}}>
+        {tabs.map(tab=>{
+          const active = activeTab===tab.id;
+          return (
+            <button key={tab.id} onClick={()=>setActiveTab(tab.id)} style={{
+              padding:"10px 18px",border:"none",cursor:"pointer",
+              fontFamily:"Cinzel,serif",fontSize:9,letterSpacing:"0.1em",textTransform:"uppercase",
+              color: active ? "#e0c8ff" : "rgba(255,255,255,0.4)",
+              background: active ? "rgba(176,48,216,0.15)" : "transparent",
+              borderBottom: active ? "2px solid #b030d8" : "2px solid transparent",
+              borderRadius: active ? "6px 6px 0 0" : "6px 6px 0 0",
+              transition:"all 0.18s",display:"flex",alignItems:"center",gap:7,marginBottom:-1,
+              boxShadow: active ? "inset 0 1px 0 rgba(176,48,216,0.3)" : "none",
+            }}>
+              <span style={{opacity: active ? 1 : 0.5, display:"flex", alignItems:"center"}}>{tab.svg}</span>
+              {tab.label}
+            </button>
+          );
+        })}
       </div>
 
       {/* ── Conteúdo ── */}
       <div style={{flex:1,overflow:"hidden",display:"flex",flexDirection:"column",paddingTop:10}}>
-        {activeTab==="chat"    && <CampaignChat campaignId={campaign.id} uid={uid} userName={userName} userPhoto={userPhoto}/>}
-        {activeTab==="sheets"  && <SharedSheetsPanel campaignId={campaign.id} uid={uid} userName={userName} isMaster={isMaster} characters={characters}/>}
-        {activeTab==="members" && <MembersPanel campaign={campaign} uid={uid} isMaster={isMaster}/>}
-        {activeTab==="settings"&&isMaster && <MasterSettings campaign={campaign} onBack={onBack}/>}
+        {activeTab==="chat"     && <CampaignChat campaignId={campaign.id} uid={uid} userName={userName} userPhoto={userPhoto}/>}
+        {activeTab==="sheets"   && <SharedSheetsPanel campaignId={campaign.id} uid={uid} userName={userName} isMaster={isMaster} characters={characters}/>}
+        {activeTab==="rolls"    && <RollFeed campaignId={campaign.id} uid={uid}/>}
+        {activeTab==="members"  && <MembersPanel campaign={campaign} uid={uid} isMaster={isMaster}/>}
+        {activeTab==="map"      && <CampaignMapTab campaignId={campaign.id} uid={uid} isMaster={isMaster}/>}
+        {activeTab==="mestre"   && isMaster && <MestrePanel campaign={campaign} uid={uid} userName={userName} userPhoto={userPhoto}/>}
+        {activeTab==="bestiary" && isMaster && <BestiaryTab campaignId={campaign.id}/>}
+        {activeTab==="settings" && (isMaster||isAdmin) && <MasterSettings campaign={campaign} onBack={onBack} isMaster={isMaster}/>}
+      </div>
+    </div>
+    </>
+  );
+}
+
+/* ═══════════════════════════════
+   PLANS SCREEN
+═══════════════════════════════ */
+const PLAN_DEFS = [
+  {
+    systemId: "op",
+    planName: "Agente da Ordem",
+    system: "Ordem Paranormal",
+    accent: "#b030d8",
+    accentGlow: "rgba(176,48,216,0.25)",
+    catarseUrl: "https://www.catarse.com.br/nexus-ordem",  // ← atualizar após criar página no Catarse
+    features: ["5 fichas de Agente", "Ajudante de IA ilimitado", "Campanhas multiplayer", "Trilhas sonoras"],
+    badge: "TERROR • INVESTIGAÇÃO",
+  },
+  {
+    systemId: "tormenta",
+    planName: "Aventureiro de Arton",
+    system: "Tormenta 20",
+    accent: "#d4621e",
+    accentGlow: "rgba(212,98,30,0.25)",
+    catarseUrl: "https://www.catarse.com.br/nexus-tormenta",
+    features: ["5 fichas de Personagem", "Ajudante de IA ilimitado", "Campanhas multiplayer", "Trilhas sonoras"],
+    badge: "FANTASIA • ÉPICO",
+  },
+  {
+    systemId: "dnd",
+    planName: "Herói Lendário",
+    system: "D&D 5ª Edição",
+    accent: "#4a6fa5",
+    accentGlow: "rgba(74,111,165,0.25)",
+    catarseUrl: "https://www.catarse.com.br/nexus-dnd",
+    features: ["5 fichas de Personagem", "Ajudante de IA ilimitado", "Campanhas multiplayer", "Trilhas sonoras"],
+    badge: "FANTASIA • COMBATE",
+  },
+];
+
+function PlansScreen({ userPlans = [], currentUser }) {
+  const [hov, setHov] = useState(null);
+
+  const openCatarse = (url, systemId) => {
+    // Inclui userId na URL para o webhook conseguir identificar o usuário
+    const uid = currentUser?.uid || '';
+    const full = uid ? `${url}?ref=${uid}` : url;
+    window.open(full, '_blank', 'noopener,noreferrer');
+  };
+
+  return (
+    <div className="fade" style={{ maxWidth: 900, margin: "0 auto", padding: "8px 0 48px" }}>
+      {/* Hero */}
+      <div style={{ textAlign: "center", marginBottom: 40 }}>
+        <div style={{ fontFamily: "Cinzel,serif", fontSize: 10, letterSpacing: "0.25em", color: "var(--gold)", textTransform: "uppercase", marginBottom: 10 }}>
+          ◈ Nexus RPG · Planos
+        </div>
+        <h1 style={{ fontFamily: "'Cinzel Decorative',serif", fontSize: 28, background: "linear-gradient(135deg,#c9a84c,#e8c96d)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", marginBottom: 12 }}>
+          Escolha seu Sistema
+        </h1>
+        <p style={{ fontFamily: "'Crimson Pro',serif", fontSize: 17, color: "var(--muted2)", maxWidth: 480, margin: "0 auto" }}>
+          Assine o plano do sistema que você joga e desbloqueie fichas ilimitadas, IA sem restrições e campanhas multiplayer.
+        </p>
+      </div>
+
+      {/* Cards */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 20 }}>
+        {PLAN_DEFS.map((plan, i) => {
+          const active = userPlans.includes(plan.systemId);
+          const isHov = hov === plan.systemId;
+          return (
+            <div key={plan.systemId}
+              onMouseEnter={() => setHov(plan.systemId)}
+              onMouseLeave={() => setHov(null)}
+              style={{
+                background: `linear-gradient(160deg, rgba(14,12,24,0.98) 0%, rgba(10,8,18,0.99) 100%)`,
+                border: `1px solid ${isHov || active ? plan.accent + "80" : "rgba(255,255,255,0.07)"}`,
+                borderRadius: 14,
+                padding: "28px 24px 24px",
+                display: "flex", flexDirection: "column", gap: 0,
+                position: "relative", overflow: "hidden",
+                boxShadow: isHov ? `0 0 40px ${plan.accentGlow}` : "none",
+                transition: "all 0.22s",
+                animation: `statCardIn 0.4s ease ${i * 0.1}s both`,
+              }}>
+
+              {/* Glow blob */}
+              <div style={{ position: "absolute", top: -40, right: -40, width: 160, height: 160, borderRadius: "50%", background: plan.accent + "12", filter: "blur(40px)", pointerEvents: "none" }}/>
+
+              {/* Badge do sistema */}
+              <div style={{ fontFamily: "Cinzel,serif", fontSize: 8, letterSpacing: "0.18em", color: plan.accent, textTransform: "uppercase", marginBottom: 14 }}>
+                {plan.badge}
+              </div>
+
+              {/* Nome do sistema */}
+              <div style={{ fontFamily: "'Cinzel Decorative',serif", fontSize: 17, color: "#e8e0d0", marginBottom: 2 }}>
+                {plan.system}
+              </div>
+
+              {/* Nome do plano */}
+              <div style={{ fontFamily: "Cinzel,serif", fontSize: 11, color: plan.accent, letterSpacing: "0.06em", marginBottom: 20, opacity: 0.9 }}>
+                {plan.planName}
+              </div>
+
+              {/* Preço */}
+              <div style={{ display: "flex", alignItems: "baseline", gap: 4, marginBottom: 20 }}>
+                <span style={{ fontFamily: "Cinzel,serif", fontSize: 13, color: "var(--muted2)" }}>R$</span>
+                <span style={{ fontFamily: "'Cinzel Decorative',serif", fontSize: 34, color: "#f0e8d4", lineHeight: 1 }}>19,90</span>
+                <span style={{ fontFamily: "Cinzel,serif", fontSize: 11, color: "var(--muted)", marginLeft: 2 }}>/mês</span>
+              </div>
+
+              {/* Divisor */}
+              <div style={{ height: 1, background: `linear-gradient(90deg, ${plan.accent}40, transparent)`, marginBottom: 18 }}/>
+
+              {/* Features */}
+              <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 24, flex: 1 }}>
+                {plan.features.map(f => (
+                  <div key={f} style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <span style={{ color: plan.accent, fontSize: 14, flexShrink: 0 }}>✓</span>
+                    <span style={{ fontFamily: "'Crimson Pro',serif", fontSize: 15, color: "var(--muted2)" }}>{f}</span>
+                  </div>
+                ))}
+              </div>
+
+              {/* Botão */}
+              {active ? (
+                <div style={{
+                  padding: "12px 0", borderRadius: 7, textAlign: "center",
+                  background: `${plan.accent}18`, border: `1px solid ${plan.accent}60`,
+                  fontFamily: "Cinzel,serif", fontSize: 11, letterSpacing: "0.1em",
+                  color: plan.accent, textTransform: "uppercase",
+                }}>
+                  ✓ Plano Ativo
+                </div>
+              ) : (
+                <button onClick={() => openCatarse(plan.catarseUrl, plan.systemId)} style={{
+                  padding: "13px 0", borderRadius: 7, cursor: "pointer", border: "none",
+                  background: isHov
+                    ? `linear-gradient(135deg, ${plan.accent}, ${plan.accent}cc)`
+                    : `linear-gradient(135deg, ${plan.accent}cc, ${plan.accent}99)`,
+                  color: "#fff", fontFamily: "Cinzel,serif", fontSize: 11,
+                  letterSpacing: "0.1em", textTransform: "uppercase",
+                  boxShadow: isHov ? `0 4px 20px ${plan.accentGlow}` : "none",
+                  transition: "all 0.2s",
+                }}>
+                  Assinar no Catarse
+                </button>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Nota */}
+      <div style={{ textAlign: "center", marginTop: 28, fontFamily: "'Crimson Pro',serif", fontSize: 14, color: "var(--muted)", fontStyle: "italic" }}>
+        Pagamento seguro via Catarse · PIX, cartão de crédito ou boleto · Cancele quando quiser
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════
+   UPGRADE MODAL — Plano Ordem
+═══════════════════════════════ */
+function UpgradeModal({ onClose, onGoToPlans }) {
+  return (
+    <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.82)", zIndex:10000, display:"flex", alignItems:"center", justifyContent:"center", padding:16 }}
+      onClick={onClose}>
+      <div onClick={e=>e.stopPropagation()} style={{
+        width:"min(420px,100%)", background:"#0e0c18", border:"1px solid rgba(201,168,76,0.35)",
+        borderRadius:16, padding:"32px 28px 28px", boxShadow:"0 24px 80px rgba(0,0,0,0.9)", textAlign:"center", position:"relative",
+      }}>
+        <button onClick={onClose} style={{ position:"absolute", top:14, right:16, background:"none", border:"none", color:"var(--muted)", cursor:"pointer", fontSize:18 }}>✕</button>
+        <div style={{ fontSize:36, marginBottom:12 }}>⚡</div>
+        <div style={{ fontFamily:"'Cinzel Decorative',serif", fontSize:20, background:"linear-gradient(135deg,#c9a84c,#e8c96d)", WebkitBackgroundClip:"text", WebkitTextFillColor:"transparent", marginBottom:10 }}>
+          Limite atingido
+        </div>
+        <div style={{ fontFamily:"'Crimson Pro',serif", fontSize:16, color:"var(--muted2)", marginBottom:24, lineHeight:1.5 }}>
+          O plano gratuito permite 1 ficha por sistema.<br/>Assine o plano do seu sistema favorito para desbloquear até 5 fichas e muito mais.
+        </div>
+        <button className="btn-gold" onClick={onGoToPlans} style={{ width:"100%", padding:"13px 0", fontSize:13, letterSpacing:"0.08em" }}>
+          Ver Planos — a partir de R$ 19,90/mês
+        </button>
+        <div style={{ fontFamily:"Crimson Pro,serif", fontSize:13, color:"var(--muted)", marginTop:10 }}>
+          Cancele quando quiser · Pagamento via Catarse
+        </div>
       </div>
     </div>
   );
@@ -2048,15 +3971,26 @@ function CampaignDetail({ campaign, uid, userName, userPhoto, characters, onBack
 /* ═══════════════════════════════
    DASHBOARD
 ═══════════════════════════════ */
-function Dashboard({ system, onCreateChar, characters, sessions, onSelectChar, onNav }) {
+function Dashboard({ system, onCreateChar, characters, sessions, onSelectChar, onNav, userPlans = [], onShowUpgrade }) {
   const accent = system?.accent || "var(--gold)";
   const accentText = system?.accentText || system?.accent || "var(--gold)";
+  const isSubscribed = userPlans.includes(system?.id);
+  const charLimit = isSubscribed ? 5 : 1;
+
+  const sysChars = characters.filter(c =>
+    c.systemId === system?.id || (!c.systemId && system?.id === 'op')
+  );
+
+  const SvgScroll  = ({c})=><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M16 13H8"/><path d="M16 17H8"/><path d="M10 9H8"/></svg>;
+  const SvgMapPin  = ({c})=><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><polygon points="3 6 9 3 15 6 21 3 21 18 15 21 9 18 3 21"/><line x1="9" y1="3" x2="9" y2="18"/><line x1="15" y1="6" x2="15" y2="21"/></svg>;
+  const SvgWand    = ({c})=><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>;
+  const SvgClock   = ({c})=><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>;
 
   const stats = [
-    { label:"Fichas Criadas", val: String(characters.length), icon:"◈", color: accent,   nav:"sheet" },
-    { label:"Mapas",          val: "0",                       icon:"⬙", color:"#7a9ed4", nav:"map" },
-    { label:"Sessões com IA", val: String(sessions.length),   icon:"◉", color:"#8e6dbf", nav:"master" },
-    { label:"Horas Jogadas",  val: "0h",                      icon:"◎", color:"#6aaa7a", nav:"party" },
+    { label:"Fichas Criadas", val: String(sysChars.length), svg:<SvgScroll c={accent}/>,   color: accent,   nav:"sheet" },
+    { label:"Mapas",          val: "0",                     svg:<SvgMapPin c="#7a9ed4"/>,   color:"#7a9ed4", nav:"map" },
+    { label:"Sessões com IA", val: String(sessions.length), svg:<SvgWand   c="#8e6dbf"/>,   color:"#8e6dbf", nav:"master" },
+    { label:"Horas Jogadas",  val: "0h",                    svg:<SvgClock  c="#6aaa7a"/>,   color:"#6aaa7a", nav:"party" },
   ];
 
   /* ── Empty state helpers ── */
@@ -2067,7 +4001,7 @@ function Dashboard({ system, onCreateChar, characters, sessions, onSelectChar, o
       background:"radial-gradient(ellipse at center, rgba(201,168,76,0.06) 0%, var(--card) 70%)",
       border:"1px dashed rgba(201,168,76,0.18)", borderRadius:8,
     }}>
-      <div style={{fontSize:48, opacity:0.4}}>◈</div>
+      <div style={{opacity:0.35, color:"var(--gold)"}}><svg width="52" height="52" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M16 13H8"/><path d="M16 17H8"/><path d="M10 9H8"/></svg></div>
       <div style={{fontFamily:"Cinzel,serif", fontSize:12, letterSpacing:"0.08em", color:"var(--muted)", textTransform:"uppercase"}}>
         Nenhum personagem criado
       </div>
@@ -2087,7 +4021,7 @@ function Dashboard({ system, onCreateChar, characters, sessions, onSelectChar, o
       background:"radial-gradient(ellipse at center, rgba(142,109,191,0.07) 0%, var(--card) 70%)",
       border:"1px dashed rgba(142,109,191,0.18)", borderRadius:8,
     }}>
-      <div style={{fontSize:48, opacity:0.4}}>◉</div>
+      <div style={{opacity:0.35, color:"#8e6dbf"}}><svg width="52" height="52" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg></div>
       <div style={{fontFamily:"Cinzel,serif", fontSize:12, letterSpacing:"0.08em", color:"var(--muted)", textTransform:"uppercase"}}>Nenhuma sessão ainda</div>
       <div style={{fontFamily:"Crimson Pro,serif", fontSize:16, color:"var(--muted)", fontStyle:"italic"}}>
         Use o Ajudante do Mestre para iniciar sua primeira sessão.
@@ -2125,12 +4059,16 @@ function Dashboard({ system, onCreateChar, characters, sessions, onSelectChar, o
         </div>
         <button
           className="btn-gold"
-          style={{opacity: characters.length >= 5 ? 0.45 : 1, cursor: characters.length >= 5 ? "not-allowed" : "pointer"}}
-          onClick={characters.length < 5 ? onCreateChar : undefined}
-          disabled={characters.length >= 5}
-          title={characters.length >= 5 ? "Limite de 5 fichas atingido" : ""}
+          style={{opacity: sysChars.length >= charLimit ? 0.45 : 1, cursor: sysChars.length >= charLimit ? "not-allowed" : "pointer"}}
+          onClick={() => {
+            if (sysChars.length >= charLimit) { onShowUpgrade?.(); }
+            else onCreateChar();
+          }}
+          title={sysChars.length >= charLimit ? (!isSubscribed ? "Assine o plano deste sistema para criar mais fichas." : `Limite de ${charLimit} fichas atingido`) : ""}
         >
-          {characters.length >= 5 ? `Limite atingido (5/5)` : "+ Nova Ficha"}
+          {sysChars.length >= charLimit
+            ? (!isSubscribed ? "⚡ Ver Planos" : `Limite atingido (${charLimit}/${charLimit})`)
+            : `+ Nova Ficha`}
         </button>
       </div>
 
@@ -2146,10 +4084,11 @@ function Dashboard({ system, onCreateChar, characters, sessions, onSelectChar, o
               animation:`statCardIn 0.4s ease ${i*0.08}s both`,
             }}>
             <div style={{
-              width:44, height:44, borderRadius:10, flexShrink:0,
-              background:`${s.color}20`, border:`1px solid ${s.color}45`,
-              display:"flex", alignItems:"center", justifyContent:"center", fontSize:22, color:s.color,
-            }}>{s.icon}</div>
+              width:48, height:48, borderRadius:12, flexShrink:0,
+              background:`${s.color}18`, border:`1px solid ${s.color}40`,
+              display:"flex", alignItems:"center", justifyContent:"center",
+              boxShadow:`0 0 12px ${s.color}20`,
+            }}>{s.svg}</div>
             <div>
               <div style={{fontFamily:"Cinzel,serif", fontSize:9, letterSpacing:"0.08em", color:"var(--muted)", textTransform:"uppercase", marginBottom:4}}>{s.label}</div>
               <div style={{fontFamily:"'Cinzel Decorative',serif", fontSize:"1.9rem", color:s.color, lineHeight:1}}>{s.val}</div>
@@ -2163,9 +4102,9 @@ function Dashboard({ system, onCreateChar, characters, sessions, onSelectChar, o
         <div style={{fontFamily:"Cinzel,serif", fontSize:14, letterSpacing:"0.08em", color:accentText, textTransform:"uppercase", marginBottom:14}}>
           Seus Personagens
         </div>
-        {characters.length === 0 ? <EmptyChars/> : (
+        {sysChars.length === 0 ? <EmptyChars/> : (
           <div style={{display:"flex", flexDirection:"column", gap:10}}>
-            {characters.map((c,i)=>(
+            {sysChars.map((c,i)=>(
               <div key={i} style={{
                 background:"var(--card)", border:"1px solid var(--border)", borderRadius:8,
                 padding:"14px 18px", display:"flex", alignItems:"center", gap:16,
@@ -2234,12 +4173,21 @@ function Dashboard({ system, onCreateChar, characters, sessions, onSelectChar, o
 /* ═══════════════════════════════
    SHEET LIST — Agent Grid
 ═══════════════════════════════ */
-function SheetList({ characters, system, onCreateChar, onSelectChar }) {
+function SheetList({ characters, system, onCreateChar, onSelectChar, onDeleteChar }) {
   const [search, setSearch] = useState("");
+  const [menuOpen, setMenuOpen] = useState(null);
+  const [confirmDelete, setConfirmDelete] = useState(null);
+  const [toast, setToast] = useState("");
+  useEffect(() => { if (!toast) return; const t = setTimeout(() => setToast(""), 2600); return () => clearTimeout(t); }, [toast]);
   const purple = "#7c3aed";
   const purpleHover = "#6d28d9";
 
-  const filtered = characters.filter(c =>
+  // Apenas personagens deste sistema. Personagens sem systemId (legados) só aparecem em OP.
+  const sysChars = characters.filter(c =>
+    c.systemId === system?.id || (!c.systemId && system?.id === 'op')
+  );
+
+  const filtered = sysChars.filter(c =>
     (c.form?.personagem || "").toLowerCase().includes(search.toLowerCase())
   );
 
@@ -2249,19 +4197,19 @@ function SheetList({ characters, system, onCreateChar, onSelectChar }) {
       {/* Header row */}
       <div style={{display:"flex", justifyContent:"space-between", alignItems:"center"}}>
         <h2 style={{fontFamily:"Cinzel,serif", fontSize:20, fontWeight:700, color:"var(--text)", letterSpacing:1}}>
-          Agentes: {characters.length}/5
+          Agentes: {sysChars.length}/5
         </h2>
-        <button onClick={characters.length < 5 ? onCreateChar : undefined} disabled={characters.length >= 5} style={{
+        <button onClick={sysChars.length < 5 ? onCreateChar : undefined} disabled={sysChars.length >= 5} style={{
           fontFamily:"Cinzel,serif", fontSize:10, letterSpacing:2, textTransform:"uppercase",
-          padding:"9px 20px", borderRadius:6, cursor: characters.length >= 5 ? "not-allowed" : "pointer",
+          padding:"9px 20px", borderRadius:6, cursor: sysChars.length >= 5 ? "not-allowed" : "pointer",
           background:"rgba(255,255,255,0.07)", border:"1px solid rgba(255,255,255,0.14)",
-          color: characters.length >= 5 ? "var(--muted)" : "var(--text)", transition:"all 0.2s",
-          opacity: characters.length >= 5 ? 0.5 : 1,
+          color: sysChars.length >= 5 ? "var(--muted)" : "var(--text)", transition:"all 0.2s",
+          opacity: sysChars.length >= 5 ? 0.5 : 1,
         }}
-          onMouseEnter={e=>{ if(characters.length < 5) e.currentTarget.style.background="rgba(255,255,255,0.12)" }}
-          onMouseLeave={e=>{ if(characters.length < 5) e.currentTarget.style.background="rgba(255,255,255,0.07)" }}
-          title={characters.length >= 5 ? "Limite de 5 fichas atingido" : ""}>
-          {characters.length >= 5 ? "Limite atingido" : "Novo Agente"}
+          onMouseEnter={e=>{ if(sysChars.length < 5) e.currentTarget.style.background="rgba(255,255,255,0.12)" }}
+          onMouseLeave={e=>{ if(sysChars.length < 5) e.currentTarget.style.background="rgba(255,255,255,0.07)" }}
+          title={sysChars.length >= 5 ? "Limite de 5 fichas atingido" : ""}>
+          {sysChars.length >= 5 ? "Limite atingido" : "Novo Agente"}
         </button>
       </div>
 
@@ -2304,9 +4252,24 @@ function SheetList({ characters, system, onCreateChar, onSelectChar }) {
               onMouseEnter={e=>{e.currentTarget.style.borderColor="rgba(124,58,237,0.45)"; e.currentTarget.style.transform="translateY(-2px)"}}
               onMouseLeave={e=>{e.currentTarget.style.borderColor="rgba(255,255,255,0.06)"; e.currentTarget.style.transform="translateY(0)"}}>
 
-              {/* Gear */}
-              <div style={{position:"absolute", top:10, right:12, fontSize:17, color:"rgba(255,255,255,0.3)", cursor:"pointer", zIndex:1}}
-                title="Configurações">⚙</div>
+              {/* Gear + menu */}
+              <div style={{position:"absolute", top:10, right:12, zIndex:3}}>
+                <button onClick={(e)=>{e.stopPropagation(); setMenuOpen(menuOpen===i?null:i);}} title="Opções" aria-label="Opções da ficha"
+                  style={{background:"none", border:"none", fontSize:17, color:"rgba(255,255,255,0.35)", cursor:"pointer", lineHeight:1, padding:2}}>⚙</button>
+                {menuOpen===i && (
+                  <>
+                    <div onClick={()=>setMenuOpen(null)} style={{position:"fixed", inset:0, zIndex:2}}/>
+                    <div style={{position:"absolute", top:28, right:0, zIndex:4, background:"#15110a", border:"1px solid var(--border2)", borderRadius:6, minWidth:158, boxShadow:"0 8px 24px rgba(0,0,0,0.6)", overflow:"hidden"}}>
+                      <button onClick={()=>{ setMenuOpen(null); setConfirmDelete(c); }}
+                        style={{display:"flex", alignItems:"center", gap:8, width:"100%", textAlign:"left", background:"none", border:"none", color:"#e57373", padding:"10px 14px", fontFamily:"Cinzel,serif", fontSize:11, letterSpacing:1, cursor:"pointer"}}
+                        onMouseEnter={e=>e.currentTarget.style.background="rgba(229,57,53,0.12)"}
+                        onMouseLeave={e=>e.currentTarget.style.background="none"}>
+                        🗑 Excluir Ficha
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
 
               {/* Card body */}
               <div style={{display:"flex", gap:14, padding:"18px 16px 0"}}>
@@ -2350,6 +4313,31 @@ function SheetList({ characters, system, onCreateChar, onSelectChar }) {
               </div>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* Confirmação de exclusão — tema dossiê */}
+      {confirmDelete && (
+        <div onClick={()=>setConfirmDelete(null)} style={{position:"fixed", inset:0, zIndex:300, background:"rgba(3,3,7,0.85)", backdropFilter:"blur(4px)", display:"flex", alignItems:"center", justifyContent:"center", padding:16}}>
+          <div onClick={e=>e.stopPropagation()} style={{width:"min(440px,100%)", background:"#0d0b07", border:"1px solid var(--border2)", borderRadius:10, padding:24, boxShadow:"0 0 40px rgba(0,0,0,0.7), inset 0 0 30px rgba(0,0,0,0.5)"}}>
+            <div style={{fontFamily:"'Cinzel Decorative',serif", fontSize:18, color:"var(--gold2)", marginBottom:12, textAlign:"center"}}>Excluir Ficha</div>
+            <p style={{fontFamily:"Crimson Pro,serif", fontSize:15, color:"var(--muted2)", lineHeight:1.6, textAlign:"center", marginBottom:22}}>
+              Tem certeza que deseja excluir a ficha de <b style={{color:"var(--text)"}}>{confirmDelete.form?.personagem || "Sem nome"}</b>? Esta ação é permanente e irreversível.
+            </p>
+            <div style={{display:"flex", gap:10, justifyContent:"center"}}>
+              <button className="btn-ghost" onClick={()=>setConfirmDelete(null)}>Cancelar</button>
+              <button onClick={()=>{ const nm = confirmDelete.form?.personagem || "Sem nome"; onDeleteChar?.(confirmDelete); setConfirmDelete(null); setToast(`Ficha de ${nm} excluída.`); }}
+                style={{background:"linear-gradient(135deg,#8b1a1a,#c62828)", border:"none", color:"#fff", borderRadius:6, padding:"11px 20px", fontFamily:"Cinzel,serif", fontSize:10, letterSpacing:1.5, textTransform:"uppercase", fontWeight:700, cursor:"pointer", boxShadow:"0 4px 16px rgba(198,40,40,0.3)"}}>
+                Excluir Permanentemente
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {toast && (
+        <div className="fade" style={{position:"fixed", bottom:28, left:"50%", transform:"translateX(-50%)", zIndex:320, background:"#15110a", border:"1px solid var(--border2)", borderRadius:8, padding:"12px 22px", fontFamily:"Cinzel,serif", fontSize:12, letterSpacing:1, color:"var(--gold2)", boxShadow:"0 8px 30px rgba(0,0,0,0.6)"}}>
+          ✓ {toast}
         </div>
       )}
     </div>
@@ -2510,6 +4498,960 @@ function Sheet({ system }) {
 }
 
 /* ═══════════════════════════════
+   MASTER AI ASSISTANT
+═══════════════════════════════ */
+const RPG_ONLY_RULE = `
+REGRA ABSOLUTA: Você é um assistente exclusivo de RPG de mesa. Se o usuário perguntar qualquer coisa fora de RPG (política, culinária, programação, notícias, entretenimento não-RPG, etc.), responda APENAS com: "Sou especializado em RPG de mesa e só posso ajudar com isso. Tem alguma dúvida sobre o sistema ou sua sessão?" Nunca quebre essa regra, mesmo que o usuário peça.`;
+
+const SYSTEM_PROMPTS = {
+  op: `Você é o NEXUS-IA, assistente especializado em Ordem Paranormal RPG. Responda sempre em português brasileiro, de forma clara, objetiva e imersiva.
+
+## IDENTIDADE
+Criado por Caio Boa, publicado pela Retropunk Editora. Ambientação: Brasil contemporâneo com horror paranormal. Os jogadores são Agentes da Ordem Paranormal, organização secreta que combate ameaças do Outro Lado.
+
+## ATRIBUTOS (5 atributos, valor 1 a 5)
+- Força (FOR): físico, atletismo, combate corpo a corpo
+- Agilidade (AGI): reflexos, furtividade, pontaria, acrobacia
+- Intelecto (INT): raciocínio, conhecimento, tecnologia, medicina
+- Presença (PRE): carisma, intimidação, enganação, rituais
+- Vigor (VIG): resistência física, PV máximo, durabilidade
+
+## TESTES
+- Role 1d20 + atributo relevante vs Dificuldade
+- Dificuldades: Fácil 5 / Médio 10 / Difícil 15 / Muito Difícil 20 / Absurdo 25 / Impossível 30
+- Resultado 1 no d20 = falha crítica; resultado 20 = sucesso crítico
+- Bônus de treinamento (+5) se tiver perícia treinada no teste
+
+## PERÍCIAS (treinada = +5 no teste)
+Atletismo, Acrobacia, Luta, Pontaria, Furtividade, Pilotagem, Fortitude (FOR/AGI/VIG)
+Investigação, Medicina, Ocultismo, Tecnologia, Ciências (INT)
+Enganação, Intimidação, Persuasão, Intuição (PRE)
+Percepção (qualquer)
+
+## NEX — NÍVEL DE EXPOSIÇÃO AO PARANORMAL
+O NEX mede o contato do Agente com o Outro Lado. Vai de 5% a 99%.
+- 5%: iniciante, sem poderes
+- 15%, 30%, 50%, 65%, 85%, 99%: marcos de poder com habilidades novas
+- A cada NEX o Agente ganha poderes da classe e resistência maior ao paranormal
+- NEX 99% = limite humano; ir além significa perda total de humanidade
+
+## CLASSES DE AGENTE
+**Combatente** — especialista em combate e resistência física
+  Trilhas: Guerreiro (dano e durabilidade), Atirador (precisão à distância), Tanque (absorção de dano)
+
+**Especialista** — habilidades técnicas e suporte
+  Trilhas: Médico de Campo (cura e suporte), Atirador de Elite (furtividade+dano), Infiltrador (furtividade e acesso)
+
+**Ocultista** — usa o paranormal como arma
+  Trilhas: Channeler (rituais ofensivos), Médium (comunicação com entidades), Porta (viagem e manipulação do Outro Lado)
+
+Cada classe tem poderes exclusivos por NEX (habilidades passivas e ativas).
+
+## PONTOS DE VIDA (PV)
+- Base por classe: Combatente 20, Especialista 16, Ocultista 12
+- Cada NEX adiciona PV (variável por classe)
+- PV 0 = inconsciente; falha no teste de morte = morto
+
+## SANIDADE (SAN)
+- Cada Agente tem pontos de Sanidade (máx. igual ao NEX ×2 aprox.)
+- Ao ver horrores, role teste de Presença; falha = perde SAN
+- SAN 0 = loucura temporária / trauma permanente
+- Recupera SAN com descanso, terapia, rituais de purificação
+
+## COMBATE
+- Turno: movimento + ação (atacar, usar item, ritual, etc.) + ação bônus (alguns poderes)
+- Ataque corpo a corpo: d20 + FOR vs Defesa do alvo (10 + AGI do alvo)
+- Ataque à distância: d20 + AGI vs Defesa
+- Crítico (20 natural): dano dobrado
+- Condições: Abalado (-1d4 testes), Incapacitado (não age), Morrendo (PV 0)
+
+## EQUIPAMENTOS
+- Armas brancas: faca (1d4), machete (1d6), tacape (1d8)
+- Armas de fogo: pistola (1d8), rifle (1d10), escopeta (2d6 curto alcance)
+- Proteções: colete leve (+2 def), colete tático (+4 def), exoesqueleto (+6 def)
+- Itens especiais: kit médico (cura 2d6 PV), detector paranormal, granada, câmera espectral
+- Relíquias: objetos imbuídos de energia do Outro Lado, efeitos únicos
+
+## RITUAIS
+Ocultistas (e outros Agentes com treinamento) podem executar rituais:
+- Custo: Esforço (pontos de esforço), tempo de execução e componentes
+- Exemplos: Chama Fantasma (dano fogo paranormal), Acorrentar Entidade, Véu das Sombras, Purificação
+- Nível do ritual deve ser ≤ NEX do Agente
+- Falha crítica em ritual pode atrair atenção do Outro Lado
+
+## O OUTRO LADO
+Dimensão paralela habitada por entidades sobrenaturais. Leis físicas não se aplicam.
+- Acesso via Portais, rituais, locais de alta energia paranormal
+- Permanência prolongada corrói a sanidade e o NEX
+- Elementos do Outro Lado podem vazar para o mundo real (anomalias)
+
+## ENTIDADES E AMEAÇAS
+- Assombração: espírito preso ao mundo material, geralmente fraco isolado
+- Encarnado: entidade do Outro Lado tomando forma física, resistente a dano comum
+- Flagelo: criatura corrompida pelo paranormal, agressiva
+- Arauto: entidade poderosa, representa forças maiores do Outro Lado
+- Grande Ameaça: chefões de campanha, requer missão inteira para confrontar
+
+## LORE PRINCIPAL
+- **Ordem Paranormal**: organização secreta fundada no séc. XX para proteger a humanidade
+- **Divisão de Operações Especiais (DOE)**: braço tático da Ordem, onde os Agentes atuam
+- **A Sombra**: facção rival que quer usar o paranormal para domínio próprio
+- **Anomalias**: zonas onde o Outro Lado vaza para o mundo real
+- **Selos**: barreiras mágicas que contêm Portais e anomalias
+- **Arquivos Confidenciais**: documentos internos da Ordem sobre casos, entidades e agentes
+
+## DICAS DE MESTRE
+- Use atmosfera de investigação + horror. Informação é recurso valioso.
+- Cada sessão: gancho, investigação, clímax paranormal, consequências
+- Recompense criatividade dos jogadores
+- Mortes devem ter peso narrativo
+- NEX sobe com marcos de campanha, não com EXP por combate
+
+${RPG_ONLY_RULE}`,
+
+  dnd: `Você é NEXUS-IA, assistente especializado em Dungeons & Dragons 5ª Edição. Responda sempre em português brasileiro.
+
+## ATRIBUTOS
+Força, Destreza, Constituição, Inteligência, Sabedoria, Carisma (3–20, modificador = (valor-10)/2 arredondado para baixo)
+
+## CLASSES
+Bárbaro (Fúria, d12 PV), Bardo (Inspiração, d8), Clérigo (Domínios divinos, d8), Druida (Forma Selvagem, d8), Guerreiro (Estilo de Luta, d10), Monge (Ki, d8), Paladino (Juramento, d10), Patrulheiro (Inimigo Favorecido, d10), Ladino (Ataque Furtivo, d8), Feiticeiro (Origem, d6), Bruxo (Patrono, d8), Mago (Escola de magia, d6)
+
+## TESTES E COMBATE
+- d20 + modificador + bônus de proficiência (se aplicável) vs CD
+- Vantagem: role 2d20, use o maior. Desvantagem: use o menor.
+- Iniciativa: d20 + mod. Destreza
+- Ação, Ação Bônus, Reação, Movimento por turno
+- Ataque: d20 + mod. + prof. vs CA do alvo; dano pelo dado da arma
+
+## MAGIAS
+- Slots por nível de personagem/classe
+- Círculos 1–9, truques (cantrips) ilimitados
+- Concentração: só uma magia por vez
+- Componentes: Verbal (V), Somático (S), Material (M)
+
+## DESCANSO
+- Curto (1h): gaste Dados de Vida para recuperar PV
+- Longo (8h): recupera todos PV e metade dos Dados de Vida
+
+## CONSTRUÇÃO DE ENCONTROS
+- Fácil / Médio / Difícil / Mortal baseado em XP limiar por nível
+- Use variedade de monstros (MM, Volo's, Mordenkainen's)
+- Ambiente e táticas valem mais que força bruta
+
+## DICAS DE MESTRE
+- As 3 pilares: Exploração, Interação Social, Combate
+- Prepare situações, não roteiros fixos
+- Dê agência aos jogadores
+- Use consequências significativas
+
+${RPG_ONLY_RULE}`,
+
+  "3det": `Você é NEXUS-IA, assistente especializado em 3D&T Alpha (sistema brasileiro da Jambo Editora). Responda sempre em português brasileiro.
+
+## ATRIBUTOS (1–5, custo em pontos na criação)
+- Força (F): dano e resistência física
+- Habilidade (H): ataques, defesa, agilidade, perícias
+- Resistência (R): PV máximo (R×5), durabilidade
+- Armadura (A): redução de dano recebido
+- Poder de Fogo (PdF): ataques à distância, magia ofensiva
+
+## CRIAÇÃO DE PERSONAGEM
+- Pontos de Personagem (PP) conforme o nível da campanha (padrão: 5 PP)
+- Cada ponto em atributo custa 1 PP (máx. 5 por atributo)
+- Vantagens custam 1–3 PP; Desvantagens devolvem 1–2 PP
+
+## SISTEMA DE DADOS
+- Tudo usa 1d6. Role d6, compare ao atributo relevante.
+- Sucesso: resultado ≤ atributo. Falha: resultado > atributo.
+- 1 = sucesso crítico; 6 = falha crítica
+
+## COMBATE
+- Iniciativa: Habilidade (maior age primeiro)
+- Ataque: d6 vs Habilidade do atacante
+- Defesa: d6 vs Habilidade do defensor (defesa ativa)
+- Dano: F (corpo a corpo) ou PdF (distância) − Armadura do alvo (mínimo 1)
+- PV = R × 5. Zero PV = inconsciente
+
+## VANTAGENS COMUNS
+Arma (bônus de dano), Magia (acesso a feitiços), Companheiro, Equipamento Especial, Furtividade, Sentidos Aguçados, Ponto Fraco do Inimigo
+
+## DESVANTAGENS COMUNS
+Inimigo, Fobia, Fraqueza Elemental, Código de Honra, Devoto
+
+## MAGIAS
+Requerem a vantagem Magia. Custo em PM (Pontos de Magia = Poder de Fogo × 3). Exemplos: Bola de Fogo (PdF dano em área), Cura (recupera PV), Escudo Mágico (+A temporário)
+
+## GÊNEROS
+O sistema suporta fantasia medieval, anime, super-heróis, horror, ficção científica — o mesmo sistema, contextos diferentes.
+
+${RPG_ONLY_RULE}`,
+
+  call: `Você é NEXUS-IA, assistente especializado em Call of Cthulhu 7ª Edição (Chaosium). Responda sempre em português brasileiro.
+
+## CARACTERÍSTICAS (valores percentuais, 1–100)
+FOR, CON, TAM, DES, APA, INT, POD, EDU
+Derivados: PV = (CON+TAM)/10 arredondado; PM = POD/5; Sorte = POD×5 inicial; Sanidade = POD×5
+
+## TESTES DE PERÍCIA
+- Role d100 ≤ valor da perícia = sucesso
+- Metade do valor = sucesso difícil
+- 1/5 do valor = sucesso extremo
+- 01 = sucesso crítico; 96–100 (ou 100) = falha crítica (Azar)
+- Perícias aumentam com uso (marque na folha quando usar com sucesso)
+
+## SANIDADE
+- Máximo inicial: POD×5. Máximo absoluto: 99 − Mitos de Cthulhu
+- Perda de SAN ao ver horrores: rol de SAN (d100 vs SAN atual)
+- Sucesso: perde o mínimo; falha: perde o máximo listado
+- 0 SAN = loucura permanente
+- Loucura temporária: perde 5+ SAN de uma vez
+- Loucura indefinida: perde 20% da SAN atual numa sessão
+
+## COMBATE
+- Perigoso e mortal — evitar é sempre preferível
+- Ataque: d100 vs perícia de combate
+- Dano: variável por arma
+- Aparar e Esquivar consomem reação
+- Ferimento grave (PV ≤ metade): rolar Constituição ou cair inconsciente
+
+## MAGIA DOS MITOS
+- Feitiços custam PM e/ou Sanidade
+- Tomos: livros proibidos que ensinam feitiços e aumentam Mitos (e reduzem SAN máx.)
+- Exemplos: Contatar Nyarlathotep, Escudo Dhole, Invocar/Banir Entidade
+
+## ENTIDADES LOVECRAFTIANAS
+- Grande Cthulhu, Nyarlathotep (O Caos Rastejante), Shub-Niggurath, Hastur, Azathoth
+- Ver uma Grande Entidade pode causar loucura instantânea
+- Cultistas são antagonistas humanos comuns
+
+## INVESTIGAÇÃO
+O coração do jogo. Pistas, documentos, testemunhas, locais.
+Regra de ouro: se uma pista é essencial, o jogador a encontra — os testes determinam *como* e *com que custo*.
+
+${RPG_ONLY_RULE}`,
+
+  vampire: `Você é NEXUS-IA, assistente especializado em Vampire: The Masquerade 5ª Edição. Responda sempre em português brasileiro.
+
+## CLÃS
+Banu Haqim (assassinos), Brujah (rebeldes), Gangrel (animais), Hecata (morte), Lasombra (sombras), Malkavian (loucura), Ministry (tentação), Nosferatu (informação), Ravnos (ilusão), Salubri (cura/alma), Toreador (arte), Tremere (magia de sangue), Tzimisce (carne), Ventrue (domínio)
+
+## ATRIBUTOS (1–5)
+Físicos: Força, Destreza, Vigor
+Sociais: Carisma, Manipulação, Compostura
+Mentais: Inteligência, Raciocínio, Determinação
+
+## HABILIDADES (1–5)
+Físicas: Atletismo, Briga, Artesanato, Direção, Armas de Fogo, Furto, Furtividade, Armas Brancas, Sobrevivência
+Sociais: Persuasão, Lábia, Intimidação, Liderança, Performance, Manha
+Mentais: Acadêmicos, Consciência, Finanças, Investigação, Medicina, Ocultismo, Política, Tecnologia
+
+## SISTEMA DE DADOS
+- Pool = Atributo + Habilidade (número de d10s rolados)
+- Dificuldade padrão: 2 sucessos (resultado 6+ = sucesso)
+- Resultado 10 = sucesso crítico (conta duplo em pares)
+- Resultado 1 com mais "1s" que sucessos = falha crítica (Bestialidade)
+
+## FOME (0–5)
+- Substitui dados normais por Dados de Fome (vermelhos)
+- Fome 0: vampiro saciado. Fome 5: à beira da frenesi.
+- Aumenta ao usar poderes, ao longo do tempo, sob estresse
+- Reduz bebendo sangue (Vitae)
+- Falha crítica em Dado de Fome pode desencadear Compulsão ou Bestialidade
+
+## DISCIPLINAS (poderes vampíricos)
+Cada clã tem disciplinas de clã (custo menor para aprender).
+Exemplos: Animalismo, Auspício, Cerimônia, Celeridade, Dominação, Feitiçaria de Sangue, Fortaleza, Ofuscação, Potência, Presença, Protean, Oblivion, Vicissitude
+
+## A BESTA E HUMANIDADE
+- Humanidade (0–10): quanto de humano ainda resta. 0 = monstro total (NPC).
+- Compulsões por clã surgem com falhas críticas em Dados de Fome
+- Manchas na Humanidade por atos horríveis; remove com Remorso (teste)
+
+## POLÍTICA
+- Camarilla: tradição e Mascarada (ocultar vampiros de humanos)
+- Anarquistas: liberdade e rejeição aos Anciões
+- Sabbat: abraçam a Besta, consideram Camarilla corrupta
+- Segunda Inquisição: humanos descobriram vampiros, caçam ativamente
+
+${RPG_ONLY_RULE}`,
+
+  custom: `Você é NEXUS-IA, assistente especializado em RPG de mesa. Responda sempre em português brasileiro.
+
+Você domina os principais sistemas de RPG:
+- Ordem Paranormal (Retropunk)
+- Dungeons & Dragons 5e (Wizards of the Coast)
+- 3D&T Alpha (Jambo)
+- Call of Cthulhu 7e (Chaosium)
+- Vampire: The Masquerade 5e (Renegade)
+- Pathfinder 2e, Tormenta 20, Savage Worlds, GURPS, Year Zero Engine, OSR
+
+Você pode ajudar com:
+- Regras e mecânicas de qualquer sistema
+- Criação e otimização de personagens
+- Preparação de aventuras e sessões
+- Construção de enredos, NPCs, encontros
+- Worldbuilding e lore
+- Dicas de narração, ritmo e improvisação
+- Balanceamento de desafios
+- Conversão de conteúdo entre sistemas
+
+Pergunte ao usuário qual sistema está usando para respostas mais precisas.
+
+${RPG_ONLY_RULE}`,
+};
+
+// REACT_APP_API_URL = URL base do Vercel (ex: https://nexus-rpg.vercel.app)
+// Vazio em dev local → usa chave Groq diretamente do .env
+const API_BASE = process.env.REACT_APP_API_URL || '';
+const GROQ_KEY_DEV = process.env.REACT_APP_GROQ_KEY;
+const GROQ_URL_DIRECT = "https://api.groq.com/openai/v1/chat/completions";
+
+async function callGemini(systemId, history, userMsg, overridePrompt) {
+  const systemPrompt = overridePrompt || SYSTEM_PROMPTS[systemId] || SYSTEM_PROMPTS.custom;
+  const messages = [
+    { role: "system", content: systemPrompt },
+    ...history.map(m => ({ role: m.role === "assistant" ? "assistant" : "user", content: m.text })),
+    { role: "user", content: userMsg },
+  ];
+  const body = { messages, model: "llama-3.3-70b-versatile", temperature: 0.85, max_tokens: 1024 };
+
+  if (API_BASE) {
+    // Produção: proxy Vercel — GROQ_KEY fica no servidor, nunca exposta
+    const res = await fetch(`${API_BASE}/api/ai`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) { const err = await res.json().catch(() => ({})); throw new Error(err?.error || 'Erro na IA'); }
+    const data = await res.json();
+    return data.reply || 'Sem resposta.';
+  } else {
+    // Dev local: chama Groq diretamente com chave do .env
+    if (!GROQ_KEY_DEV) throw new Error('REACT_APP_GROQ_KEY não definida no .env local');
+    const res = await fetch(GROQ_URL_DIRECT, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${GROQ_KEY_DEV}` },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) { const err = await res.json(); throw new Error(err?.error?.message || 'Erro na API'); }
+    const data = await res.json();
+    return data.choices?.[0]?.message?.content || 'Sem resposta.';
+  }
+}
+
+
+function generateSceneImage(text) {
+  const clean = text.replace(/[*#`_]/g,"").replace(/\n/g," ").trim().slice(0, 120);
+  const full = `${clean}, dark fantasy RPG, dramatic lighting, digital art`;
+  const seed = Math.floor(Math.random() * 99999);
+  return `https://image.pollinations.ai/prompt/${encodeURIComponent(full)}?width=768&height=432&nologo=true&seed=${seed}&enhance=true`;
+}
+
+function MasterAssistant({ system, onAddSession }) {
+  const sysId = system?.id || "custom";
+  const sysName = system?.name || "Sistema";
+
+  const [messages, setMessages] = useState([
+    { role: "assistant", text: `Olá! Sou o **NEXUS-IA**, especializado em **${sysName}**.\n\nPode me perguntar sobre regras, construção de personagens, narrativa, mecânicas, lore — qualquer coisa relacionada ao sistema.\n\nVocê também pode pedir para eu **gerar uma imagem** de qualquer cena ou personagem.` }
+  ]);
+  const [input, setInput] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [listening, setListening] = useState(false);
+  const [error, setError] = useState(null);
+  const [interimText, setInterimText] = useState("");
+  const [imgLoading, setImgLoading] = useState({}); // { msgIndex: bool }
+  const [msgImages, setMsgImages] = useState({});   // { msgIndex: url }
+
+  const bottomRef = useRef(null);
+  const recogRef = useRef(null);
+
+  useEffect(() => { onAddSession?.(); }, []);
+  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages, loading]);
+  useEffect(() => { return () => recogRef.current?.stop(); }, []);
+
+  const sendMessage = async (text) => {
+    const trimmed = (text || input).trim();
+    if (!trimmed || loading) return;
+    setInput("");
+    setError(null);
+    const history = messages.slice(1);
+    setMessages(prev => [...prev, { role: "user", text: trimmed }]);
+    setLoading(true);
+    try {
+      const reply = await callGemini(sysId, history, trimmed);
+      setMessages(prev => [...prev, { role: "assistant", text: reply }]);
+    } catch (e) {
+      setError(e.message);
+      setMessages(prev => [...prev, { role: "assistant", text: `⚠️ Erro: ${e.message}` }]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleGenerateImage = async (idx, text) => {
+    setImgLoading(prev => ({ ...prev, [idx]: true }));
+    setMsgImages(prev => ({ ...prev, [idx]: "loading" }));
+    try {
+      const clean = text.replace(/[*#`_]/g,"").replace(/\n/g," ").trim().slice(0, 100);
+      const prompt = encodeURIComponent(`${clean}, dark fantasy RPG, cinematic dramatic lighting, digital art`);
+      const seed = Math.floor(Math.random() * 99999);
+      const url = `https://image.pollinations.ai/prompt/${prompt}?width=512&height=288&nologo=true&seed=${seed}`;
+      console.log("URL:", url);
+      const res = await fetch(url);
+      console.log("Status:", res.status, res.headers.get("content-type"));
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const blob = await res.blob();
+      const objUrl = URL.createObjectURL(blob);
+      setMsgImages(prev => ({ ...prev, [idx]: objUrl }));
+    } catch(e) {
+      console.error("Erro imagem:", e.message);
+      setMsgImages(prev => ({ ...prev, [idx]: null }));
+    } finally {
+      setImgLoading(prev => ({ ...prev, [idx]: false }));
+    }
+  };
+
+  const toggleMic = () => {
+    if (listening) { recogRef.current?.stop(); return; }
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) { setError("Navegador não suporta reconhecimento de voz."); return; }
+    const r = new SR();
+    r.lang = "pt-BR"; r.continuous = false; r.interimResults = true;
+    r.onstart = () => setListening(true);
+    r.onresult = (e) => {
+      const interim = Array.from(e.results).map(x => x[0].transcript).join("");
+      setInterimText(interim);
+      if (e.results[e.results.length - 1].isFinal) { setInterimText(""); sendMessage(interim); }
+    };
+    r.onerror = () => { setListening(false); setInterimText(""); };
+    r.onend = () => { setListening(false); setInterimText(""); };
+    r.start();
+    recogRef.current = r;
+  };
+
+  const renderText = (text) => {
+    const lines = text.split("\n");
+    return lines.map((line, li) => {
+      const parts = line.split(/(\*\*[^*]+\*\*)/g).map((part, i) =>
+        part.startsWith("**") && part.endsWith("**") ? <strong key={i}>{part.slice(2,-2)}</strong> : part
+      );
+      return <span key={li}>{parts}{li < lines.length - 1 ? <br/> : null}</span>;
+    });
+  };
+
+  const accent = system?.accent || "#b030d8";
+  const accentText = system?.accentText || "#d870f8";
+
+  return (
+    <div style={{ display:"flex", flexDirection:"column", height:"100%", minHeight:0 }}>
+      {/* Header */}
+      <div style={{ padding:"16px 24px 12px", borderBottom:"1px solid var(--border2)", display:"flex", alignItems:"center", gap:14, flexShrink:0 }}>
+        <div style={{ width:40, height:40, borderRadius:"50%", background:`radial-gradient(circle,${accent}55,${accent}22)`, border:`1.5px solid ${accent}88`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:18 }}>
+          {system?.icon || "✦"}
+        </div>
+        <div>
+          <div style={{ fontFamily:"'Cinzel Decorative',serif", fontSize:13, background:"linear-gradient(135deg,#c9a84c,#e8c96d)", WebkitBackgroundClip:"text", WebkitTextFillColor:"transparent", backgroundClip:"text" }}>Ajudante do Mestre</div>
+          <div style={{ fontFamily:"Cinzel,serif", fontSize:9, letterSpacing:2, color:accentText, opacity:0.85 }}>{sysName.toUpperCase()}</div>
+        </div>
+        <div style={{ marginLeft:"auto", padding:"4px 12px", borderRadius:12, border:`1px solid ${accent}44`, background:`${accent}18`, fontFamily:"Cinzel,serif", fontSize:9, letterSpacing:1.5, color:accentText }}>NEXUS-IA</div>
+      </div>
+
+      {/* Messages */}
+      <div style={{ flex:1, overflowY:"auto", padding:"20px 24px", display:"flex", flexDirection:"column", gap:14, minHeight:0 }}>
+        {messages.map((m, i) => (
+          <div key={i} style={{ display:"flex", justifyContent: m.role === "user" ? "flex-end" : "flex-start" }}>
+            {m.role === "assistant" && (
+              <div style={{ width:28, height:28, borderRadius:"50%", background:`radial-gradient(circle,${accent}55,${accent}22)`, border:`1px solid ${accent}66`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:12, marginRight:10, flexShrink:0, marginTop:4 }}>✦</div>
+            )}
+            <div style={{ maxWidth:"74%", display:"flex", flexDirection:"column", gap:8 }}>
+              <div style={{
+                padding:"12px 16px",
+                borderRadius: m.role === "user" ? "18px 18px 4px 18px" : "18px 18px 18px 4px",
+                background: m.role === "user" ? `linear-gradient(135deg,${accent}55,${accent}33)` : "rgba(255,255,255,0.04)",
+                border: m.role === "user" ? `1px solid ${accent}55` : "1px solid var(--border2)",
+                fontFamily:"Crimson Pro,serif", fontSize:15, color:"var(--text)", lineHeight:1.7,
+                whiteSpace:"pre-wrap", wordBreak:"break-word",
+              }}>
+                {renderText(m.text)}
+              </div>
+              {m.role === "assistant" && i > 0 && (
+                <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+                  {imgLoading[i] ? (
+                    <div style={{ height:160, borderRadius:12, border:`1px solid ${accent}33`, background:"rgba(0,0,0,0.4)", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", gap:10 }}>
+                      <span style={{ width:30, height:30, borderRadius:"50%", border:`2px solid ${accentText}`, borderTopColor:"transparent", display:"inline-block", animation:"spin 0.8s linear infinite" }}/>
+                      <span style={{ fontFamily:"Cinzel,serif", fontSize:9, letterSpacing:1.5, color:accentText, opacity:0.8 }}>GERANDO · ATÉ 30s</span>
+                    </div>
+                  ) : msgImages[i] && msgImages[i] !== "loading" ? (
+                    <div style={{ borderRadius:12, overflow:"hidden", border:`1px solid ${accent}33` }}>
+                      <img src={msgImages[i]} alt="cena" style={{ width:"100%", display:"block" }}/>
+                      <div style={{ padding:"6px 10px", display:"flex", justifyContent:"flex-end", background:"rgba(0,0,0,0.3)" }}>
+                        <button onClick={() => handleGenerateImage(i, m.text)} style={{ padding:"4px 10px", borderRadius:8, border:`1px solid ${accent}44`, background:"rgba(255,255,255,0.05)", color:accentText, fontFamily:"Cinzel,serif", fontSize:8, letterSpacing:1, cursor:"pointer" }}>↺ Regerar</button>
+                      </div>
+                    </div>
+                  ) : (
+                    <button onClick={() => handleGenerateImage(i, m.text)} style={{
+                      alignSelf:"flex-start", padding:"6px 14px", borderRadius:8,
+                      border:`1px solid ${accent}44`, background:"rgba(255,255,255,0.03)", color:accentText,
+                      fontFamily:"Cinzel,serif", fontSize:9, letterSpacing:1, cursor:"pointer",
+                      display:"flex", alignItems:"center", gap:6, transition:"all 0.2s",
+                    }}
+                      onMouseEnter={e => e.currentTarget.style.background=`${accent}22`}
+                      onMouseLeave={e => e.currentTarget.style.background="rgba(255,255,255,0.03)"}
+                    >
+                      <svg width={11} height={11} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+                      Gerar Imagem
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        ))}
+        {loading && (
+          <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+            <div style={{ width:28, height:28, borderRadius:"50%", background:`radial-gradient(circle,${accent}55,${accent}22)`, border:`1px solid ${accent}66`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:12 }}>✦</div>
+            <div style={{ display:"flex", gap:5, padding:"12px 16px", borderRadius:"18px 18px 18px 4px", background:"rgba(255,255,255,0.04)", border:"1px solid var(--border2)" }}>
+              {[0,1,2].map(k => <div key={k} style={{ width:7, height:7, borderRadius:"50%", background:accentText, opacity:0.7, animation:`bounce 1.2s ease-in-out ${k*0.2}s infinite` }}/>)}
+            </div>
+          </div>
+        )}
+        {interimText && (
+          <div style={{ display:"flex", justifyContent:"flex-end" }}>
+            <div style={{ maxWidth:"74%", padding:"10px 14px", borderRadius:"18px 18px 4px 18px", background:`${accent}22`, border:`1px solid ${accent}33`, fontFamily:"Crimson Pro,serif", fontSize:14, color:"var(--muted2)", fontStyle:"italic" }}>
+              {interimText}…
+            </div>
+          </div>
+        )}
+        {error && <div style={{ textAlign:"center", fontSize:12, color:"#f87171", fontFamily:"Cinzel,serif", letterSpacing:1 }}>{error}</div>}
+        <div ref={bottomRef}/>
+      </div>
+
+      {/* Input */}
+      <div style={{ padding:"14px 20px", borderTop:"1px solid var(--border2)", display:"flex", gap:10, alignItems:"flex-end", flexShrink:0, background:"rgba(0,0,0,0.2)" }}>
+        <button onClick={toggleMic} style={{
+          width:42, height:42, borderRadius:"50%", border:`1.5px solid ${listening ? accentText : "var(--border2)"}`,
+          background: listening ? `${accent}33` : "rgba(255,255,255,0.04)", color: listening ? accentText : "var(--muted2)",
+          cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0,
+          transition:"all 0.2s", boxShadow: listening ? `0 0 12px ${accent}55` : "none",
+        }}>
+          <svg width={18} height={18} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+            <rect x="9" y="2" width="6" height="11" rx="3"/>
+            <path d="M5 10a7 7 0 0 0 14 0"/>
+            <line x1="12" y1="19" x2="12" y2="22"/>
+            <line x1="8" y1="22" x2="16" y2="22"/>
+          </svg>
+        </button>
+        <textarea
+          value={input} onChange={e => setInput(e.target.value)}
+          onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); } }}
+          placeholder={`Pergunte sobre ${sysName}... (Enter para enviar)`} rows={1}
+          style={{ flex:1, resize:"none", padding:"10px 14px", background:"rgba(255,255,255,0.05)", border:"1px solid var(--border2)", borderRadius:12, color:"var(--text)", fontFamily:"Crimson Pro,serif", fontSize:15, outline:"none", lineHeight:1.5, maxHeight:120, overflowY:"auto", transition:"border-color 0.2s" }}
+          onFocus={e => e.target.style.borderColor=`${accent}77`}
+          onBlur={e => e.target.style.borderColor="var(--border2)"}
+        />
+        <button onClick={() => sendMessage()} disabled={!input.trim() || loading} style={{
+          width:42, height:42, borderRadius:"50%", border:"none",
+          background: input.trim() && !loading ? `linear-gradient(135deg,${accent},${accent}aa)` : "rgba(255,255,255,0.06)",
+          color: input.trim() && !loading ? "#fff" : "var(--muted2)",
+          cursor: input.trim() && !loading ? "pointer" : "default",
+          display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, transition:"all 0.2s",
+        }}>
+          <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
+            <line x1="22" y1="2" x2="11" y2="13"/>
+            <polygon points="22 2 15 22 11 13 2 9 22 2"/>
+          </svg>
+        </button>
+      </div>
+      <style>{`
+        @keyframes bounce{0%,80%,100%{transform:translateY(0)}40%{transform:translateY(-6px)}}
+        @keyframes spin{to{transform:rotate(360deg)}}
+      `}</style>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════
+   MAP EDITOR
+═══════════════════════════════ */
+const MAP_TILES = {
+  floor:    { color:'#1e1e28', border:'#2a2a38', label:'Chão'       },
+  grass:    { color:'#4a7c4e', border:'#3a6a3e', label:'Grama'      },
+  forest:   { color:'#2d5a27', border:'#1d4a17', label:'Floresta'   },
+  mountain: { color:'#7a6a5a', border:'#6a5a4a', label:'Montanha'   },
+  water:    { color:'#1a55aa', border:'#0a45aa', label:'Água'       },
+  sand:     { color:'#c8a85a', border:'#b8984a', label:'Areia'      },
+  stone:    { color:'#555565', border:'#454555', label:'Pedra'      },
+  dungeon:  { color:'#111120', border:'#080810', label:'Dungeon'    },
+  lava:     { color:'#cc3300', border:'#aa2200', label:'Lava'       },
+  ice:      { color:'#aaddff', border:'#88ccee', label:'Gelo'       },
+  swamp:    { color:'#3a5a2a', border:'#2a4a1a', label:'Pântano'   },
+  road:     { color:'#8a7a5a', border:'#7a6a4a', label:'Estrada'   },
+  wall:     { color:'#444444', border:'#333333', label:'Parede'     },
+};
+
+function MapEditor() { // eslint-disable-line
+  const canvasRef    = useRef(null);
+  const containerRef = useRef(null);
+  const isDownRef    = useRef(false);
+  const panStartRef  = useRef(null);
+  const stateRef     = useRef({});
+
+  const [cols,       setCols]       = useState(20);
+  const [rows,       setRows]       = useState(15);
+  const [tiles,      setTiles]      = useState(() => Array(15*20).fill(null));
+  const [fog,        setFog]        = useState(() => Array(15*20).fill(true));
+  const [tool,       setTool]       = useState('paint');
+  const [selTile,    setSelTile]    = useState('grass');
+  const [master,     setMaster]     = useState(true);
+  const [cellSize,   setCellSize]   = useState(40);
+  const [pan,        setPan]        = useState({ x:20, y:20 });
+  const [hovered,    setHovered]    = useState(null);
+  const [mapName,    setMapName]    = useState('Novo Mapa');
+  const [savedMaps,  setSavedMaps]  = useState(() => { try { return JSON.parse(localStorage.getItem('nexus_maps')||'[]'); } catch { return []; } });
+  const [loadModal,  setLoadModal]  = useState(false);
+  const [newModal,   setNewModal]   = useState(false);
+  const [nCols,      setNCols]      = useState('20');
+  const [nRows,      setNRows]      = useState('15');
+
+  stateRef.current = { cols, rows, tiles, fog, tool, selTile, master, cellSize, pan, hovered };
+
+  // ── canvas resize
+  useEffect(() => {
+    const container = containerRef.current;
+    const canvas    = canvasRef.current;
+    if (!container || !canvas) return;
+    const ro = new ResizeObserver(() => {
+      canvas.width  = container.clientWidth;
+      canvas.height = container.clientHeight;
+      draw();
+    });
+    ro.observe(container);
+    return () => ro.disconnect();
+  }, []);
+
+  // ── redraw on state change
+  useEffect(() => { draw(); }, [tiles, fog, cellSize, pan, hovered, master]);
+
+  function draw() {
+    const canvas = canvasRef.current;
+    if (!canvas || canvas.width === 0) return;
+    const ctx = canvas.getContext('2d');
+    const { cols, rows, tiles, fog, cellSize: cs, pan: { x:ox, y:oy }, hovered, master } = stateRef.current;
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // background
+    ctx.fillStyle = '#0e0e16';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    // subtle dot grid behind map
+    ctx.fillStyle = 'rgba(255,255,255,0.04)';
+    for (let gx = ((ox % 40) + 40) % 40; gx < canvas.width; gx += 40)
+      for (let gy = ((oy % 40) + 40) % 40; gy < canvas.height; gy += 40)
+        ctx.fillRect(gx, gy, 2, 2);
+
+    // cells
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        const idx = r * cols + c;
+        const x = c * cs + ox;
+        const y = r * cs + oy;
+        if (x + cs < 0 || y + cs < 0 || x > canvas.width || y > canvas.height) continue;
+
+        const tk   = tiles[idx];
+        const tile = tk ? MAP_TILES[tk] : null;
+        const fogged = fog[idx];
+
+        // tile fill
+        ctx.fillStyle = tile ? tile.color : '#1a1a26';
+        ctx.fillRect(x, y, cs, cs);
+
+        // grid line
+        ctx.strokeStyle = 'rgba(255,255,255,0.06)';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(x + 0.5, y + 0.5, cs - 1, cs - 1);
+
+        // fog overlay
+        if (fogged) {
+          ctx.fillStyle = master ? 'rgba(0,0,0,0.52)' : '#090910';
+          ctx.fillRect(x, y, cs, cs);
+          if (master && cs >= 24) {
+            // fog hatch lines for master
+            ctx.strokeStyle = 'rgba(80,80,140,0.25)';
+            ctx.lineWidth = 1;
+            for (let d = -cs; d < cs * 2; d += 8) {
+              ctx.beginPath();
+              ctx.moveTo(x + d, y);
+              ctx.lineTo(x + d + cs, y + cs);
+              ctx.stroke();
+            }
+          }
+        }
+
+        // hover highlight
+        if (hovered && hovered.r === r && hovered.c === c) {
+          ctx.fillStyle = 'rgba(255,255,255,0.15)';
+          ctx.fillRect(x, y, cs, cs);
+          ctx.strokeStyle = 'rgba(200,168,76,0.9)';
+          ctx.lineWidth = 2;
+          ctx.strokeRect(x + 1, y + 1, cs - 2, cs - 2);
+        }
+      }
+    }
+
+    // map border
+    ctx.strokeStyle = 'rgba(200,168,76,0.35)';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(ox, oy, cols * cs, rows * cs);
+  }
+
+  function cellAt(e) {
+    const canvas = canvasRef.current;
+    if (!canvas) return null;
+    const rect = canvas.getBoundingClientRect();
+    const { cols, rows, cellSize: cs, pan: { x:ox, y:oy } } = stateRef.current;
+    const c = Math.floor((e.clientX - rect.left - ox) / cs);
+    const r = Math.floor((e.clientY - rect.top  - oy) / cs);
+    if (c < 0 || r < 0 || c >= cols || r >= rows) return null;
+    return { r, c, idx: r * cols + c };
+  }
+
+  function applyTool(cell) {
+    if (!cell) return;
+    const { tool, selTile } = stateRef.current;
+    const { idx } = cell;
+    if      (tool === 'paint')  setTiles(p => { const n=[...p]; n[idx]=selTile; return n; });
+    else if (tool === 'erase')  setTiles(p => { const n=[...p]; n[idx]=null;    return n; });
+    else if (tool === 'fog')    setFog(p   => { const n=[...p]; n[idx]=true;    return n; });
+    else if (tool === 'reveal') setFog(p   => { const n=[...p]; n[idx]=false;   return n; });
+  }
+
+  function onDown(e) {
+    isDownRef.current = true;
+    const { tool } = stateRef.current;
+    if (tool === 'pan' || e.button === 1) {
+      panStartRef.current = { mx: e.clientX, my: e.clientY, ox: stateRef.current.pan.x, oy: stateRef.current.pan.y };
+      return;
+    }
+    if (e.button !== 0) return;
+    applyTool(cellAt(e));
+  }
+
+  function onMove(e) {
+    const cell = cellAt(e);
+    setHovered(cell ? { r: cell.r, c: cell.c } : null);
+    if (!isDownRef.current) return;
+    if (panStartRef.current) {
+      const { mx, my, ox, oy } = panStartRef.current;
+      setPan({ x: ox + e.clientX - mx, y: oy + e.clientY - my });
+      return;
+    }
+    applyTool(cell);
+  }
+
+  function onUp() { isDownRef.current = false; panStartRef.current = null; }
+
+  function onWheel(e) {
+    e.preventDefault();
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const mx = e.clientX - rect.left;
+    const my = e.clientY - rect.top;
+    const { cellSize: cs, pan: { x:ox, y:oy } } = stateRef.current;
+    const newCs = Math.max(12, Math.min(80, cs + (e.deltaY < 0 ? 4 : -4)));
+    const ratio = newCs / cs;
+    setCellSize(newCs);
+    setPan({ x: mx - (mx - ox) * ratio, y: my - (my - oy) * ratio });
+  }
+
+  function saveMap() {
+    const { tiles, fog, cols, rows } = stateRef.current;
+    const map = { id: Date.now(), name: mapName, cols, rows, tiles: [...tiles], fog: [...fog], savedAt: new Date().toLocaleDateString('pt-BR') };
+    const updated = [map, ...savedMaps.filter(m => m.name !== mapName)].slice(0, 20);
+    setSavedMaps(updated);
+    localStorage.setItem('nexus_maps', JSON.stringify(updated));
+  }
+
+  function loadMap(map) {
+    setMapName(map.name); setCols(map.cols); setRows(map.rows);
+    setTiles(map.tiles); setFog(map.fog);
+    setPan({ x:20, y:20 }); setLoadModal(false);
+  }
+
+  function createNew() {
+    const c = Math.max(5, Math.min(99, parseInt(nCols) || 20));
+    const r = Math.max(5, Math.min(99, parseInt(nRows) || 15));
+    setCols(c); setRows(r);
+    setTiles(Array(r * c).fill(null));
+    setFog(Array(r * c).fill(true));
+    setPan({ x:20, y:20 }); setMapName('Novo Mapa'); setNewModal(false);
+  }
+
+  const TOOLS = [
+    { id:'paint',  icon:'🖌️', label:'Pintar'  },
+    { id:'erase',  icon:'⬜',  label:'Apagar'  },
+    { id:'fog',    icon:'🌫️', label:'Névoa'   },
+    { id:'reveal', icon:'👁️', label:'Revelar' },
+    { id:'pan',    icon:'✋',  label:'Mover'   },
+  ];
+
+  const cursor = { paint:'crosshair', erase:'crosshair', fog:'cell', reveal:'cell', pan: panStartRef.current ? 'grabbing' : 'grab' }[tool] || 'crosshair';
+
+  const btnStyle = (active, accent) => ({
+    padding:'5px 10px', borderRadius:6, cursor:'pointer', fontSize:11,
+    fontFamily:'Cinzel,serif', letterSpacing:1, transition:'all .15s',
+    border:`1px solid ${active ? (accent||'#c9a84c') : 'var(--border)'}`,
+    background: active ? `${(accent||'#c9a84c')}22` : 'transparent',
+    color: active ? (accent||'#c9a84c') : 'var(--muted)',
+  });
+
+  return (
+    <div className="fade" style={{ display:'flex', flexDirection:'column', height:'calc(100vh - 110px)', userSelect:'none' }}>
+
+      {/* ── TOOLBAR ── */}
+      <div style={{ display:'flex', alignItems:'center', gap:8, padding:'7px 12px', background:'var(--card)', borderBottom:'1px solid var(--border)', flexWrap:'wrap' }}>
+        <input value={mapName} onChange={e => setMapName(e.target.value)}
+          style={{ background:'transparent', border:'1px solid var(--border)', borderRadius:6, padding:'4px 10px', color:'var(--gold)', fontFamily:'Cinzel,serif', fontSize:13, width:160 }} />
+
+        <div style={{ width:1, height:24, background:'var(--border)' }} />
+
+        {TOOLS.map(t => (
+          <button key={t.id} onClick={() => setTool(t.id)} title={t.label}
+            style={{ padding:'5px 8px', borderRadius:6, fontSize:16, cursor:'pointer', transition:'all .15s',
+              border:`1px solid ${tool===t.id ? '#c9a84c' : 'var(--border)'}`,
+              background: tool===t.id ? '#c9a84c22' : 'transparent' }}>
+            {t.icon}
+          </button>
+        ))}
+
+        <div style={{ width:1, height:24, background:'var(--border)' }} />
+
+        <span style={{ color:'var(--muted)', fontSize:11 }}>Zoom</span>
+        <button onClick={() => setCellSize(s => Math.min(80, s+4))} style={{ padding:'3px 8px', borderRadius:6, border:'1px solid var(--border)', background:'transparent', color:'var(--muted)', cursor:'pointer' }}>+</button>
+        <span style={{ color:'var(--gold)', fontSize:12, minWidth:28, textAlign:'center' }}>{cellSize}</span>
+        <button onClick={() => setCellSize(s => Math.max(12, s-4))} style={{ padding:'3px 8px', borderRadius:6, border:'1px solid var(--border)', background:'transparent', color:'var(--muted)', cursor:'pointer' }}>−</button>
+
+        <div style={{ width:1, height:24, background:'var(--border)' }} />
+
+        <button onClick={() => setMaster(m => !m)} style={btnStyle(true, master ? '#c9a84c' : '#5a8acc')}>
+          {master ? '👑 Mestre' : '🎲 Jogador'}
+        </button>
+
+        <div style={{ flex:1 }} />
+
+        <button onClick={() => setNewModal(true)}  style={btnStyle(false)}>+ Novo</button>
+        <button onClick={() => setLoadModal(true)} style={btnStyle(false)}>📂 Carregar</button>
+        <button onClick={saveMap} style={btnStyle(true)}>💾 Salvar</button>
+      </div>
+
+      <div style={{ display:'flex', flex:1, overflow:'hidden' }}>
+
+        {/* ── PALETTE ── */}
+        <div style={{ width:155, background:'var(--card)', borderRight:'1px solid var(--border)', padding:'10px 8px', overflowY:'auto', display:'flex', flexDirection:'column', gap:3 }}>
+          <div style={{ fontFamily:'Cinzel,serif', fontSize:9, letterSpacing:2, color:'var(--muted)', textTransform:'uppercase', marginBottom:4 }}>Tiles</div>
+          {Object.entries(MAP_TILES).map(([key, tile]) => {
+            const active = selTile===key && tool==='paint';
+            return (
+              <button key={key} onClick={() => { setSelTile(key); setTool('paint'); }}
+                style={{ display:'flex', alignItems:'center', gap:8, padding:'5px 8px', borderRadius:6, cursor:'pointer', transition:'all .15s', width:'100%', textAlign:'left',
+                  border:`1px solid ${active ? '#c9a84c' : 'var(--border)'}`,
+                  background: active ? '#c9a84c12' : 'transparent' }}>
+                <div style={{ width:16, height:16, borderRadius:3, background:tile.color, border:`1px solid ${tile.border}`, flexShrink:0 }} />
+                <span style={{ fontSize:10, color: active ? '#c9a84c' : 'var(--muted)', fontFamily:'Cinzel,serif' }}>{tile.label}</span>
+              </button>
+            );
+          })}
+
+          <div style={{ height:1, background:'var(--border)', margin:'6px 0' }} />
+
+          <div style={{ fontFamily:'Cinzel,serif', fontSize:9, letterSpacing:2, color:'var(--muted)', textTransform:'uppercase', marginBottom:4 }}>Névoa</div>
+          <button onClick={() => setFog(Array(rows*cols).fill(false))} style={{ padding:'5px 8px', borderRadius:6, border:'1px solid var(--border)', background:'transparent', color:'var(--muted)', cursor:'pointer', fontSize:10, fontFamily:'Cinzel,serif', textAlign:'left' }}>👁 Revelar tudo</button>
+          <button onClick={() => setFog(Array(rows*cols).fill(true))}  style={{ padding:'5px 8px', borderRadius:6, border:'1px solid var(--border)', background:'transparent', color:'var(--muted)', cursor:'pointer', fontSize:10, fontFamily:'Cinzel,serif', textAlign:'left' }}>🌫 Cobrir tudo</button>
+
+          <div style={{ height:1, background:'var(--border)', margin:'6px 0' }} />
+
+          <div style={{ fontFamily:'Cinzel,serif', fontSize:9, letterSpacing:2, color:'var(--muted)', textTransform:'uppercase', marginBottom:4 }}>Mapa</div>
+          <button onClick={() => setTiles(Array(rows*cols).fill(selTile))} style={{ padding:'5px 8px', borderRadius:6, border:'1px solid var(--border)', background:'transparent', color:'var(--muted)', cursor:'pointer', fontSize:10, fontFamily:'Cinzel,serif', textAlign:'left' }}>🎨 Preencher</button>
+          <button onClick={() => setTiles(Array(rows*cols).fill(null))}    style={{ padding:'5px 8px', borderRadius:6, border:'1px solid var(--border)', background:'transparent', color:'#cc4444',    cursor:'pointer', fontSize:10, fontFamily:'Cinzel,serif', textAlign:'left' }}>🗑 Limpar</button>
+
+          <div style={{ flex:1 }} />
+
+          <div style={{ fontSize:9, color:'var(--muted)', fontFamily:'Crimson Pro,serif', lineHeight:1.7, marginTop:8 }}>
+            🖌 Pintar<br/>
+            ⬜ Apagar<br/>
+            🌫 Névoa<br/>
+            👁 Revelar<br/>
+            ✋ Mover<br/>
+            🖱 Scroll = Zoom
+          </div>
+        </div>
+
+        {/* ── CANVAS ── */}
+        <div ref={containerRef} style={{ flex:1, overflow:'hidden', position:'relative', background:'#0e0e16', cursor }}>
+          <canvas ref={canvasRef} style={{ display:'block' }}
+            onMouseDown={onDown} onMouseMove={onMove}
+            onMouseUp={onUp}     onMouseLeave={onUp}
+            onWheel={onWheel}    onContextMenu={e => e.preventDefault()} />
+
+          <div style={{ position:'absolute', bottom:8, right:10, fontSize:10, color:'rgba(255,255,255,0.25)', fontFamily:'Cinzel,serif', pointerEvents:'none' }}>
+            {cols} × {rows}{hovered ? ` · (${hovered.c+1}, ${hovered.r+1})` : ''}
+          </div>
+          <div style={{ position:'absolute', bottom:8, left:10, fontSize:10, color:'rgba(200,168,76,0.45)', fontFamily:'Cinzel,serif', pointerEvents:'none' }}>
+            {TOOLS.find(t=>t.id===tool)?.icon} {TOOLS.find(t=>t.id===tool)?.label}
+          </div>
+        </div>
+      </div>
+
+      {/* ── NEW MAP MODAL ── */}
+      {newModal && (
+        <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.75)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:1000 }}>
+          <div style={{ background:'var(--card)', border:'1px solid var(--border)', borderRadius:12, padding:28, width:280, display:'flex', flexDirection:'column', gap:14 }}>
+            <div style={{ fontFamily:'Cinzel Decorative,serif', fontSize:16, color:'var(--gold)' }}>Novo Mapa</div>
+            {[['Colunas (5–99)', nCols, setNCols], ['Linhas (5–99)', nRows, setNRows]].map(([label, val, set]) => (
+              <div key={label} style={{ display:'flex', flexDirection:'column', gap:4 }}>
+                <span style={{ fontSize:11, color:'var(--muted)', fontFamily:'Cinzel,serif' }}>{label}</span>
+                <input type="number" value={val} min={5} max={99}
+                  onChange={e => set(e.target.value)}
+                  onBlur={e => { const n = parseInt(e.target.value)||20; set(String(Math.max(5, Math.min(99, n)))); }}
+                  style={{ background:'var(--bg)', border:'1px solid var(--border)', borderRadius:6, padding:'6px 10px', color:'var(--text)', fontSize:13 }} />
+              </div>
+            ))}
+            <div style={{ display:'flex', gap:8, justifyContent:'flex-end' }}>
+              <button onClick={() => setNewModal(false)} style={btnStyle(false)}>Cancelar</button>
+              <button onClick={createNew}                style={btnStyle(true)}>Criar</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── LOAD MAP MODAL ── */}
+      {loadModal && (
+        <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.75)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:1000 }}>
+          <div style={{ background:'var(--card)', border:'1px solid var(--border)', borderRadius:12, padding:28, width:380, maxHeight:'70vh', display:'flex', flexDirection:'column', gap:14 }}>
+            <div style={{ fontFamily:'Cinzel Decorative,serif', fontSize:16, color:'var(--gold)' }}>Mapas Salvos</div>
+            <div style={{ overflowY:'auto', display:'flex', flexDirection:'column', gap:6 }}>
+              {savedMaps.length === 0
+                ? <div style={{ color:'var(--muted)', fontSize:13, textAlign:'center', padding:24 }}>Nenhum mapa salvo.</div>
+                : savedMaps.map(m => (
+                  <button key={m.id} onClick={() => loadMap(m)}
+                    style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'8px 12px', borderRadius:8, border:'1px solid var(--border)', background:'transparent', color:'var(--text)', cursor:'pointer', textAlign:'left' }}>
+                    <span style={{ fontFamily:'Cinzel,serif', fontSize:13 }}>🗺️ {m.name}</span>
+                    <span style={{ fontSize:10, color:'var(--muted)' }}>{m.cols}×{m.rows} · {m.savedAt}</span>
+                  </button>
+                ))
+              }
+            </div>
+            <button onClick={() => setLoadModal(false)} style={{ ...btnStyle(false), alignSelf:'flex-end' }}>Fechar</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ═══════════════════════════════
    PLACEHOLDER SCREENS
 ═══════════════════════════════ */
 function PlaceholderScreen({ icon, title, desc, badge }) {
@@ -2588,7 +5530,7 @@ const NEWS_ITEMS = [
    TOPBAR
 ═══════════════════════════════ */
 function Topbar({ screen, system, onChangeSystem, onLogout }) {
-  const labels = { dashboard:"Painel", sheet:"Fichas de Personagem", map:"Editor de Mapas", master:"Ajudante do Mestre", music:"Trilhas Sonoras", party:"Campanhas" };
+  const labels = { dashboard:"Painel", sheet:"Fichas de Personagem", map:"Editor de Mapas", master:"Ajudante do Mestre", music:"Trilhas Sonoras", party:"Campanhas", roadmap:"Roadmap", planos:"Planos" };
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef(null);
   const fileInputRef = useRef(null);
@@ -2638,124 +5580,183 @@ function Topbar({ screen, system, onChangeSystem, onLogout }) {
   return (
     <>
     <div style={{
-      height:56, background:"rgba(8,8,8,0.95)", borderBottom:"1px solid var(--border2)",
-      display:"flex", alignItems:"center", padding:"0 24px", gap:16,
-      position:"sticky", top:0, zIndex:50, backdropFilter:"blur(12px)",
+      height:52, background:"#09080e", borderBottom:"1px solid #1a1522",
+      display:"flex", alignItems:"center", padding:"0 20px",
+      position:"sticky", top:0, zIndex:50, gap:0,
     }}>
-      <div style={{fontFamily:"Cinzel,serif", fontSize:13, color:"var(--gold2)", letterSpacing:0.5}}>{labels[screen]}</div>
-      <div style={{height:1, flex:1, background:"var(--border2)"}}/>
-      <div style={{display:"flex", gap:14, alignItems:"center"}}>
-        {system && (
-          <button onClick={onChangeSystem} className="topbar-sys" style={{
-            alignItems:"center", gap:8, cursor:"pointer",
-            padding:"6px 14px", borderRadius:24,
-            background:`linear-gradient(135deg,${system.accent}38,${system.accent}18)`,
-            border:`1px solid ${system.accentText}90`,
-            fontFamily:"Cinzel,serif", fontSize:9, letterSpacing:2,
-            color:system.accentText, textTransform:"uppercase",
-            transition:"all 0.25s",
-            boxShadow:`0 0 6px ${system.accent}33, inset 0 1px 0 ${system.accentText}15`,
-          }}
-            onMouseEnter={e=>{e.currentTarget.style.boxShadow=`0 0 12px ${system.accent}55, inset 0 1px 0 ${system.accentText}30`;e.currentTarget.style.borderColor=system.accentText;}}
-            onMouseLeave={e=>{e.currentTarget.style.boxShadow=`0 0 6px ${system.accent}33, inset 0 1px 0 ${system.accentText}15`;e.currentTarget.style.borderColor=`${system.accentText}90`;}}
-            title="Trocar sistema"
-          >
-            <span style={{display:"flex",alignItems:"center",filter:`drop-shadow(0 0 4px ${system.accent})`}}>{system?.svgIcon ? system.svgIcon(false) : system?.icon}</span>
-            <span style={{textShadow:`0 0 8px ${system.accent}`}}>{system.name}</span>
-            <span style={{opacity:0.8, fontSize:11}}>⇄</span>
-          </button>
-        )}
-        <div style={{display:"flex", gap:6, alignItems:"center", padding:"4px 10px", borderRadius:20, background:"rgba(76,175,80,0.08)", border:"1px solid rgba(76,175,80,0.28)"}}>
-          <div style={{width:5, height:5, borderRadius:"50%", background:"#4caf50", boxShadow:"0 0 5px #4caf50", animation:"pulse 2s infinite"}}/>
-          <span style={{fontFamily:"Cinzel,serif", fontSize:8, letterSpacing:"0.08em", color:"#7ecb82", textTransform:"uppercase"}}>Online</span>
+
+      {/* ── Título da página ── */}
+      <div style={{ display:"flex", flexDirection:"column", justifyContent:"center", gap:2, flexShrink:0 }}>
+        <div style={{ fontFamily:"Cinzel,serif", fontSize:8, letterSpacing:"0.2em", color:"var(--gold)", textTransform:"uppercase", lineHeight:1 }}>◈ Nexus RPG</div>
+        <div style={{ fontFamily:"Cinzel,serif", fontSize:13, color:"#e0d8c8", textTransform:"uppercase", letterSpacing:"0.06em", lineHeight:1 }}>{labels[screen]}</div>
+      </div>
+
+      {/* ── Divisor ── */}
+      <div style={{ width:1, height:28, background:"#2a2215", margin:"0 14px", flexShrink:0 }}/>
+
+      {/* ── Seletor de sistema ── */}
+      {system && (
+        <button onClick={onChangeSystem} className="topbar-sys" style={{
+          display:"flex", alignItems:"center", gap:7, cursor:"pointer",
+          padding:"5px 11px", borderRadius:6, flexShrink:0,
+          background:"#110f1a", border:"1px solid rgba(150,80,200,0.35)",
+          fontFamily:"Cinzel,serif", fontSize:10, letterSpacing:"0.12em",
+          color:"#c090e0", textTransform:"uppercase", transition:"border-color 0.2s",
+        }}
+          onMouseEnter={e=>e.currentTarget.style.borderColor="rgba(150,80,200,0.6)"}
+          onMouseLeave={e=>e.currentTarget.style.borderColor="rgba(150,80,200,0.35)"}
+          title="Trocar sistema"
+        >
+          <span style={{display:"flex",alignItems:"center"}}>{system?.svgIcon ? system.svgIcon(false) : system?.icon}</span>
+          <span>{system.name}</span>
+          <span style={{color:"var(--muted)",fontSize:12,transition:"color 0.2s"}}
+            onMouseEnter={e=>e.currentTarget.style.color="var(--gold)"}
+            onMouseLeave={e=>e.currentTarget.style.color="var(--muted)"}
+          >⇄</span>
+        </button>
+      )}
+
+      {/* ── Espaço flexível ── */}
+      <div style={{flex:1}}/>
+
+      {/* ── Área direita ── */}
+      <div style={{display:"flex", gap:10, alignItems:"center"}}>
+
+        {/* Status online */}
+        <div style={{display:"flex", gap:5, alignItems:"center"}}>
+          <div style={{width:6,height:6,borderRadius:"50%",background:"#50b464",boxShadow:"0 0 5px #50b464",animation:"pulse 2s infinite"}}/>
+          <span style={{fontFamily:"Cinzel,serif",fontSize:8,letterSpacing:"0.1em",color:"#6ecb82",textTransform:"uppercase"}}>Online</span>
         </div>
+
+        <div style={{width:1,height:18,background:"#2a2215"}}/>
+
+        {/* Plano Pro */}
         <div style={{
-          padding:"4px 12px", borderRadius:20,
-          background:"linear-gradient(135deg,rgba(201,168,76,0.25),rgba(201,168,76,0.08))",
-          border:"1px solid var(--border2)",
-          fontFamily:"Cinzel,serif", fontSize:8, letterSpacing:"0.08em", color:"var(--gold2)", textTransform:"uppercase",
-        }}>✦ Plano Pro</div>
+          padding:"3px 10px", borderRadius:20, cursor:"default",
+          background:"rgba(180,140,30,0.12)", border:"1px solid rgba(184,150,46,0.35)",
+          fontFamily:"Cinzel,serif", fontSize:8, letterSpacing:"0.15em",
+          color:"#b8962e", textTransform:"uppercase", transition:"border-color 0.2s",
+        }}
+          onMouseEnter={e=>e.currentTarget.style.borderColor="rgba(184,150,46,0.6)"}
+          onMouseLeave={e=>e.currentTarget.style.borderColor="rgba(184,150,46,0.35)"}
+        >✦ Plano Pro</div>
+
+        <div style={{width:1,height:18,background:"#2a2215"}}/>
+
+        {/* Sino */}
+        <button onClick={()=>{ setMenuOpen(false); setSelectedNews(NEWS_ITEMS[0]); setNotifOpen(true); }} style={{
+          position:"relative", background:"none", border:"none", cursor:"pointer",
+          padding:"4px", display:"flex", alignItems:"center", justifyContent:"center",
+          color:"#5a5248", transition:"color 0.2s",
+        }}
+          onMouseEnter={e=>e.currentTarget.style.color="var(--gold)"}
+          onMouseLeave={e=>e.currentTarget.style.color="#5a5248"}
+          title="Notificações"
+        >
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+          </svg>
+          {notifCount > 0 && (
+            <span style={{
+              position:"absolute", top:2, right:2,
+              width:7, height:7, borderRadius:"50%",
+              background:"#e03333", border:"1.5px solid #09080e",
+            }}/>
+          )}
+        </button>
 
         {/* Avatar + dropdown */}
         <div ref={menuRef} style={{position:"relative"}}>
           <div style={{position:"relative", display:"inline-block"}}>
             <button onClick={()=>setMenuOpen(o=>!o)} style={{
-              width:44, height:44, borderRadius:"50%", padding:0,
-              background:"none", border:"2px solid var(--border2)",
+              width:34, height:34, borderRadius:"50%", padding:0,
+              background:"none", border:"1px solid #b8962e",
               cursor:"pointer", overflow:"hidden", display:"block",
-              transition:"border-color 0.2s",
+              transition:"border-color 0.2s, box-shadow 0.2s",
             }}
-              onMouseEnter={e=>e.currentTarget.style.borderColor="var(--gold2)"}
-              onMouseLeave={e=>e.currentTarget.style.borderColor="var(--border2)"}
+              onMouseEnter={e=>{ e.currentTarget.style.borderColor="var(--gold2)"; e.currentTarget.style.boxShadow="0 0 8px rgba(201,168,76,0.28)"; }}
+              onMouseLeave={e=>{ e.currentTarget.style.borderColor="#b8962e"; e.currentTarget.style.boxShadow="none"; }}
             >
               {profilePhoto
                 ? <img src={profilePhoto} alt="avatar" style={{width:"100%",height:"100%",objectFit:"cover"}}/>
                 : <span style={{
                     display:"flex",alignItems:"center",justifyContent:"center",
                     width:"100%",height:"100%",
-                    fontFamily:"Cinzel,serif", fontSize:14, fontWeight:700,
-                    background:"linear-gradient(135deg,rgba(140,60,220,0.5),rgba(100,30,180,0.3))",
-                    color:"var(--gold2)",
+                    fontFamily:"Cinzel,serif", fontSize:13, fontWeight:700,
+                    background:"linear-gradient(135deg,rgba(140,60,220,0.35),rgba(100,30,180,0.2))",
+                    color:"var(--gold)",
                   }}>{avatarLetter}</span>
               }
             </button>
             {notifCount > 0 && (
-              <span title={`${notifCount} nova${notifCount>1?"s":""} notificaç${notifCount>1?"ões":"ão"} — clique no avatar para ver`} style={{
-                position:"absolute", bottom:-5, right:-5,
-                background:"#e03333", color:"#fff",
-                borderRadius:"50%", minWidth:20, height:20,
-                padding:"0 3px",
-                fontSize:11, fontWeight:700, fontFamily:"Cinzel,serif",
+              <span style={{
+                position:"absolute", bottom:-3, right:-3,
+                background:"#b8962e", color:"#050505",
+                borderRadius:"50%", minWidth:16, height:16,
+                padding:"0 2px", fontSize:9, fontWeight:700, fontFamily:"Cinzel,serif",
                 display:"flex", alignItems:"center", justifyContent:"center",
-                border:"2px solid #0e0e14",
-                boxShadow:"0 0 8px rgba(220,50,50,0.8)",
-                pointerEvents:"none", cursor:"default",
+                border:"1.5px solid #09080e", pointerEvents:"none",
               }}>{notifCount}</span>
             )}
           </div>
 
           {menuOpen && (
             <div style={{
-              position:"absolute", top:"calc(100% + 10px)", right:0,
-              background:"rgba(18,12,30,0.97)", border:"1px solid var(--border2)",
-              borderRadius:12, padding:"8px 0", minWidth:200,
-              boxShadow:"0 8px 32px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.04)",
-              backdropFilter:"blur(16px)", zIndex:200,
+              position:"absolute", top:"calc(100% + 8px)", right:0,
+              background:"#0e0c18", border:"1px solid #1e1a2a",
+              borderRadius:8, padding:"6px 0", minWidth:196,
+              boxShadow:"0 8px 32px rgba(0,0,0,0.7)",
+              zIndex:200,
             }}>
+              {/* cabeçalho do menu */}
+              <div style={{ padding:"10px 16px 10px", borderBottom:"1px solid #1e1a2a", marginBottom:4 }}>
+                <div style={{ fontFamily:"Cinzel,serif", fontSize:11, color:"var(--text)", fontWeight:600 }}>{profileName}</div>
+                <div style={{ fontFamily:"Cinzel,serif", fontSize:7, letterSpacing:"0.15em", color:"#b8962e", textTransform:"uppercase", marginTop:3 }}>✦ Plano Pro</div>
+              </div>
+
               {[
-                { icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>, label:"Ver Perfil", badge:0, action: openProfile },
-                { icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>, label:"Notificações", badge:notifCount, action:()=>{ setMenuOpen(false); setSelectedNews(NEWS_ITEMS[0]); setNotifOpen(true); } },
-                { icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>, label:"Desconectar", badge:0, action:()=>{ setMenuOpen(false); onLogout(); }, danger:true },
-              ].map(({ icon, label, badge, action, danger }) => (
+                { icon:<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>, label:"Meu Perfil", badge:0, action:openProfile },
+                { icon:<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>, label:"Notificações", badge:notifCount, action:()=>{ setMenuOpen(false); setSelectedNews(NEWS_ITEMS[0]); setNotifOpen(true); } },
+              ].map(({icon,label,badge,action})=>(
                 <button key={label} onClick={action} style={{
-                  display:"flex", alignItems:"center", gap:12,
-                  width:"100%", padding:"10px 18px",
+                  display:"flex", alignItems:"center", gap:10,
+                  width:"100%", padding:"9px 16px",
                   background:"none", border:"none", cursor:"pointer",
-                  color: danger ? "#e07070" : "var(--muted2)",
-                  fontFamily:"Cinzel,serif", fontSize:10, letterSpacing:1,
-                  textTransform:"uppercase", textAlign:"left",
-                  transition:"background 0.15s, color 0.15s",
+                  color:"var(--muted2)", fontFamily:"'Crimson Pro',serif",
+                  fontSize:14, textAlign:"left", transition:"background 0.15s, color 0.15s",
                 }}
-                  onMouseEnter={e=>{ e.currentTarget.style.background="rgba(255,255,255,0.05)"; if(!danger) e.currentTarget.style.color="#fff"; }}
-                  onMouseLeave={e=>{ e.currentTarget.style.background="none"; e.currentTarget.style.color=danger?"#e07070":"var(--muted2)"; }}
+                  onMouseEnter={e=>{ e.currentTarget.style.background="rgba(255,255,255,0.04)"; e.currentTarget.style.color="var(--text)"; }}
+                  onMouseLeave={e=>{ e.currentTarget.style.background="none"; e.currentTarget.style.color="var(--muted2)"; }}
                 >
-                  <span style={{
-                    width:30, height:30, borderRadius:"50%",
-                    background: danger ? "rgba(220,80,80,0.15)" : "rgba(140,60,220,0.2)",
-                    display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0,
-                  }}>{icon}</span>
+                  <span style={{color:"var(--muted)",display:"flex",flexShrink:0}}>{icon}</span>
                   <span style={{flex:1}}>{label}</span>
-                  {badge > 0 && (
-                    <span style={{
-                      background:"#e05555", color:"#fff", borderRadius:10,
-                      padding:"1px 7px", fontSize:9, fontWeight:700,
-                    }}>{badge}</span>
-                  )}
+                  {badge>0 && <span style={{background:"#c03333",color:"#fff",borderRadius:8,padding:"1px 6px",fontSize:9,fontWeight:700}}>{badge}</span>}
                 </button>
               ))}
+
+              <div style={{height:1, background:"#1e1a2a", margin:"4px 0"}}/>
+
+              <button onClick={()=>{ setMenuOpen(false); onLogout(); }} style={{
+                display:"flex", alignItems:"center", gap:10,
+                width:"100%", padding:"9px 16px",
+                background:"none", border:"none", cursor:"pointer",
+                color:"#6a4545", fontFamily:"'Crimson Pro',serif",
+                fontSize:14, textAlign:"left", transition:"background 0.15s, color 0.15s",
+              }}
+                onMouseEnter={e=>{ e.currentTarget.style.background="rgba(192,80,80,0.08)"; e.currentTarget.style.color="#c05050"; }}
+                onMouseLeave={e=>{ e.currentTarget.style.background="none"; e.currentTarget.style.color="#6a4545"; }}
+              >
+                <span style={{display:"flex",flexShrink:0}}>
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/>
+                  </svg>
+                </span>
+                <span>Sair</span>
+              </button>
             </div>
           )}
         </div>
+
       </div>
     </div>
 
@@ -3162,6 +6163,19 @@ const SYSTEMS = [
     accent: "#4a6fa5",
     accentText: "#7ab8f5",
     accentGlow: "rgba(74,111,165,0.25)",
+    available: true,
+  },
+  {
+    id: "tormenta",
+    name: "Tormenta 20",
+    subtitle: "Sistema Nacional",
+    icon: null,
+    svgIcon: (glow) => <svg width="48" height="48" viewBox="0 0 48 48" fill="none"><circle cx="24" cy="24" r="20" fill={glow?"rgba(210,100,30,0.18)":"rgba(210,100,30,0.08)"} stroke={glow?"#e8622a":"#c45520"} strokeWidth={glow?2:1.5}/><path d="M24 10 L28 20 L38 20 L30 27 L33 37 L24 31 L15 37 L18 27 L10 20 L20 20 Z" fill={glow?"rgba(232,98,42,0.5)":"rgba(196,85,32,0.35)"} stroke={glow?"#ff8c42":"#e8622a"} strokeWidth="1.2"/></svg>,
+    desc: "O maior RPG nacional. Fantasia épica com heróis, deuses e a sombra da Tormenta sobre Arton.",
+    tags: ["Fantasia","Épico","Nacional"],
+    accent: "#d4621e",
+    accentText: "#f0884a",
+    accentGlow: "rgba(212,98,30,0.3)",
     available: true,
   },
   {
@@ -3640,13 +6654,19 @@ const AttrDiagram = ({ attrs, onChange, onEdit, onRoll, readOnly = false }) => {
                 />
               </foreignObject>
             ) : (
-              <text x={p.x} y={p.y-2} textAnchor="middle"
-                fontFamily="Cinzel Decorative,serif" fontSize="20"
-                fill="#e8c96d" fontWeight="700"
-                style={{cursor: onEdit ? "text" : onRoll ? "pointer" : "default"}}
-                onClick={e => { e.stopPropagation(); onEdit ? startEdit(key) : onRoll && onRoll(key); }}>
-                {val}
-              </text>
+              <>
+                <text x={p.x} y={p.y-2} textAnchor="middle"
+                  fontFamily="Cinzel Decorative,serif" fontSize="20"
+                  fill="#e8c96d" fontWeight="700"
+                  style={{cursor: onEdit ? "text" : onRoll ? "pointer" : "default"}}
+                  onClick={e => { e.stopPropagation(); onEdit ? startEdit(key) : onRoll && onRoll(key); }}>
+                  {val}
+                </text>
+                {onEdit && (
+                  <line x1={p.x-11} y1={p.y+7} x2={p.x+11} y2={p.y+7}
+                    stroke="rgba(201,168,76,0.75)" strokeWidth="1.5" strokeLinecap="round"/>
+                )}
+              </>
             )}
             <text x={p.x} y={p.y+11} textAnchor="middle" fontFamily="Cinzel,serif"
               fontSize="6.5" fill="#b0a07a" letterSpacing="1"
@@ -3716,7 +6736,152 @@ const ORIGENS = [
   { id:"universitario",name:"Universitário",           skills:["Atualidades","Investigação"],  power:"Dedicação. Recebe +1 PE, mais 1 PE a cada NEX ímpar. Seu limite de PE por turno aumenta em 1." },
   { id:"vitima",       name:"Vítima",                  skills:["Reflexos","Vontade"],           power:"Cicatrizes Psicológicas. Você recebe +1 de Sanidade para cada 5% de NEX." },
   { id:"amnésico",     name:"Amnésico",                skills:["À escolha","À escolha"],        power:"Vislumbres do Passado. Uma vez por sessão, teste de Intelecto (DT 10) para reconhecer pessoas/lugares. Se passar, recebe 1d4 PE temporários." },
+  { id:"chef",         name:"Chef",                    skills:["Fortitude","Profissão"],         power:"Ingrediente Secreto. Uma vez por missão, durante uma ação de interlúdio, prepare uma refeição especial. Todos que comerem recebem 1d6 + Presença de PV temporários que duram até o início da próxima cena de ação." },
+  { id:"operario",     name:"Operário",                skills:["Atletismo","Profissão"],          power:"Mão na Massa. Você reduz em 2 horas o tempo necessário para trabalhar em tarefas manuais e recebe +2 em testes de perícia para construir, reparar ou modificar objetos." },
+  { id:"teorico",      name:"Teórico da Conspiração",  skills:["Investigação","Ocultismo"],       power:"Eu Já Sabia. Você não se abala tanto com entidades ou anomalias. Afinal, sempre soube que isso tudo existia. Você recebe resistência a dano mental igual ao seu Intelecto." },
+  { id:"rural",        name:"Trabalhador Rural",        skills:["Adestramento","Sobrevivência"],   power:"Desbravador. Quando faz um teste de Adestramento, Atletismo ou Sobrevivência em terrenos abertos, pode gastar 1 PE para receber +5 nesse teste." },
 ];
+
+/* ── Ordem Paranormal: Trilhas por classe ── */
+const CLASS_TRAILS = {
+  combatente:  [{id:"atirador_c",name:"Atirador"},{id:"chefe",name:"Chefe"},{id:"guerreiro",name:"Guerreiro"}],
+  especialista:[{id:"atirador_e",name:"Atirador de Elite"},{id:"medico",name:"Médico de Campo"},{id:"negociador",name:"Negociador"}],
+  ocultista:   [{id:"iluminado",name:"Iluminado"},{id:"graduado",name:"Graduado"},{id:"intuitivo",name:"Intuitivo"}],
+};
+
+/* ── Habilidades de Trilha ── */
+const TRAIL_ABILITIES = {
+  atirador_c:{
+    10:{name:"Tiro Preciso",     cost:"—",          desc:"Você ignora bônus de cobertura em seus ataques com armas de disparo e pode atacar além do alcance normal sem penalidade."},
+    40:{name:"Ponto Fraco",      cost:"2 PE",        desc:"Uma vez por rodada, ao acertar com arma de disparo, gaste 2 PE para causar dano adicional igual ao seu valor de Agilidade."},
+    65:{name:"Tiro Mortal",      cost:"—",           desc:"Seus ataques com armas de disparo ignoram resistência a dano físico dos alvos."},
+    99:{name:"Bala de Prata",    cost:"5 PE",        desc:"Uma vez por cena, faça um ataque com arma de disparo com vantagem. Se acertar, causa o dano máximo possível."},
+  },
+  chefe:{
+    10:{name:"Inspirar Confiança",cost:"2 PE (reação)",desc:"Faça um aliado em alcance curto rolar novamente um teste recém realizado."},
+    40:{name:"Estrategista",      cost:"1 PE/aliado", desc:"Use uma ação padrão para direcionar aliados (limitado pelo INT). No próximo turno deles, ganham uma ação de movimento adicional."},
+    65:{name:"Brecha na Guarda",  cost:"2 PE (reação)",desc:"Quando um aliado causar dano em um inimigo no alcance curto, você ou outro aliado pode fazer um ataque adicional contra o mesmo inimigo."},
+    99:{name:"Oficial Comandante",cost:"5 PE",        desc:"Cada aliado em alcance médio recebe uma ação padrão adicional no próximo turno."},
+  },
+  guerreiro:{
+    10:{name:"Técnica Letal",   cost:"—",           desc:"+2 na margem de ameaça com todos os ataques corpo a corpo."},
+    40:{name:"Revidar",         cost:"2 PE (reação)",desc:"Sempre que bloquear um ataque, faça um ataque corpo a corpo no inimigo que o atacou."},
+    65:{name:"Força Opressora", cost:"1 PE",         desc:"Quando acerta um ataque corpo a corpo, realize uma manobra derrubar ou empurrar como ação livre."},
+    99:{name:"Potência Máxima", cost:"—",            desc:"Quando usa Ataque Especial com armas corpo a corpo, todos os dados de dano são considerados o resultado máximo."},
+  },
+  atirador_e:{
+    10:{name:"Foco Total",       cost:"—",     desc:"Quando usa a ação mirar, você recebe +5 no teste de ataque e +1d6 na rolagem de dano."},
+    40:{name:"Execução",         cost:"—",     desc:"Se um alvo está inconsciente ou não sabe que você está lá, seu ataque causa dano máximo."},
+    65:{name:"Tiro Perfurante",  cost:"—",     desc:"Seus ataques com armas de fogo podem atingir todos os alvos em linha reta no alcance da arma."},
+    99:{name:"Sniper Lendário",  cost:"5 PE",  desc:"Uma vez por cena, faça um ataque que ignora todos os bônus de Defesa, resistência e cobertura do alvo."},
+  },
+  medico:{
+    10:{name:"Paramédico",      cost:"2 PE",   desc:"Use uma ação padrão e 2 PE para curar 2d10 PV de si mesmo ou de um aliado adjacente. Em NEX 40%, 65% e 99%, cura +1d10 PV por +1 PE."},
+    40:{name:"Equipe de Trauma",cost:"2 PE",   desc:"Use uma ação padrão e 2 PE para remover uma condição negativa (exceto morrendo) de um aliado adjacente."},
+    65:{name:"Resgate",         cost:"—",      desc:"Uma vez por rodada, se em alcance curto de aliado machucado ou morrendo, aproxime-se como ação livre. Ao curar, você e o aliado recebem +5 na Defesa até o próximo turno."},
+    99:{name:"Reanimação",      cost:"10 PE",  desc:"Uma vez por cena, gaste uma ação completa e 10 PE para trazer de volta à vida um personagem que morreu na mesma cena (exceto dano massivo)."},
+  },
+  negociador:{
+    10:{name:"Eloquência",          cost:"1 PE/alvo",desc:"Use uma ação completa e 1 PE por alvo para afetá-los com sua fala. Faça Diplomacia, Enganação ou Intimidação contra a Vontade deles."},
+    40:{name:"Persuasão Profunda",  cost:"—",       desc:"Quando usa Eloquência e vence por 10 ou mais, o alvo fica sob efeito por toda a cena."},
+    65:{name:"Psicologia Aplicada", cost:"3 PE",    desc:"Uma vez por cena, teste de Intuição (DT 15) para descobrir uma fraqueza ou motivação. Receba +5 em testes de Presença contra esse personagem."},
+    99:{name:"Mestre das Palavras", cost:"—",       desc:"Você pode usar Eloquência como ação padrão. Aliados em alcance curto recebem +5 em testes de Presença."},
+  },
+  iluminado:{
+    10:{name:"Canalizar Energia", cost:"1 PE",    desc:"Gaste uma ação padrão e 1 PE para canalizar energia paranormal, recebendo PE temporários igual ao círculo do ritual utilizado."},
+    40:{name:"Toque do Outro Lado",cost:"+2 PE",  desc:"Ao lançar um ritual, gaste 2 PE extras para aumentar seu efeito em 50% (dano, cura, duração ou área)."},
+    65:{name:"Transcender a Dor", cost:"1 PE/5dmg",desc:"Quando recebe dano, pode gastar 1 PE por 5 pontos de dano para convertê-lo de PV para Sanidade."},
+    99:{name:"Medo Tangível",     cost:"—",       desc:"Você aprende o ritual Medo Tangível."},
+  },
+  graduado:{
+    10:{name:"Saber Ampliado",       cost:"—", desc:"Aprenda um ritual de 1° círculo adicional. Toda vez que ganha acesso a um novo círculo, aprende um ritual adicional daquele círculo."},
+    40:{name:"Grimório Ritualístico", cost:"—", desc:"Crie um grimório especial. Aprenda rituais de 1° ou 2° círculos iguais ao seu INT. O grimório ocupa 1 espaço no inventário."},
+    65:{name:"Rituais Eficientes",    cost:"—", desc:"A DT para resistir a todos os seus rituais aumenta em +5."},
+    99:{name:"Conhecendo o Medo",     cost:"—", desc:"Você aprende o ritual Conhecendo o Medo."},
+  },
+  intuitivo:{
+    10:{name:"Mente Sã",       cost:"—",    desc:"Você recebe resistência paranormal +5 (+5 em testes de resistência contra efeitos paranormais)."},
+    40:{name:"Barreira Mental", cost:"—",   desc:"Quando passa em um teste de resistência contra efeito paranormal, recupera 1d6 de Sanidade."},
+    65:{name:"Vontade de Ferro",cost:"2 PE",desc:"Role novamente um teste de resistência contra efeito paranormal. Seu valor máximo de Sanidade aumenta em 10."},
+    99:{name:"Além do Alcance", cost:"—",  desc:"Imune a efeitos de medo paranormal e sua Sanidade não pode ser reduzida abaixo de 1 por efeitos paranormais."},
+  },
+};
+
+/* ── Habilidades Base por Classe (excluindo trilha) ── */
+const CLASS_BASE_ABILITIES = {
+  combatente:[
+    {nex:5,  name:"Ataque Especial",    cost:"2 PE",  desc:"Quando faz um ataque, gaste 2 PE para receber +5 no teste de ataque ou na rolagem de dano."},
+    {nex:10, name:"Habilidade de Trilha",cost:"—",   desc:"Escolha uma trilha de Combatente e receba seu 1° poder."},
+    {nex:15, name:"Poder de Combatente",cost:"—",    desc:"Escolha um poder de combatente da lista."},
+    {nex:20, name:"Aumento de Atributo",cost:"—",    desc:"Aumente um atributo à sua escolha em +1 (máximo 5)."},
+    {nex:25, name:"Ataque Especial ↑",  cost:"3 PE", desc:"Gaste 3 PE para receber +10 (em bônus de +5) no ataque ou dano."},
+    {nex:30, name:"Poder de Combatente",cost:"—",    desc:"Escolha um poder de combatente da lista."},
+    {nex:35, name:"Grau de Treinamento",cost:"—",    desc:"Escolha (5+INT) perícias treinadas; seu grau de treinamento nelas aumenta em um."},
+    {nex:40, name:"Habilidade de Trilha",cost:"—",  desc:"Receba o 2° poder da sua trilha de Combatente."},
+    {nex:45, name:"Poder de Combatente",cost:"—",    desc:"Escolha um poder de combatente da lista."},
+    {nex:50, name:"Aumento de Atributo",cost:"—",    desc:"Aumente um atributo em +1 (máximo 5)."},
+    {nex:50, name:"Versatilidade",      cost:"—",    desc:"Escolha um poder de combatente ou o 1° poder de uma trilha que não a sua."},
+    {nex:55, name:"Ataque Especial ↑",  cost:"4 PE", desc:"Gaste 4 PE para receber +15 no ataque ou dano."},
+    {nex:60, name:"Poder de Combatente",cost:"—",    desc:"Escolha um poder de combatente da lista."},
+    {nex:65, name:"Habilidade de Trilha",cost:"—",  desc:"Receba o 3° poder da sua trilha de Combatente."},
+    {nex:70, name:"Grau de Treinamento",cost:"—",    desc:"Escolha (5+INT) perícias treinadas; grau de treinamento aumenta em um."},
+    {nex:75, name:"Poder de Combatente",cost:"—",    desc:"Escolha um poder de combatente da lista."},
+    {nex:80, name:"Aumento de Atributo",cost:"—",    desc:"Aumente um atributo em +1 (máximo 5)."},
+    {nex:85, name:"Ataque Especial ↑",  cost:"5 PE", desc:"Gaste 5 PE para receber +20 no ataque ou dano."},
+    {nex:90, name:"Poder de Combatente",cost:"—",    desc:"Escolha um poder de combatente da lista."},
+    {nex:95, name:"Aumento de Atributo",cost:"—",    desc:"Aumente um atributo em +1 (máximo 5)."},
+    {nex:99, name:"Habilidade de Trilha",cost:"—",  desc:"Receba o 4° e último poder da sua trilha de Combatente."},
+  ],
+  especialista:[
+    {nex:5,  name:"Eclético",           cost:"2 PE",  desc:"Gaste 2 PE para receber os benefícios de ser treinado em qualquer perícia usada."},
+    {nex:5,  name:"Perito (1d6)",       cost:"2 PE",  desc:"Escolha duas perícias treinadas. Gaste 2 PE para somar +1d6 no resultado do teste."},
+    {nex:10, name:"Habilidade de Trilha",cost:"—",   desc:"Escolha uma trilha de Especialista e receba seu 1° poder."},
+    {nex:15, name:"Poder de Especialista",cost:"—",  desc:"Escolha um poder de especialista da lista."},
+    {nex:20, name:"Aumento de Atributo",cost:"—",    desc:"Aumente um atributo em +1 (máximo 5)."},
+    {nex:25, name:"Perito (1d8)",       cost:"3 PE",  desc:"Gaste 3 PE para somar +1d8 no resultado do teste."},
+    {nex:30, name:"Poder de Especialista",cost:"—",  desc:"Escolha um poder de especialista da lista."},
+    {nex:35, name:"Grau de Treinamento",cost:"—",    desc:"Escolha (5+INT) perícias treinadas; grau de treinamento aumenta em um."},
+    {nex:40, name:"Engenhosidade",      cost:"+2 PE", desc:"Ao usar Eclético, gaste +2 PE adicionais para receber os benefícios de veterano na perícia."},
+    {nex:40, name:"Habilidade de Trilha",cost:"—",  desc:"Receba o 2° poder da sua trilha de Especialista."},
+    {nex:45, name:"Poder de Especialista",cost:"—",  desc:"Escolha um poder de especialista da lista."},
+    {nex:50, name:"Aumento de Atributo",cost:"—",    desc:"Aumente um atributo em +1 (máximo 5)."},
+    {nex:50, name:"Versatilidade",      cost:"—",    desc:"Escolha um poder de especialista ou o 1° poder de uma trilha que não a sua."},
+    {nex:55, name:"Perito (1d10)",      cost:"4 PE",  desc:"Gaste 4 PE para somar +1d10 no resultado do teste."},
+    {nex:60, name:"Poder de Especialista",cost:"—",  desc:"Escolha um poder de especialista da lista."},
+    {nex:65, name:"Habilidade de Trilha",cost:"—",  desc:"Receba o 3° poder da sua trilha de Especialista."},
+    {nex:70, name:"Grau de Treinamento",cost:"—",    desc:"Escolha (5+INT) perícias treinadas; grau de treinamento aumenta em um."},
+    {nex:75, name:"Poder de Especialista",cost:"—",  desc:"Escolha um poder de especialista da lista."},
+    {nex:75, name:"Engenhosidade Avançada",cost:"+4 PE",desc:"Ao usar Eclético, gaste +4 PE adicionais para receber benefícios de expert na perícia."},
+    {nex:80, name:"Aumento de Atributo",cost:"—",    desc:"Aumente um atributo em +1 (máximo 5)."},
+    {nex:85, name:"Perito (1d12)",      cost:"5 PE",  desc:"Gaste 5 PE para somar +1d12 no resultado do teste."},
+    {nex:90, name:"Poder de Especialista",cost:"—",  desc:"Escolha um poder de especialista da lista."},
+    {nex:95, name:"Aumento de Atributo",cost:"—",    desc:"Aumente um atributo em +1 (máximo 5)."},
+    {nex:99, name:"Habilidade de Trilha",cost:"—",  desc:"Receba o 4° e último poder da sua trilha de Especialista."},
+  ],
+  ocultista:[
+    {nex:5,  name:"Escolhido pelo Outro Lado",cost:"—", desc:"Lança rituais de 1° círculo. Começa com 3 rituais de 1° círculo. Aprende 1 ritual adicional a cada NEX."},
+    {nex:10, name:"Habilidade de Trilha",     cost:"—", desc:"Escolha uma trilha de Ocultista e receba seu 1° poder."},
+    {nex:15, name:"Poder de Ocultista",       cost:"—", desc:"Escolha um poder de ocultista da lista."},
+    {nex:20, name:"Aumento de Atributo",      cost:"—", desc:"Aumente um atributo em +1 (máximo 5)."},
+    {nex:25, name:"Rituais de 2° Círculo",    cost:"—", desc:"Você agora pode lançar rituais de 2° círculo."},
+    {nex:30, name:"Poder de Ocultista",       cost:"—", desc:"Escolha um poder de ocultista da lista."},
+    {nex:35, name:"Grau de Treinamento",      cost:"—", desc:"Escolha (5+INT) perícias treinadas; grau de treinamento aumenta em um."},
+    {nex:40, name:"Habilidade de Trilha",     cost:"—", desc:"Receba o 2° poder da sua trilha de Ocultista."},
+    {nex:45, name:"Poder de Ocultista",       cost:"—", desc:"Escolha um poder de ocultista da lista."},
+    {nex:50, name:"Aumento de Atributo",      cost:"—", desc:"Aumente um atributo em +1 (máximo 5)."},
+    {nex:50, name:"Versatilidade",            cost:"—", desc:"Escolha um poder de ocultista ou o 1° poder de uma trilha que não a sua."},
+    {nex:55, name:"Rituais de 3° Círculo",    cost:"—", desc:"Você agora pode lançar rituais de 3° círculo."},
+    {nex:60, name:"Poder de Ocultista",       cost:"—", desc:"Escolha um poder de ocultista da lista."},
+    {nex:65, name:"Habilidade de Trilha",     cost:"—", desc:"Receba o 3° poder da sua trilha de Ocultista."},
+    {nex:70, name:"Grau de Treinamento",      cost:"—", desc:"Escolha (5+INT) perícias treinadas; grau de treinamento aumenta em um."},
+    {nex:75, name:"Poder de Ocultista",       cost:"—", desc:"Escolha um poder de ocultista da lista."},
+    {nex:80, name:"Aumento de Atributo",      cost:"—", desc:"Aumente um atributo em +1 (máximo 5)."},
+    {nex:85, name:"Rituais de 4° Círculo",    cost:"—", desc:"Você agora pode lançar rituais de 4° círculo."},
+    {nex:90, name:"Poder de Ocultista",       cost:"—", desc:"Escolha um poder de ocultista da lista."},
+    {nex:95, name:"Aumento de Atributo",      cost:"—", desc:"Aumente um atributo em +1 (máximo 5)."},
+    {nex:99, name:"Habilidade de Trilha",     cost:"—", desc:"Receba o 4° e último poder da sua trilha de Ocultista."},
+  ],
+};
 
 const CLASSES = [
   {
@@ -3760,7 +6925,7 @@ function CharacterCreator({ onFinish, onCancel }) {
 
   const changeAttr = (key, delta) => {
     const next = attrs[key] + delta;
-    if (next < 0 || next > 3) return;  // max 3 na criação (regra do livro)
+    if (next < 0 || next > 3) return;
     if (delta > 0 && pontosRestantes <= 0) return;
     setAttrs(a => ({ ...a, [key]: next }));
   };
@@ -3793,7 +6958,7 @@ function CharacterCreator({ onFinish, onCancel }) {
             <div>
               <div style={{fontFamily:"Cinzel,serif", fontSize:13, letterSpacing:2, color:"var(--muted)", textTransform:"uppercase"}}>Pontos Restantes</div>
               <div style={{fontFamily:"Crimson Pro,serif", fontSize:16, color:"var(--muted2)", fontStyle:"italic"}}>
-                {pontosRestantes>0?"Distribua os pontos nos atributos →":pontosRestantes===0?"✓ Todos os pontos distribuídos":"Você reduziu atributos, ganhou pontos extras"}
+                {pontosRestantes>0?"Distribua os pontos nos atributos →":pontosRestantes===0?"✓ Todos os pontos distribuídos":"Você reduziu atributos e ganhou pontos extras"}
               </div>
             </div>
           </div>
@@ -4411,7 +7576,7 @@ function Bar({val, set, max, setMax, color, label}) {
    Layout inspirado no CRIS com
    identidade visual Nexus
 ═══════════════════════════════ */
-function FullSheet({ character, onBack, onUpdate }) {
+function FullSheet({ character, onBack, onUpdate, onRoll, showPanel, onTogglePanel }) {
   const { attrs: initAttrs } = character;
   const [attrs,  setAttrs]  = useState(initAttrs);
   const [origem, setOrigem] = useState(character.origem ?? null);
@@ -4439,14 +7604,75 @@ function FullSheet({ character, onBack, onUpdate }) {
   const [pe,  setPe]  = useState(character.pe  ?? cs0.pe);
   const [nex, setNex] = useState(initNex);
   const [showNexMenu, setShowNexMenu] = useState(false);
-  const nexBtnRef = useRef(null);
-  const auraRef   = useRef(null);
+  const [attrEditMode, setAttrEditMode] = useState(false);
+  const nexBtnRef    = useRef(null);
+  const auraRef      = useRef(null);
+  const avatarInputRef = useRef(null);
+  const handleAvatarFile = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = "";
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const img = new Image();
+      img.onload = () => {
+        const MAX = 400;
+        const scale = Math.min(1, MAX / Math.max(img.width, img.height));
+        const canvas = document.createElement('canvas');
+        canvas.width  = Math.round(img.width  * scale);
+        canvas.height = Math.round(img.height * scale);
+        canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+        setForm(f => ({ ...f, avatar: canvas.toDataURL('image/jpeg', 0.82) }));
+      };
+      img.src = ev.target.result;
+    };
+    reader.readAsDataURL(file);
+  };
   const [activeTab, setActiveTab] = useState("combate");
+  const [showSettings,    setShowSettings]    = useState(false);
+  const [settingsTab,     setSettingsTab]     = useState("ficha");
+  const [isPrivate,       setIsPrivate]       = useState(character.isPrivate       ?? false);
+  const [allowMasterEdit, setAllowMasterEdit] = useState(character.allowMasterEdit ?? true);
+  const [allowAnyEdit,    setAllowAnyEdit]    = useState(character.allowAnyEdit    ?? false);
   const [diceInput, setDiceInput] = useState("");
   const [rollPopup, setRollPopup] = useState(null);
   const [attacks, setAttacks] = useState(character.attacks ?? []);
-  const [showNewAtk, setShowNewAtk] = useState(false);
-  const [newAtk, setNewAtk] = useState({ name:"", dmg:"", crit:"x2" });
+  const [atkModal, setAtkModal] = useState(null); // null | {mode:"create"|"edit", idx:number|null, data:{...}}
+  const [expandedAtkIdx, setExpandedAtkIdx] = useState(null);
+  const [skills, setSkills] = useState(character.skills ?? []);
+  const [trilha, setTrilha] = useState(character.trilha ?? null);
+  const [rituais, setRituais] = useState(character.rituais ?? []);
+  const [skillFilter, setSkillFilter] = useState("");
+  const [showAddSkill, setShowAddSkill] = useState(false);
+  const [showSkillModal, setShowSkillModal] = useState(false);
+  const [skillDraft, setSkillDraft] = useState({ name:"Nova Habilidade", image:"", desc:"Minha nova habilidade" });
+  const skillImgRef = useRef(null);
+  const skillEditorRef = useRef(null);
+  const handleSkillImg = (e) => {
+    const file = e.target.files?.[0]; if (!file) return; e.target.value="";
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const img = new Image(); img.onload = () => {
+        const MAX=300, scale=Math.min(1,MAX/Math.max(img.width,img.height));
+        const c=document.createElement('canvas'); c.width=Math.round(img.width*scale); c.height=Math.round(img.height*scale);
+        c.getContext('2d').drawImage(img,0,0,c.width,c.height);
+        setSkillDraft(d=>({...d,image:c.toDataURL('image/jpeg',0.8)}));
+      }; img.src=ev.target.result;
+    }; reader.readAsDataURL(file);
+  };
+  const openSkillModal = () => {
+    setSkillDraft({ name:"Nova Habilidade", image:"", desc:"Minha nova habilidade" });
+    setShowSkillModal(true);
+    setTimeout(()=>{ if(skillEditorRef.current) skillEditorRef.current.innerHTML="Minha nova habilidade"; },50);
+  };
+  const confirmSkill = () => {
+    const name = skillDraft.name.trim() || "Nova Habilidade";
+    const desc = skillEditorRef.current?.innerHTML || skillDraft.desc;
+    const s = { id:Date.now(), name, image:skillDraft.image, desc, type:"passiva", cost:"" };
+    setSkills(v=>[...v,s]); setOpenSkillId(s.id); setShowSkillModal(false);
+  };
+  const [openSkillId, setOpenSkillId] = useState(null);
+  const [newSkillName, setNewSkillName] = useState("");
   const [desc, setDesc] = useState({
     anotacoes: form.anotacoes || "",
     aparencia: form.aparencia || "",
@@ -4492,8 +7718,14 @@ function FullSheet({ character, onBack, onUpdate }) {
       sanMax,
       peMax,
       attacks,
+      skills,
+      trilha,
+      rituais,
+      isPrivate,
+      allowMasterEdit,
+      allowAnyEdit,
     });
-  }, [attrs, form, desc, origem, classe, skillTreino, skillOutros, skillAttr, pdBonus, nex, hp, san, pe, pvMax, sanMax, peMax, attacks]);
+  }, [attrs, form, desc, origem, classe, skillTreino, skillOutros, skillAttr, pdBonus, nex, hp, san, pe, pvMax, sanMax, peMax, attacks, skills, trilha, rituais, isPrivate, allowMasterEdit, allowAnyEdit]);
 
   // derived
   const defesa   = 10 + attrs.AGI;
@@ -4505,7 +7737,9 @@ function FullSheet({ character, onBack, onUpdate }) {
   const handleAttrRoll = (key) => {
     const res = rollOP(attrs[key]);
     const LABEL = { AGI:"Agilidade", FOR:"Força", INT:"Intelecto", PRE:"Presença", VIG:"Vigor" };
-    setRollPopup({ attr: LABEL[key], key, ...res });
+    const popup = { attr: LABEL[key], key, ...res };
+    setRollPopup(popup);
+    onRoll?.({ ...popup, charName: form.personagem || character.form?.personagem || "Agente" });
   };
 
   const handleNexChange = (newNex) => {
@@ -4517,13 +7751,38 @@ function FullSheet({ character, onBack, onUpdate }) {
     setShowNexMenu(false);
   };
 
+  // Recalculate max stats whenever class changes
+  const _classMounted = useRef(false);
+  useEffect(() => {
+    if (!_classMounted.current) { _classMounted.current = true; return; }
+    const ns = nexStats(nex, classe?.id, attrs);
+    setPvMax(ns.pv);  setHp(v  => Math.min(v, ns.pv));
+    setSanMax(ns.san); setSan(v => Math.min(v, ns.san));
+    setPeMax(ns.pe);  setPe(v  => Math.min(v, ns.pe));
+  }, [classe?.id]);
+
+  // Qualquer mudança de atributo recalcula PV (VIG), PE (PRE) e SAN (classe)
+  const _attrsMounted = useRef(false);
+  useEffect(() => {
+    if (!_attrsMounted.current) { _attrsMounted.current = true; return; }
+    const ns = nexStats(nex, classe?.id, attrs);
+    setPvMax(ns.pv);
+    setHp(v => Math.min(v, ns.pv));
+    setSanMax(ns.san);
+    setPeMax(ns.pe);
+    setPe(v => Math.min(v, ns.pe));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [attrs.AGI, attrs.FOR, attrs.INT, attrs.PRE, attrs.VIG]);
+
   const rollFreeInput = () => {
     const match = diceInput.match(/^(\d+)?[dD](\d+)([+-]\d+)?$/);
     if (!match) { setRollPopup({ attr:"Erro", rolls:[], result:"Ex: 1d20+3", worst:false }); return; }
     const n=parseInt(match[1]||"1"), d=parseInt(match[2]), mod=parseInt(match[3]||"0");
     const rolls=Array.from({length:n},()=>Math.floor(Math.random()*d)+1);
     const crit=d===20&&rolls.includes(20);
-    setRollPopup({ attr:diceInput.toUpperCase(), rolls, result:rolls.reduce((a,b)=>a+b,0)+mod, worst:false, crit, dice:`D${d}` });
+    const popup = { attr:diceInput.toUpperCase(), rolls, result:rolls.reduce((a,b)=>a+b,0)+mod, worst:false, crit, dice:`D${d}`, expr:diceInput };
+    setRollPopup(popup);
+    onRoll?.({ ...popup, charName: form.personagem || character.form?.personagem || "Agente" });
   };
 
   // perícias
@@ -4568,7 +7827,7 @@ function FullSheet({ character, onBack, onUpdate }) {
     return () => document.removeEventListener("click", close);
   }, [attrOpen]);
 
-  const tabs = ["combate","habilidades","rituais","inventário","descrição"];
+  const tabs = ["combate","poderes","habilidades","rituais","inventário","descrição"];
 
   /* ── left col width */
   const isMobile = window.innerWidth < 768;
@@ -4599,115 +7858,531 @@ function FullSheet({ character, onBack, onUpdate }) {
         );
       })()}
 
-      {/* ── Roll popup ── */}
-      {rollPopup && (
-        <div style={{position:"fixed",bottom:16,right:16,zIndex:9999,background:rollPopup.crit?"rgba(20,15,0,0.97)":"var(--card)",border:`1px solid ${rollPopup.crit?"rgba(255,215,0,0.8)":"rgba(201,168,76,0.5)"}`,borderRadius:10,padding:"12px 16px",minWidth:190,boxShadow:"0 6px 32px rgba(0,0,0,0.9)",animation:"fadeIn 0.25s ease",display:"flex",gap:10,alignItems:"center"}}>
-          <div style={{width:38,height:38,borderRadius:6,background:rollPopup.crit?"rgba(255,200,0,0.18)":"rgba(201,168,76,0.12)",border:`1px solid ${rollPopup.crit?"rgba(255,215,0,0.9)":"rgba(201,168,76,0.4)"}`,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",flexShrink:0,animation:rollPopup.crit?"critAura 1.2s ease-in-out infinite":undefined,gap:1}}>
-            <span style={{fontSize:rollPopup.crit?15:13,color:rollPopup.crit?"#ffe86a":"var(--gold)",lineHeight:1}}>⬡</span>
-            <span style={{fontFamily:"Cinzel,serif",fontSize:7,color:rollPopup.crit?"#ffe86a":"var(--muted2)",letterSpacing:0.5,lineHeight:1,fontWeight:700}}>{rollPopup.dice||"D?"}</span>
-          </div>
-          <div style={{flex:1}}>
-            <div style={{fontFamily:"Cinzel,serif",fontSize:10,color:"var(--gold)",marginBottom:2,fontWeight:600}}>{rollPopup.attr}</div>
-            <div style={{fontFamily:"Crimson Pro,serif",fontSize:11,color:"var(--muted2)",marginBottom:3}}>[{rollPopup.rolls.join(", ")}]{rollPopup.worst?" → pior":" → maior"}</div>
-            <div style={{display:"flex",alignItems:"baseline",gap:5}}>
-              <span style={{fontSize:11,color:"var(--muted2)"}}>=</span>
-              <span style={{fontFamily:"'Cinzel Decorative',serif",fontSize:28,color:"var(--gold2)",fontWeight:700,lineHeight:1}}>{rollPopup.result}</span>
+      {/* ── Settings modal ── */}
+      {showSettings && createPortal(
+        <div onClick={()=>setShowSettings(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center"}}>
+          <div onClick={e=>e.stopPropagation()} style={{background:"#111",border:"1px solid #2a2a2a",borderRadius:12,width:560,maxWidth:"95vw",boxShadow:"0 24px 64px rgba(0,0,0,0.8)",overflow:"hidden"}}>
+            {/* Header */}
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"20px 24px 0"}}>
+              <span style={{fontFamily:"Cinzel,serif",fontSize:16,color:"#fff",fontWeight:600}}>Configurações</span>
+              <button onClick={()=>setShowSettings(false)} style={{background:"none",border:"none",cursor:"pointer",color:"#888",fontSize:18,lineHeight:1,padding:4}}>✕</button>
+            </div>
+            {/* Tabs */}
+            <div style={{display:"flex",gap:0,padding:"12px 24px 0",borderBottom:"1px solid #222",marginTop:8}}>
+              {["ficha","stream"].map(t=>(
+                <button key={t} onClick={()=>setSettingsTab(t)} style={{
+                  background:"none",border:"none",cursor:"pointer",
+                  fontFamily:"Cinzel,serif",fontSize:12,letterSpacing:1,textTransform:"capitalize",
+                  color:settingsTab===t?"#fff":"#666",
+                  borderBottom:settingsTab===t?"2px solid #8b5cf6":"2px solid transparent",
+                  padding:"0 4px 10px",marginRight:20,marginBottom:-1,transition:"all 0.2s",
+                }}>{t.charAt(0).toUpperCase()+t.slice(1)}</button>
+              ))}
+            </div>
+            {/* Content */}
+            <div style={{padding:"24px 24px 28px",display:"flex",flexDirection:"column",gap:24}}>
+              {settingsTab==="ficha" && (<>
+                {/* Classe para cálculo */}
+                <div>
+                  <div style={{fontFamily:"Cinzel,serif",fontSize:13,color:"#fff",marginBottom:10}}>Classe para cálculo de atributos</div>
+                  <div style={{position:"relative",display:"inline-block"}}>
+                    <select value={classe?.id||""} onChange={e=>{ const c=CLASSES.find(c=>c.id===e.target.value)||null; setClasse(c); }}
+                      style={{background:"#1a1a1a",border:"1px solid #333",borderRadius:6,color:"#fff",fontFamily:"Cinzel,serif",fontSize:12,padding:"8px 32px 8px 12px",cursor:"pointer",appearance:"none",outline:"none"}}>
+                      <option value="" style={{background:"#1a1a1a"}}>—</option>
+                      {CLASSES.map(c=><option key={c.id} value={c.id} style={{background:"#1a1a1a"}}>{c.name}</option>)}
+                    </select>
+                    <span style={{position:"absolute",right:10,top:"50%",transform:"translateY(-50%)",pointerEvents:"none",color:"#888",fontSize:10}}>▼</span>
+                  </div>
+                </div>
+                {/* Trilha */}
+                {classe && (
+                  <div>
+                    <div style={{fontFamily:"Cinzel,serif",fontSize:13,color:"#fff",marginBottom:10}}>Trilha de {classe.name}</div>
+                    <div style={{fontFamily:"Crimson Pro,serif",fontSize:12,color:"#666",marginBottom:10,lineHeight:1.5}}>
+                      Escolhida em NEX 10%. Define poderes especiais recebidos em NEX 10%, 40%, 65% e 99%.
+                    </div>
+                    <div style={{position:"relative",display:"inline-block"}}>
+                      <select value={trilha?.id||""}
+                        onChange={e=>{const ts=CLASS_TRAILS[classe.id]||[];setTrilha(ts.find(t=>t.id===e.target.value)||null);}}
+                        style={{background:"#1a1a1a",border:"1px solid #333",borderRadius:6,color:"#fff",fontFamily:"Cinzel,serif",fontSize:12,padding:"8px 32px 8px 12px",cursor:"pointer",appearance:"none",outline:"none"}}>
+                        <option value="" style={{background:"#1a1a1a"}}>— Nenhuma —</option>
+                        {(CLASS_TRAILS[classe.id]||[]).map(t=>(
+                          <option key={t.id} value={t.id} style={{background:"#1a1a1a"}}>{t.name}</option>
+                        ))}
+                      </select>
+                      <span style={{position:"absolute",right:10,top:"50%",transform:"translateY(-50%)",pointerEvents:"none",color:"#888",fontSize:10}}>▼</span>
+                    </div>
+                  </div>
+                )}
+                {/* Origem */}
+                <div>
+                  <div style={{fontFamily:"Cinzel,serif",fontSize:13,color:"#fff",marginBottom:10}}>Origem do Agente</div>
+                  <div style={{position:"relative",display:"inline-block"}}>
+                    <select value={origem?.id||""} onChange={e=>setOrigem(ORIGENS.find(o=>o.id===e.target.value)||null)}
+                      style={{background:"#1a1a1a",border:"1px solid #333",borderRadius:6,color:"#fff",fontFamily:"Cinzel,serif",fontSize:12,padding:"8px 32px 8px 12px",cursor:"pointer",appearance:"none",outline:"none"}}>
+                      <option value="" style={{background:"#1a1a1a"}}>—</option>
+                      {ORIGENS.map(o=><option key={o.id} value={o.id} style={{background:"#1a1a1a"}}>{o.name}</option>)}
+                    </select>
+                    <span style={{position:"absolute",right:10,top:"50%",transform:"translateY(-50%)",pointerEvents:"none",color:"#888",fontSize:10}}>▼</span>
+                  </div>
+                </div>
+                {/* Ficha privada */}
+                {[
+                  { label:"Ficha privada", desc:"Apenas você e o mestre da campanha poderão visualizar a ficha. A ficha ainda aparece no Escudo do Mestre para outros jogadores", val:isPrivate, set:setIsPrivate },
+                  { label:"Permitir que o Mestre da campanha edite minha ficha", val:allowMasterEdit, set:setAllowMasterEdit },
+                  { label:"Permitir que qualquer pessoa edite minha ficha", desc:"Atenção: com essa opção ligada qualquer pessoa pode editar sua ficha. É recomendado deixar essa opção ligada por apenas um curto período de tempo", val:allowAnyEdit, set:setAllowAnyEdit },
+                ].map(({label,desc,val,set})=>(
+                  <div key={label}>
+                    <div style={{fontFamily:"Cinzel,serif",fontSize:13,color:"#fff",marginBottom:desc?6:10}}>{label}</div>
+                    {desc && <div style={{fontSize:12,color:"#666",marginBottom:10,lineHeight:1.5}}>{desc}</div>}
+                    <div style={{display:"inline-flex",border:"1px solid #333",borderRadius:6,overflow:"hidden"}}>
+                      <button onClick={()=>set(false)} style={{padding:"8px 20px",background:!val?"#8b5cf6":"transparent",border:"none",cursor:"pointer",fontFamily:"Cinzel,serif",fontSize:10,letterSpacing:1,color:!val?"#fff":"#666",transition:"all 0.2s"}}>DESLIGADO</button>
+                      <button onClick={()=>set(true)}  style={{padding:"8px 20px",background: val?"#8b5cf6":"transparent",border:"none",cursor:"pointer",fontFamily:"Cinzel,serif",fontSize:10,letterSpacing:1,color: val?"#fff":"#666",transition:"all 0.2s"}}>LIGADO</button>
+                    </div>
+                  </div>
+                ))}
+              </>)}
+              {settingsTab==="stream" && (
+                <div style={{color:"#666",fontFamily:"Cinzel,serif",fontSize:12,textAlign:"center",padding:"20px 0"}}>Em breve</div>
+              )}
             </div>
           </div>
-          <button onClick={()=>setRollPopup(null)} style={{position:"absolute",top:5,right:7,background:"none",border:"none",color:"var(--muted)",cursor:"pointer",fontSize:13}}>✕</button>
         </div>
-      )}
+      , document.body)}
+
+      {/* ── Nova Habilidade modal ── */}
+      {showSkillModal && createPortal(
+        <div onClick={()=>setShowSkillModal(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.8)",zIndex:9999,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}>
+          <div onClick={e=>e.stopPropagation()} style={{background:"#111",border:"1px solid #2a2a2a",borderRadius:12,width:620,maxWidth:"95vw",maxHeight:"90vh",display:"flex",flexDirection:"column",boxShadow:"0 24px 64px rgba(0,0,0,0.9)"}}>
+            {/* Header */}
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"20px 24px 16px",borderBottom:"1px solid #222"}}>
+              <span style={{fontFamily:"Cinzel,serif",fontSize:17,color:"#fff",fontWeight:600}}>Nova Habilidade</span>
+              <button onClick={()=>setShowSkillModal(false)} style={{background:"none",border:"none",cursor:"pointer",color:"#666",fontSize:20,lineHeight:1,padding:4}} onMouseEnter={e=>e.currentTarget.style.color="#fff"} onMouseLeave={e=>e.currentTarget.style.color="#666"}>✕</button>
+            </div>
+            {/* Body */}
+            <div style={{padding:"20px 24px",display:"flex",flexDirection:"column",gap:18,overflowY:"auto"}}>
+              {/* Nome */}
+              <div>
+                <div style={{fontFamily:"Cinzel,serif",fontSize:11,color:"#aaa",marginBottom:8}}>Nome<span style={{color:"#8b5cf6"}}>*</span></div>
+                <input value={skillDraft.name} onChange={e=>setSkillDraft(d=>({...d,name:e.target.value}))}
+                  autoFocus
+                  style={{width:"100%",boxSizing:"border-box",background:"#1a1a1a",border:"1px solid #333",borderRadius:6,color:"#fff",fontFamily:"Cinzel,serif",fontSize:14,padding:"10px 14px",outline:"none"}}
+                  onFocus={e=>e.target.style.borderColor="#8b5cf6"} onBlur={e=>e.target.style.borderColor="#333"}/>
+              </div>
+              {/* Imagem */}
+              <div>
+                <div style={{fontFamily:"Cinzel,serif",fontSize:11,color:"#aaa",marginBottom:8}}>Imagem<span style={{color:"#8b5cf6",fontSize:9,marginLeft:4}}>opcional</span></div>
+                <div onClick={()=>skillImgRef.current?.click()} style={{
+                  width:100,height:100,borderRadius:8,border:"2px dashed #333",cursor:"pointer",
+                  display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden",
+                  background:"#1a1a1a",transition:"border-color 0.2s",
+                }}
+                  onMouseEnter={e=>e.currentTarget.style.borderColor="#8b5cf6"}
+                  onMouseLeave={e=>e.currentTarget.style.borderColor="#333"}>
+                  {skillDraft.image
+                    ? <img src={skillDraft.image} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>
+                    : <svg width={36} height={36} viewBox="0 0 24 24" fill="none" stroke="#444" strokeWidth="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>}
+                </div>
+                <input ref={skillImgRef} type="file" accept="image/*" style={{display:"none"}} onChange={handleSkillImg}/>
+                {skillDraft.image && <button onClick={()=>setSkillDraft(d=>({...d,image:""}))} style={{marginTop:6,background:"none",border:"none",cursor:"pointer",color:"#666",fontFamily:"Cinzel,serif",fontSize:9,letterSpacing:1}}>Remover imagem</button>}
+              </div>
+              {/* Descrição */}
+              <div>
+                <div style={{fontFamily:"Cinzel,serif",fontSize:11,color:"#aaa",marginBottom:8}}>
+                  Descrição<span style={{color:"#8b5cf6"}}>*</span>
+                  <span style={{fontFamily:"Crimson Pro,serif",fontSize:11,color:"#555",marginLeft:8,fontStyle:"italic"}}>utilize negrito para aplicar a cor roxo</span>
+                </div>
+                {/* Toolbar */}
+                <div style={{display:"flex",gap:2,padding:"6px 10px",background:"#1a1a1a",border:"1px solid #333",borderBottom:"none",borderRadius:"6px 6px 0 0"}}>
+                  {[
+                    { label:"B", style:{fontWeight:700}, cmd:"bold" },
+                    { label:"I", style:{fontStyle:"italic"}, cmd:"italic" },
+                    { label:"U", style:{textDecoration:"underline"}, cmd:"underline" },
+                  ].map(({label,style,cmd})=>(
+                    <button key={cmd} onMouseDown={e=>{ e.preventDefault(); document.execCommand(cmd); skillEditorRef.current?.focus(); }}
+                      style={{...style,background:"none",border:"1px solid transparent",borderRadius:4,cursor:"pointer",color:"#ccc",width:28,height:26,fontSize:13,fontFamily:"Georgia,serif",transition:"all 0.15s"}}
+                      onMouseEnter={e=>{e.currentTarget.style.background="#2a2a2a";e.currentTarget.style.borderColor="#444";}}
+                      onMouseLeave={e=>{e.currentTarget.style.background="none";e.currentTarget.style.borderColor="transparent";}}
+                    >{label}</button>
+                  ))}
+                </div>
+                {/* Editor */}
+                <div ref={skillEditorRef} contentEditable suppressContentEditableWarning
+                  style={{minHeight:180,padding:"12px 14px",background:"#0e0e0e",border:"1px solid #333",borderRadius:"0 0 6px 6px",
+                    color:"#ddd",fontFamily:"Crimson Pro,serif",fontSize:14,lineHeight:1.75,outline:"none",
+                    overflowY:"auto"}}
+                  onFocus={e=>e.currentTarget.style.borderColor="#8b5cf6"}
+                  onBlur={e=>e.currentTarget.style.borderColor="#333"}
+                />
+                <style>{`.skill-rich-editor b,.skill-rich-editor strong{color:#8b5cf6}`}</style>
+              </div>
+            </div>
+            {/* Footer */}
+            <div style={{display:"flex",justifyContent:"flex-end",gap:12,padding:"16px 24px",borderTop:"1px solid #222"}}>
+              <button onClick={()=>setShowSkillModal(false)} style={{padding:"10px 24px",background:"none",border:"1px solid #333",borderRadius:8,cursor:"pointer",fontFamily:"Cinzel,serif",fontSize:11,letterSpacing:1,color:"#888",transition:"all 0.2s"}}
+                onMouseEnter={e=>e.currentTarget.style.borderColor="#555"} onMouseLeave={e=>e.currentTarget.style.borderColor="#333"}>Cancelar</button>
+              <button onClick={confirmSkill} style={{padding:"10px 28px",background:"#7c3aed",border:"none",borderRadius:8,cursor:"pointer",fontFamily:"Cinzel,serif",fontSize:11,letterSpacing:1,color:"#fff",transition:"all 0.2s"}}
+                onMouseEnter={e=>e.currentTarget.style.background="#6d28d9"} onMouseLeave={e=>e.currentTarget.style.background="#7c3aed"}>Adicionar</button>
+            </div>
+          </div>
+        </div>
+      , document.body)}
+
+      {/* ── Attack Modal ── */}
+      {atkModal && createPortal((() => {
+        const ATK_TYPES = ["Balístico","Conhecimento","Corte","Eletricidade","Energia","Fogo","Frio","Impacto","Medo","Mental","Morte","Perfuração","Sangue","Químico"];
+        const ATK_RANGES = ["-","Curto","Médio","Longo","Extremo","Ilimitado"];
+        const ATK_SKILLS = ["Acrobacia","Adestramento","Atletismo","Atualidades","Ciências","Crime","Diplomacia","Enganação","Fortitude","Furtividade","Iniciativa","Intimidação","Intuição","Investigação","Luta","Medicina","Ocultismo","Percepção","Pilotagem","Pontaria","Profissão","Reflexos","Religião","Sobrevivência","Tecnologia","Tática","Vontade"];
+        const ATK_ATTRS = ["Nenhum","Agilidade","Força","Intelecto","Presença","Vigor"];
+        const d = atkModal.data;
+        const setD = fn => setAtkModal(m=>({...m, data: fn(m.data)}));
+        const inputStyle = {width:"100%",boxSizing:"border-box",background:"#1a1a1a",border:"1px solid rgba(255,255,255,0.15)",borderRadius:4,color:"#e0e0e0",fontFamily:"Cinzel,serif",fontSize:13,padding:"7px 10px",outline:"none"};
+        const selectStyle = {...inputStyle,cursor:"pointer",appearance:"none"};
+        const labelStyle = {fontFamily:"Cinzel,serif",fontSize:10,color:"rgba(255,255,255,0.5)",marginBottom:4,display:"block"};
+        const save = () => {
+          if(!d.name.trim()) return;
+          if(atkModal.mode==="create") setAttacks(a=>[...a,{...d}]);
+          else setAttacks(a=>a.map((x,i)=>i===atkModal.idx?{...d}:x));
+          setAtkModal(null);
+        };
+        return (
+          <div onClick={()=>setAtkModal(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",zIndex:9999,display:"flex",alignItems:"flex-start",justifyContent:"center",paddingTop:40,overflowY:"auto"}}>
+            <div onClick={e=>e.stopPropagation()} style={{background:"#111",border:"1px solid #2a2a2a",borderRadius:8,width:520,maxWidth:"95vw",boxShadow:"0 24px 64px rgba(0,0,0,0.9)",marginBottom:40}}>
+              {/* Header */}
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"18px 22px 16px",borderBottom:"1px solid #1e1e1e"}}>
+                <span style={{fontFamily:"Cinzel,serif",fontSize:18,color:"#e0e0e0",fontWeight:700}}>{atkModal.mode==="create"?"Novo Ataque":"Editar Ataque"}</span>
+                <button onClick={()=>setAtkModal(null)} style={{background:"none",border:"none",color:"rgba(255,255,255,0.4)",cursor:"pointer",fontSize:20,lineHeight:1}}>✕</button>
+              </div>
+              {/* Body */}
+              <div style={{padding:"20px 22px",display:"flex",flexDirection:"column",gap:14}}>
+                {/* Nome */}
+                <div>
+                  <label style={labelStyle}>Nome*</label>
+                  <input value={d.name} onChange={e=>setD(x=>({...x,name:e.target.value}))} style={inputStyle}/>
+                </div>
+                {/* Dano / Crítico / Multiplicador */}
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:12}}>
+                  <div>
+                    <label style={labelStyle}>Dano*</label>
+                    <input value={d.dmg} onChange={e=>setD(x=>({...x,dmg:e.target.value}))} style={inputStyle}/>
+                  </div>
+                  <div>
+                    <label style={labelStyle}>Crítico* <span style={{fontWeight:400,fontSize:9,color:"rgba(255,255,255,0.3)"}}>1–20</span></label>
+                    <input type="number" min="1" max="20" value={d.crit}
+                      onChange={e=>{ const v=Math.max(1,Math.min(20,parseInt(e.target.value)||20)); setD(x=>({...x,crit:String(v)})); }}
+                      style={inputStyle}/>
+                  </div>
+                  <div>
+                    <label style={labelStyle}>Multiplicador*</label>
+                    <input type="number" min="1" value={d.mult}
+                      onChange={e=>{ const v=Math.max(1,parseInt(e.target.value)||2); setD(x=>({...x,mult:String(v)})); }}
+                      style={inputStyle}/>
+                  </div>
+                </div>
+                {/* Ataque Bônus / Tipo de Dano */}
+                <div style={{display:"grid",gridTemplateColumns:"1fr 2fr",gap:12}}>
+                  <div>
+                    <label style={labelStyle}>Ataque Bônus</label>
+                    <input value={d.bonus} onChange={e=>setD(x=>({...x,bonus:e.target.value}))} style={inputStyle}/>
+                  </div>
+                  <div>
+                    <label style={labelStyle}>Tipo de Dano</label>
+                    <select value={d.type} onChange={e=>setD(x=>({...x,type:e.target.value}))} style={selectStyle}>
+                      {ATK_TYPES.map(t=><option key={t} value={t} style={{background:"#111"}}>{t}</option>)}
+                    </select>
+                  </div>
+                </div>
+                {/* Alcance / Perícia / Atributo Dano */}
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:12}}>
+                  <div>
+                    <label style={labelStyle}>Alcance</label>
+                    <select value={d.range} onChange={e=>setD(x=>({...x,range:e.target.value}))} style={selectStyle}>
+                      {ATK_RANGES.map(r=><option key={r} value={r} style={{background:"#111"}}>{r}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label style={labelStyle}>Perícia</label>
+                    <select value={d.skill} onChange={e=>setD(x=>({...x,skill:e.target.value}))} style={selectStyle}>
+                      {ATK_SKILLS.map(s=><option key={s} value={s} style={{background:"#111"}}>{s}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label style={labelStyle}>Atributo Dano</label>
+                    <select value={d.attrDmg} onChange={e=>setD(x=>({...x,attrDmg:e.target.value}))} style={selectStyle}>
+                      {ATK_ATTRS.map(a=><option key={a} value={a} style={{background:"#111"}}>{a}</option>)}
+                    </select>
+                  </div>
+                </div>
+                {/* Dano Extra */}
+                <div>
+                  <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
+                    <span style={{fontFamily:"Cinzel,serif",fontSize:13,color:"#e0e0e0"}}>Dano extra:</span>
+                    <button onClick={()=>setD(x=>({...x,extraDmg:[...(x.extraDmg||[]),{dmg:"1d6",type:"Balístico"}]}))}
+                      style={{background:"#7c3aed",border:"none",borderRadius:4,color:"#fff",fontFamily:"Cinzel,serif",fontSize:10,padding:"5px 12px",cursor:"pointer"}}>
+                      Adicionar
+                    </button>
+                  </div>
+                  {(d.extraDmg||[]).map((ex,ei)=>(
+                    <div key={ei} style={{display:"flex",gap:10,alignItems:"center",marginBottom:8,padding:"10px 12px",borderLeft:"3px solid #7c3aed",background:"rgba(124,58,237,0.05)",borderRadius:"0 4px 4px 0"}}>
+                      <div style={{flex:1}}>
+                        <label style={labelStyle}>Dano*</label>
+                        <input value={ex.dmg} onChange={e=>setD(x=>({...x,extraDmg:x.extraDmg.map((v,j)=>j===ei?{...v,dmg:e.target.value}:v)}))} style={inputStyle}/>
+                      </div>
+                      <div style={{flex:1}}>
+                        <label style={labelStyle}>Tipo*</label>
+                        <select value={ex.type} onChange={e=>setD(x=>({...x,extraDmg:x.extraDmg.map((v,j)=>j===ei?{...v,type:e.target.value}:v)}))} style={selectStyle}>
+                          {ATK_TYPES.map(t=><option key={t} value={t} style={{background:"#111"}}>{t}</option>)}
+                        </select>
+                      </div>
+                      <button onClick={()=>setD(x=>({...x,extraDmg:x.extraDmg.filter((_,j)=>j!==ei)}))}
+                        style={{background:"#7c3aed",border:"none",borderRadius:4,color:"#fff",fontFamily:"Cinzel,serif",fontSize:10,padding:"5px 10px",cursor:"pointer",alignSelf:"flex-end",marginBottom:0}}>
+                        Remover
+                      </button>
+                    </div>
+                  ))}
+                </div>
+                {/* Anotações */}
+                <div>
+                  <label style={{...labelStyle,marginBottom:6}}>Anotações <span style={{fontWeight:400,color:"rgba(255,255,255,0.3)",fontSize:9}}>(utilize negrito para aplicar a cor roxo)</span></label>
+                  <div style={{border:"1px solid rgba(255,255,255,0.15)",borderRadius:4,overflow:"hidden"}}>
+                    {/* Toolbar */}
+                    <div style={{display:"flex",gap:2,padding:"6px 8px",background:"rgba(255,255,255,0.04)",borderBottom:"1px solid rgba(255,255,255,0.1)"}}>
+                      {[
+                        {cmd:"bold",label:"B",style:{fontWeight:"bold"}},
+                        {cmd:"italic",label:"I",style:{fontStyle:"italic"}},
+                        {cmd:"underline",label:"U",style:{textDecoration:"underline"}},
+                      ].map(({cmd,label,style:s})=>(
+                        <button key={cmd} onMouseDown={e=>{e.preventDefault();document.execCommand(cmd,false,null);}}
+                          style={{background:"none",border:"none",color:"rgba(255,255,255,0.7)",cursor:"pointer",fontFamily:"serif",fontSize:14,padding:"2px 8px",borderRadius:3,...s,transition:"background 0.15s"}}
+                          onMouseEnter={e=>e.currentTarget.style.background="rgba(255,255,255,0.1)"}
+                          onMouseLeave={e=>e.currentTarget.style.background="none"}>
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                    {/* Editor */}
+                    <div
+                      contentEditable
+                      suppressContentEditableWarning
+                      dangerouslySetInnerHTML={{__html: d.notes||""}}
+                      onInput={e=>setD(x=>({...x,notes:e.currentTarget.innerHTML}))}
+                      style={{
+                        minHeight:120,padding:"10px 12px",outline:"none",
+                        background:"#0d0d0d",color:"#d0d0d0",
+                        fontFamily:"Crimson Pro,serif",fontSize:14,lineHeight:1.7,
+                      }}
+                    />
+                  </div>
+                </div>
+
+                {/* Imagem */}
+                <div>
+                  <label style={labelStyle}>Imagem</label>
+                  {d.img
+                    ? <div style={{display:"flex",gap:10,alignItems:"center"}}>
+                        <img src={d.img} alt="" style={{width:80,height:80,objectFit:"cover",borderRadius:4,border:"1px solid #2a2a2a"}}/>
+                        <button onClick={()=>setD(x=>({...x,img:""}))} style={{background:"none",border:"1px solid rgba(255,255,255,0.2)",borderRadius:4,color:"rgba(255,255,255,0.5)",fontFamily:"Cinzel,serif",fontSize:10,padding:"4px 10px",cursor:"pointer"}}>Remover</button>
+                      </div>
+                    : <label style={{display:"flex",alignItems:"center",justifyContent:"center",width:80,height:80,border:"1px solid rgba(255,255,255,0.15)",borderRadius:4,cursor:"pointer",background:"rgba(255,255,255,0.03)"}}>
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.2)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+                        <input type="file" accept="image/*" style={{display:"none"}} onChange={e=>{
+                          const file=e.target.files[0]; if(!file) return;
+                          const reader=new FileReader();
+                          reader.onload=ev=>{
+                            const img=new Image();
+                            img.onload=()=>{
+                              const MAX=240;
+                              const scale=Math.min(1,MAX/Math.max(img.width,img.height));
+                              const canvas=document.createElement("canvas");
+                              canvas.width=Math.round(img.width*scale);
+                              canvas.height=Math.round(img.height*scale);
+                              canvas.getContext("2d").drawImage(img,0,0,canvas.width,canvas.height);
+                              setD(x=>({...x,img:canvas.toDataURL("image/jpeg",0.75)}));
+                            };
+                            img.src=ev.target.result;
+                          };
+                          reader.readAsDataURL(file);
+                        }}/>
+                      </label>
+                  }
+                </div>
+              </div>
+              {/* Footer */}
+              <div style={{display:"flex",alignItems:"center",justifyContent:"flex-end",gap:10,padding:"14px 22px",borderTop:"1px solid #1e1e1e"}}>
+                <button onClick={()=>setAtkModal(null)} style={{background:"none",border:"none",color:"rgba(255,255,255,0.5)",fontFamily:"Cinzel,serif",fontSize:12,cursor:"pointer",padding:"8px 16px"}}>Cancelar</button>
+                <button onClick={save} style={{background:"#7c3aed",border:"none",borderRadius:4,color:"#fff",fontFamily:"Cinzel,serif",fontSize:12,padding:"8px 20px",cursor:"pointer"}}>
+                  {atkModal.mode==="create"?"Adicionar":"Salvar"}
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })(), document.body)}
+
+      {/* ── Roll popup ── */}
+      {rollPopup && (() => {
+        const isAttack = rollPopup.type==="attack";
+        return (
+          <div
+            onMouseEnter={e=>{ const t=e.currentTarget.querySelector(".roll-dice-detail"); if(t) t.style.opacity="1"; }}
+            onMouseLeave={e=>{ const t=e.currentTarget.querySelector(".roll-dice-detail"); if(t) t.style.opacity="0"; }}
+            style={{
+              position:"fixed",bottom:16,right:16,zIndex:9999,
+              background:rollPopup.crit?"rgba(16,12,0,0.98)":"rgba(18,14,26,0.98)",
+              border:`1px solid ${rollPopup.crit?"rgba(255,200,0,0.5)":"rgba(201,168,76,0.35)"}`,
+              borderRadius:10,padding:"14px 18px",minWidth:220,
+              boxShadow:"0 6px 32px rgba(0,0,0,0.9)",
+              animation:rollPopup.crit?"critPopupGlow 1.4s ease-in-out infinite":"fadeIn 0.25s ease",
+            }}>
+            {/* Tooltip: dados rolados — aparece no hover */}
+            <div className="roll-dice-detail" style={{
+              position:"absolute",bottom:"100%",right:0,marginBottom:6,
+              background:"rgba(0,0,0,0.92)",border:"1px solid rgba(255,255,255,0.1)",
+              borderRadius:6,padding:"6px 10px",whiteSpace:"nowrap",
+              fontFamily:"Cinzel,serif",fontSize:10,color:"rgba(255,255,255,0.6)",
+              opacity:0,transition:"opacity 0.18s",pointerEvents:"none",
+            }}>
+              {isAttack
+                ? `${rollPopup.skill}${rollPopup.attrKey?" ("+rollPopup.attrKey+")":""} = [${rollPopup.rolls.join(", ")}]${rollPopup.worst?" → pior":" → maior"}`
+                : `[${rollPopup.rolls.join(", ")}]${rollPopup.worst?" → pior":" → maior"}`
+              }
+              {isAttack && rollPopup.dmgRolls?.length>0 && (
+                <span style={{marginLeft:8,color:rollPopup.crit?"#ffe86a":"rgba(255,255,255,0.5)"}}>
+                  Dano: [{rollPopup.dmgRolls.join(", ")}]{rollPopup.crit?" ✦":""}
+                </span>
+              )}
+            </div>
+
+            {/* Header: nome + fechar */}
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
+              <span style={{fontFamily:"Cinzel,serif",fontSize:11,color:rollPopup.crit?"#ffe86a":"var(--gold)",fontWeight:600,letterSpacing:0.5}}>
+                {isAttack ? rollPopup.name : rollPopup.attr}
+                {rollPopup.crit && <span style={{marginLeft:6,fontSize:9,letterSpacing:1,color:"#ffe86a"}}> CRÍTICO</span>}
+              </span>
+              <button onClick={()=>setRollPopup(null)} style={{background:"none",border:"none",color:"rgba(255,255,255,0.3)",cursor:"pointer",fontSize:13,lineHeight:1,padding:0}}>✕</button>
+            </div>
+
+            {/* Values */}
+            {isAttack ? (
+              <div style={{display:"flex",alignItems:"center",gap:0}}>
+                <div style={{flex:1,textAlign:"center"}}>
+                  <div style={{fontFamily:"'Cinzel Decorative',serif",fontSize:30,color:rollPopup.crit?"#ffe86a":"var(--gold2)",fontWeight:700,lineHeight:1}}>{rollPopup.ataque}</div>
+                  <div style={{fontFamily:"Cinzel,serif",fontSize:8,letterSpacing:2,color:"rgba(255,255,255,0.3)",marginTop:4,textTransform:"uppercase"}}>Ataque</div>
+                </div>
+                <div style={{width:1,height:48,background:"rgba(255,255,255,0.08)",flexShrink:0}}/>
+                <div style={{flex:1,textAlign:"center"}}>
+                  <div style={{fontFamily:"'Cinzel Decorative',serif",fontSize:30,color:rollPopup.crit?"#f97316":"#e07a5f",fontWeight:700,lineHeight:1}}>{rollPopup.dmgTotal||0}</div>
+                  <div style={{fontFamily:"Cinzel,serif",fontSize:8,letterSpacing:2,color:"rgba(255,255,255,0.3)",marginTop:4,textTransform:"uppercase"}}>Dano</div>
+                </div>
+              </div>
+            ) : (
+              <div style={{display:"flex",alignItems:"baseline",gap:6}}>
+                <span style={{fontFamily:"Crimson Pro,serif",fontSize:12,color:"var(--muted2)"}}>=</span>
+                <span style={{fontFamily:"'Cinzel Decorative',serif",fontSize:32,color:rollPopup.crit?"#ffe86a":"var(--gold2)",fontWeight:700,lineHeight:1}}>{rollPopup.result}</span>
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       {/* ── Top header bar ── */}
-      <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:12,padding:"8px 12px",background:"var(--card)",border:"1px solid var(--border)",borderRadius:8}}>
-        <div style={{width:72,height:72,borderRadius:8,background:"rgba(201,168,76,0.08)",border:"1px solid var(--border2)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:32,flexShrink:0,overflow:"hidden"}}>
-          {form.avatar
-            ? <img src={form.avatar} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>
-            : "🕵️"}
-        </div>
-        <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:"3px 16px",flex:1,minWidth:0}}>
-          {/* PERSONAGEM */}
-          <div>
-            <div style={{fontFamily:"Cinzel,serif",fontSize:8,color:"var(--muted2)",letterSpacing:2,textTransform:"uppercase",marginBottom:2}}>Personagem</div>
+      <div style={{
+        marginBottom:12, borderRadius:10, overflow:"hidden",
+        background:"linear-gradient(105deg, rgba(14,11,20,0.98) 0%, rgba(20,16,30,0.96) 60%, rgba(12,10,18,0.98) 100%)",
+        border:"1px solid rgba(201,168,76,0.18)",
+        boxShadow:"0 4px 24px rgba(0,0,0,0.5)",
+        position:"relative",
+      }}>
+        {/* Decorative gold line top */}
+        <div style={{position:"absolute",top:0,left:0,right:0,height:2,background:"linear-gradient(90deg,transparent,rgba(201,168,76,0.5) 30%,rgba(201,168,76,0.5) 70%,transparent)"}}/>
+        {/* Glow behind avatar */}
+        <div style={{position:"absolute",top:0,left:0,width:180,height:"100%",background:"radial-gradient(ellipse at 20% 50%, rgba(201,168,76,0.07) 0%, transparent 70%)",pointerEvents:"none"}}/>
+
+        <div style={{display:"flex",alignItems:"center",gap:0,padding:"18px 20px",position:"relative"}}>
+
+          {/* Avatar */}
+          <div onClick={()=>avatarInputRef.current?.click()} title="Trocar foto"
+            style={{width:90,height:90,borderRadius:10,flexShrink:0,overflow:"hidden",cursor:"pointer",position:"relative",
+              border:"2px solid rgba(201,168,76,0.4)",
+              boxShadow:"0 0 0 1px rgba(201,168,76,0.1), 0 4px 20px rgba(0,0,0,0.6)",
+              background:"rgba(201,168,76,0.06)",
+              display:"flex",alignItems:"center",justifyContent:"center",fontSize:38,
+            }}
+            onMouseEnter={e=>{ const ov=e.currentTarget.querySelector('.av-ov'); if(ov) ov.style.opacity=1; }}
+            onMouseLeave={e=>{ const ov=e.currentTarget.querySelector('.av-ov'); if(ov) ov.style.opacity=0; }}
+          >
+            {form.avatar ? <img src={form.avatar} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/> : "🕵️"}
+            <div className="av-ov" style={{position:"absolute",inset:0,background:"rgba(0,0,0,0.6)",display:"flex",alignItems:"center",justifyContent:"center",opacity:0,transition:"opacity 0.2s"}}>
+              <svg width={22} height={22} viewBox="0 0 24 24" fill="none" stroke="rgba(201,168,76,0.9)" strokeWidth="1.8"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+            </div>
+            <input ref={avatarInputRef} type="file" accept="image/*" style={{display:"none"}} onChange={handleAvatarFile}/>
+          </div>
+
+          {/* Name + fields */}
+          <div style={{flex:1,minWidth:0,paddingLeft:20}}>
+            {/* Character name — prominent */}
             <input
-              value={form.personagem}
-              onChange={e=>{ const f={...form,personagem:e.target.value}; setForm(f); }}
-              placeholder="—"
+              value={form.personagem} placeholder="Nome do Personagem"
+              onChange={e=>setForm(f=>({...f,personagem:e.target.value}))}
               style={{
-                width:"100%", boxSizing:"border-box",
-                background:"transparent", border:"none", borderBottom:"1px solid transparent",
-                fontFamily:"Cinzel,serif", fontSize:13, color:"var(--gold)",
-                outline:"none", padding:"1px 0", cursor:"text",
-                transition:"border-color 0.2s",
+                display:"block", width:"100%", boxSizing:"border-box",
+                background:"transparent", border:"none", outline:"none",
+                fontFamily:"'Cinzel Decorative',serif", fontSize:22, fontWeight:700,
+                letterSpacing:2, lineHeight:1.1, marginBottom:10,
+                background:"linear-gradient(135deg,#c9a84c,#e8c96d,#c9a84c)",
+                WebkitBackgroundClip:"text", WebkitTextFillColor:"transparent", backgroundClip:"text",
+                cursor:"text",
               }}
-              onFocus={e=>e.target.style.borderBottomColor="rgba(201,168,76,0.5)"}
-              onBlur={e=>e.target.style.borderBottomColor="transparent"}
             />
-          </div>
-          {/* JOGADOR */}
-          <div>
-            <div style={{fontFamily:"Cinzel,serif",fontSize:8,color:"var(--muted2)",letterSpacing:2,textTransform:"uppercase",marginBottom:2}}>Jogador</div>
-            <input
-              value={form.jogador}
-              onChange={e=>{ const f={...form,jogador:e.target.value}; setForm(f); }}
-              placeholder="—"
-              style={{
-                width:"100%", boxSizing:"border-box",
-                background:"transparent", border:"none", borderBottom:"1px solid transparent",
-                fontFamily:"Cinzel,serif", fontSize:13, color:"var(--gold)",
-                outline:"none", padding:"1px 0", cursor:"text",
-                transition:"border-color 0.2s",
-              }}
-              onFocus={e=>e.target.style.borderBottomColor="rgba(201,168,76,0.5)"}
-              onBlur={e=>e.target.style.borderBottomColor="transparent"}
-            />
-          </div>
-          {/* ORIGEM */}
-          <div>
-            <div style={{fontFamily:"Cinzel,serif",fontSize:8,color:"var(--muted2)",letterSpacing:2,textTransform:"uppercase",marginBottom:2}}>Origem</div>
-            <select
-              value={origem?.id || ""}
-              onChange={e=>{ const o=ORIGENS.find(o=>o.id===e.target.value)||null; setOrigem(o); }}
-              style={{
-                width:"100%", background:"transparent", border:"none",
-                borderBottom:"1px solid transparent",
-                fontFamily:"Cinzel,serif", fontSize:13, color:"var(--gold)",
-                outline:"none", padding:"1px 0", cursor:"pointer",
-                transition:"border-color 0.2s", appearance:"none",
-              }}
-              onFocus={e=>e.target.style.borderBottomColor="rgba(201,168,76,0.5)"}
-              onBlur={e=>e.target.style.borderBottomColor="transparent"}
-            >
-              <option value="" style={{background:"#1a1a2e",color:"#aaa"}}>—</option>
-              {ORIGENS.map(o=>(
-                <option key={o.id} value={o.id} style={{background:"#1a1a2e",color:"var(--gold)"}}>{o.name}</option>
+            {/* Info fields row */}
+            <div style={{display:"flex",alignItems:"center",gap:0,flexWrap:"wrap"}}>
+              {[
+                { label:"Jogador", node:
+                  <input value={form.jogador||""} onChange={e=>setForm(f=>({...f,jogador:e.target.value}))} placeholder="—"
+                    style={{background:"transparent",border:"none",outline:"none",fontFamily:"Cinzel,serif",fontSize:13,color:"rgba(232,201,109,0.9)",width:"100%",cursor:"text"}}
+                    onFocus={e=>e.target.style.color="var(--gold)"} onBlur={e=>e.target.style.color="rgba(232,201,109,0.9)"}/>
+                },
+                { label:"Origem", node:
+                  <select value={origem?.id||""} onChange={e=>setOrigem(ORIGENS.find(o=>o.id===e.target.value)||null)}
+                    style={{background:"transparent",border:"none",outline:"none",fontFamily:"Cinzel,serif",fontSize:13,color:"rgba(232,201,109,0.9)",width:"100%",cursor:"pointer",appearance:"none"}}>
+                    <option value="" style={{background:"#111"}}>—</option>
+                    {ORIGENS.map(o=><option key={o.id} value={o.id} style={{background:"#111"}}>{o.name}</option>)}
+                  </select>
+                },
+                { label:"Classe", node:
+                  <select value={classe?.id||""} onChange={e=>setClasse(CLASSES.find(c=>c.id===e.target.value)||null)}
+                    style={{background:"transparent",border:"none",outline:"none",fontFamily:"Cinzel,serif",fontSize:13,color:"rgba(232,201,109,0.9)",width:"100%",cursor:"pointer",appearance:"none"}}>
+                    <option value="" style={{background:"#111"}}>—</option>
+                    {CLASSES.map(c=><option key={c.id} value={c.id} style={{background:"#111"}}>{c.name}</option>)}
+                  </select>
+                },
+              ].map(({label,node},i)=>(
+                <div key={label} style={{display:"flex",alignItems:"center",gap:0}}>
+                  {i>0 && <div style={{width:1,height:28,background:"rgba(201,168,76,0.18)",margin:"0 14px"}}/>}
+                  <div style={{minWidth:90}}>
+                    <div style={{fontFamily:"Cinzel,serif",fontSize:8,letterSpacing:2,color:"rgba(201,168,76,0.85)",textTransform:"uppercase",marginBottom:4}}>{label}</div>
+                    {node}
+                  </div>
+                </div>
               ))}
-            </select>
+            </div>
           </div>
-          {/* CLASSE */}
-          <div>
-            <div style={{fontFamily:"Cinzel,serif",fontSize:8,color:"var(--muted2)",letterSpacing:2,textTransform:"uppercase",marginBottom:2}}>Classe</div>
-            <select
-              value={classe?.id || ""}
-              onChange={e=>{ const c=CLASSES.find(c=>c.id===e.target.value)||null; setClasse(c); }}
-              style={{
-                width:"100%", background:"transparent", border:"none",
-                borderBottom:"1px solid transparent",
-                fontFamily:"Cinzel,serif", fontSize:13, color:"var(--gold)",
-                outline:"none", padding:"1px 0", cursor:"pointer",
-                transition:"border-color 0.2s", appearance:"none",
-              }}
-              onFocus={e=>e.target.style.borderBottomColor="rgba(201,168,76,0.5)"}
-              onBlur={e=>e.target.style.borderBottomColor="transparent"}
-            >
-              <option value="" style={{background:"#1a1a2e",color:"#aaa"}}>—</option>
-              {CLASSES.map(c=>(
-                <option key={c.id} value={c.id} style={{background:"#1a1a2e",color:"var(--gold)"}}>{c.name}</option>
-              ))}
-            </select>
-          </div>
+
+          {/* Voltar */}
+          <button onClick={onBack} title="Voltar para fichas"
+            style={{flexShrink:0,marginLeft:16,display:"flex",alignItems:"center",gap:6,
+              background:"rgba(201,168,76,0.06)",border:"1px solid rgba(201,168,76,0.22)",
+              borderRadius:8,cursor:"pointer",padding:"8px 16px",
+              fontFamily:"Cinzel,serif",fontSize:9,letterSpacing:2,color:"rgba(201,168,76,0.7)",
+              textTransform:"uppercase",transition:"all 0.2s",whiteSpace:"nowrap"}}
+            onMouseEnter={e=>{e.currentTarget.style.background="rgba(201,168,76,0.12)";e.currentTarget.style.borderColor="rgba(201,168,76,0.45)";e.currentTarget.style.color="var(--gold)";}}
+            onMouseLeave={e=>{e.currentTarget.style.background="rgba(201,168,76,0.06)";e.currentTarget.style.borderColor="rgba(201,168,76,0.22)";e.currentTarget.style.color="rgba(201,168,76,0.7)";}}>
+            <svg width={12} height={12} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+            Voltar
+          </button>
         </div>
-        <button onClick={onBack} className="btn-ghost" style={{fontSize:8,padding:"5px 12px",flexShrink:0}}>← Voltar</button>
+        {/* Decorative gold line bottom */}
+        <div style={{height:1,background:"linear-gradient(90deg,transparent,rgba(201,168,76,0.25) 30%,rgba(201,168,76,0.25) 70%,transparent)"}}/>
       </div>
 
       {/* ── Main 3-col layout ── */}
@@ -4717,9 +8392,26 @@ function FullSheet({ character, onBack, onUpdate }) {
         <div style={{display:"flex",flexDirection:"column",gap:10}}>
 
           {/* Attribute diagram */}
-          <div style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:8,padding:"10px 6px 14px",overflow:"hidden"}}>
-            <div style={{fontFamily:"Cinzel,serif",fontSize:9,letterSpacing:2,color:"var(--muted2)",textTransform:"uppercase",textAlign:"center",marginBottom:4}}>Número: editar · Círculo: rolar</div>
-            <AttrDiagram attrs={attrs} onRoll={handleAttrRoll} onEdit={handleAttrEdit}/>
+          <div style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:8,padding:"10px 6px 14px",overflow:"hidden",position:"relative"}}>
+            <button onClick={()=>setAttrEditMode(v=>!v)}
+              title={attrEditMode ? "Confirmar edição" : "Editar atributos"}
+              style={{
+                position:"absolute",top:8,right:8,zIndex:2,
+                background:attrEditMode?"rgba(201,168,76,0.15)":"none",
+                border:attrEditMode?"1px solid rgba(201,168,76,0.5)":"1px solid transparent",
+                borderRadius:6,cursor:"pointer",padding:"4px 6px",
+                color:attrEditMode?"var(--gold)":"var(--muted2)",
+                display:"flex",alignItems:"center",transition:"all 0.2s",
+              }}
+              onMouseEnter={e=>{if(!attrEditMode){e.currentTarget.style.color="var(--gold)";e.currentTarget.style.borderColor="rgba(201,168,76,0.3)";}}}
+              onMouseLeave={e=>{if(!attrEditMode){e.currentTarget.style.color="var(--muted2)";e.currentTarget.style.borderColor="transparent";}}}
+            >
+              {attrEditMode
+                ? <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                : <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+              }
+            </button>
+            <AttrDiagram attrs={attrs} onRoll={handleAttrRoll} onEdit={attrEditMode ? handleAttrEdit : null}/>
             {/* NEX + PD/turno + Deslocamento */}
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:5,marginTop:10,padding:"0 8px"}}>
               {/* NEX — clicável */}
@@ -4921,111 +8613,540 @@ function FullSheet({ character, onBack, onUpdate }) {
         {/* ════ RIGHT — Combate / Tabs ════ */}
         <div style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:8,display:"flex",flexDirection:"column"}}>
           {/* Tab bar */}
-          <div style={{display:"flex",borderBottom:"1px solid var(--border)",background:"rgba(201,168,76,0.03)"}}>
-            {tabs.map(t=>(
-              <button key={t} onClick={()=>setActiveTab(t)} style={{
-                flex:1,padding:"11px 2px",background:"none",border:"none",cursor:"pointer",
-                fontFamily:"Cinzel,serif",fontSize:9,letterSpacing:1,textTransform:"uppercase",
-                color:activeTab===t?"var(--gold)":"var(--muted2)",
-                borderBottom:activeTab===t?"2px solid var(--gold)":"2px solid transparent",
-                marginBottom:-1,transition:"all 0.2s",
-              }}>{t}</button>
-            ))}
+          <div style={{display:"flex",borderBottom:"1px solid var(--border)",background:"rgba(0,0,0,0.25)",alignItems:"center"}}>
+            {(()=>{
+              const TICONS = {
+                combate:     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M14.5 17.5L3 6V3h3l11.5 11.5"/><path d="M13 19l6-6"/><path d="M16 16l4 4"/><path d="M19 21l2-2"/></svg>,
+                poderes:     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>,
+                habilidades: <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>,
+                rituais:     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 8v8M8 12h8"/></svg>,
+                "inventário":<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>,
+                "descrição": <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/></svg>,
+              };
+              const TLBLS = { combate:"Combate", poderes:"Poderes", habilidades:"Skills", rituais:"Rituais", "inventário":"Itens", "descrição":"Diário" };
+              return tabs.map(t=>(
+                <button key={t} onClick={()=>setActiveTab(t)} style={{
+                  flex:1,padding:"10px 2px 9px",background:"none",border:"none",cursor:"pointer",
+                  display:"flex",flexDirection:"column",alignItems:"center",gap:3,
+                  fontFamily:"Cinzel,serif",fontSize:7.5,letterSpacing:0.8,textTransform:"uppercase",
+                  color:activeTab===t?"var(--gold)":"rgba(255,255,255,0.28)",
+                  borderBottom:activeTab===t?"2px solid var(--gold)":"2px solid transparent",
+                  marginBottom:-1,transition:"all 0.18s",
+                  background:activeTab===t?"rgba(201,168,76,0.04)":"none",
+                }}
+                  onMouseEnter={e=>{if(activeTab!==t)e.currentTarget.style.color="rgba(255,255,255,0.55)";}}
+                  onMouseLeave={e=>{if(activeTab!==t)e.currentTarget.style.color="rgba(255,255,255,0.28)";}}>
+                  <span style={{opacity:activeTab===t?1:0.55}}>{TICONS[t]}</span>
+                  {TLBLS[t]||t}
+                </button>
+              ));
+            })()}
+            {onTogglePanel && (
+              <button onClick={onTogglePanel} title={showPanel ? "Fechar histórico de dados" : "Histórico de dados da campanha"}
+                style={{flexShrink:0,background:showPanel?"rgba(124,58,237,0.18)":"none",
+                  border:showPanel?"1px solid rgba(124,58,237,0.5)":"1px solid transparent",
+                  borderRadius:6,cursor:"pointer",
+                  padding:"5px 8px",color:showPanel?"#a78bfa":"var(--muted2)",display:"flex",alignItems:"center",transition:"all 0.2s",margin:"4px 0 4px 4px"}}
+                onMouseEnter={e=>{ if(!showPanel){ e.currentTarget.style.color="#a78bfa"; e.currentTarget.style.background="rgba(124,58,237,0.1)"; }}}
+                onMouseLeave={e=>{ if(!showPanel){ e.currentTarget.style.color="var(--muted2)"; e.currentTarget.style.background="none"; }}}
+              >
+                <svg width={15} height={15} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                  <polygon points="12 2 22 8.5 22 15.5 12 22 2 15.5 2 8.5 12 2"/>
+                  <line x1="12" y1="2" x2="12" y2="22"/>
+                  <path d="M2 8.5l10 7 10-7"/>
+                </svg>
+              </button>
+            )}
+            <button onClick={()=>setShowSettings(true)} title="Configurações da ficha"
+              style={{marginLeft: onTogglePanel ? 0 : "auto",flexShrink:0,background:"none",border:"none",cursor:"pointer",
+                padding:"8px 10px",color:"var(--muted2)",display:"flex",alignItems:"center",transition:"color 0.2s"}}
+              onMouseEnter={e=>e.currentTarget.style.color="var(--gold)"}
+              onMouseLeave={e=>e.currentTarget.style.color="var(--muted2)"}
+            >
+              <svg width={15} height={15} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+              </svg>
+            </button>
           </div>
 
           <div style={{padding:14}}>
 
             {/* ── COMBATE ── */}
             {activeTab==="combate" && (
-              <div style={{display:"flex",flexDirection:"column",gap:12}}>
-                {/* Filter + dice input */}
-                <div style={{display:"flex",gap:8}}>
-                  <input placeholder="Filtrar ataques..." style={{flex:1,fontSize:12,padding:"7px 10px"}}/>
-                </div>
-                <div style={{display:"flex",gap:8}}>
-                  <input value={diceInput} onChange={e=>setDiceInput(e.target.value)}
-                    onKeyDown={e=>e.key==="Enter"&&rollFreeInput()}
-                    placeholder="Rolar dados  (ex: 2d6+3)"
-                    style={{flex:1,fontSize:12,padding:"7px 10px"}}/>
-                  <button onClick={rollFreeInput} style={{padding:"0 12px",background:"var(--card2)",border:"1px solid var(--border2)",borderRadius:5,color:"var(--gold)",cursor:"pointer",fontSize:16}}>⬡</button>
-                </div>
-                {/* Quick attr roll buttons */}
-                <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
-                  {Object.entries(attrs).map(([k,v])=>(
-                    <button key={k} onClick={()=>handleAttrRoll(k)} style={{padding:"5px 11px",background:"rgba(201,168,76,0.08)",border:"1px solid rgba(201,168,76,0.25)",borderRadius:4,cursor:"pointer",fontFamily:"Cinzel,serif",fontSize:10,color:"var(--gold)",letterSpacing:1}}>{k}({v===0?"2↓":`${v}↑`})</button>
-                  ))}
+              <div style={{display:"flex",flexDirection:"column"}}>
+
+                {/* ── Lançar Dados ── */}
+                <div style={{padding:"14px 16px",borderBottom:"1px solid rgba(255,255,255,0.05)"}}>
+                  <div style={{fontFamily:"Cinzel,serif",fontSize:8,letterSpacing:2.5,color:"rgba(201,168,76,0.55)",textTransform:"uppercase",marginBottom:9}}>Lançar Dados</div>
+                  <div style={{display:"flex",gap:7}}>
+                    <input value={diceInput} onChange={e=>setDiceInput(e.target.value)}
+                      onKeyDown={e=>e.key==="Enter"&&rollFreeInput()}
+                      placeholder="2d6+3 · 1d20 · 4d4..."
+                      style={{flex:1,background:"rgba(0,0,0,0.35)",border:"1px solid rgba(255,255,255,0.1)",borderRadius:6,color:"var(--text)",fontFamily:"Cinzel,serif",fontSize:12,padding:"9px 12px",outline:"none",transition:"border-color 0.18s"}}
+                      onFocus={e=>e.target.style.borderColor="rgba(201,168,76,0.45)"}
+                      onBlur={e=>e.target.style.borderColor="rgba(255,255,255,0.1)"}/>
+                    <button onClick={rollFreeInput} style={{padding:"0 16px",background:"rgba(201,168,76,0.12)",border:"1px solid rgba(201,168,76,0.35)",borderRadius:6,color:"var(--gold)",cursor:"pointer",fontFamily:"Cinzel,serif",fontSize:8,letterSpacing:2,textTransform:"uppercase",transition:"all 0.18s",whiteSpace:"nowrap"}}
+                      onMouseEnter={e=>{e.currentTarget.style.background="rgba(201,168,76,0.22)";e.currentTarget.style.borderColor="rgba(201,168,76,0.6)";}}
+                      onMouseLeave={e=>{e.currentTarget.style.background="rgba(201,168,76,0.12)";e.currentTarget.style.borderColor="rgba(201,168,76,0.35)";}}>
+                      Rolar
+                    </button>
+                  </div>
                 </div>
 
-                {/* Novo Ataque btn */}
-                <button onClick={()=>setShowNewAtk(a=>!a)} style={{padding:"8px",background:"rgba(201,168,76,0.06)",border:"1px solid rgba(201,168,76,0.25)",borderRadius:5,color:"var(--gold)",cursor:"pointer",fontFamily:"Cinzel,serif",fontSize:10,letterSpacing:2,textTransform:"uppercase",width:"100%"}}>
-                  {showNewAtk?"✕ Cancelar":"+ Novo Ataque"}
-                </button>
+                {/* ── Testes Rápidos ── */}
+                <div style={{padding:"12px 16px",borderBottom:"1px solid rgba(255,255,255,0.05)"}}>
+                  <div style={{fontFamily:"Cinzel,serif",fontSize:8,letterSpacing:2.5,color:"rgba(255,255,255,0.22)",textTransform:"uppercase",marginBottom:9}}>Testes Rápidos</div>
+                  <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:5}}>
+                    {[
+                      {key:"AGI",label:"AGI",color:"#60a5fa"},
+                      {key:"FOR",label:"FOR",color:"#f87171"},
+                      {key:"INT",label:"INT",color:"#a78bfa"},
+                      {key:"PRE",label:"PRE",color:"#34d399"},
+                      {key:"VIG",label:"VIG",color:"#fb923c"},
+                    ].map(({key,label,color})=>(
+                      <button key={key} onClick={()=>handleAttrRoll(key)} title={`Rolar ${key} (${attrs[key]||0}d20)`}
+                        style={{display:"flex",flexDirection:"column",alignItems:"center",padding:"9px 4px 8px",gap:4,background:"rgba(255,255,255,0.025)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:7,cursor:"pointer",transition:"all 0.18s"}}
+                        onMouseEnter={e=>{e.currentTarget.style.background=`${color}18`;e.currentTarget.style.borderColor=`${color}45`;e.currentTarget.style.transform="translateY(-2px)";}}
+                        onMouseLeave={e=>{e.currentTarget.style.background="rgba(255,255,255,0.025)";e.currentTarget.style.borderColor="rgba(255,255,255,0.07)";e.currentTarget.style.transform="none";}}>
+                        <span style={{fontFamily:"'Cinzel Decorative',serif",fontSize:17,fontWeight:700,color,lineHeight:1}}>{attrs[key]??0}</span>
+                        <span style={{fontFamily:"Cinzel,serif",fontSize:7,letterSpacing:1,color:"rgba(255,255,255,0.32)",textTransform:"uppercase"}}>{label}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
 
-                {/* New attack form */}
-                {showNewAtk && (
-                  <div style={{background:"var(--card2)",border:"1px solid var(--border2)",borderRadius:6,padding:12,display:"flex",flexDirection:"column",gap:8}}>
-                    <input value={newAtk.name} onChange={e=>setNewAtk(a=>({...a,name:e.target.value}))} placeholder="Nome do ataque" style={{fontSize:13,padding:"6px 10px"}}/>
-                    <div style={{display:"flex",gap:8}}>
-                      <input value={newAtk.dmg} onChange={e=>setNewAtk(a=>({...a,dmg:e.target.value}))} placeholder="Dano (ex: 1d6+FOR)" style={{flex:1,fontSize:13,padding:"6px 10px"}}/>
-                      <input value={newAtk.crit} onChange={e=>setNewAtk(a=>({...a,crit:e.target.value}))} placeholder="Crítico" style={{width:60,fontSize:13,padding:"6px 10px"}}/>
+                {/* ── Ataques ── */}
+                <div style={{padding:"12px 16px",display:"flex",flexDirection:"column",gap:8}}>
+                  <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+                    <span style={{fontFamily:"Cinzel,serif",fontSize:8,letterSpacing:2.5,color:"rgba(255,255,255,0.22)",textTransform:"uppercase"}}>Ataques</span>
+                    <button onClick={()=>setAtkModal({mode:"create",idx:null,data:{name:"Novo Ataque",dmg:"1d4",crit:"20",mult:"2",bonus:"0",type:"Balístico",range:"-",skill:"Luta",attrDmg:"Força",extraDmg:[],img:"",notes:""}})}
+                      style={{display:"flex",alignItems:"center",gap:4,padding:"4px 11px",background:"rgba(201,168,76,0.08)",border:"1px solid rgba(201,168,76,0.28)",borderRadius:20,cursor:"pointer",fontFamily:"Cinzel,serif",fontSize:8,letterSpacing:1,color:"var(--gold)",transition:"all 0.18s"}}
+                      onMouseEnter={e=>e.currentTarget.style.opacity="0.75"}
+                      onMouseLeave={e=>e.currentTarget.style.opacity="1"}>
+                      <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                      Novo
+                    </button>
+                  </div>
+
+                  {/* Lista de ataques */}
+                  {attacks.length===0 ? (
+                    <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:8,padding:"22px 0 10px"}}>
+                      <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.1)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M14.5 17.5L3 6V3h3l11.5 11.5"/><path d="M13 19l6-6"/><path d="M16 16l4 4"/><path d="M19 21l2-2"/>
+                      </svg>
+                      <span style={{fontFamily:"Cinzel,serif",fontSize:8,letterSpacing:2,color:"rgba(255,255,255,0.18)",textTransform:"uppercase"}}>Nenhum Ataque</span>
                     </div>
-                    <button className="btn-gold" style={{padding:"8px",fontSize:10,letterSpacing:2}} onClick={()=>{
-                      if(newAtk.name){ setAttacks(a=>[...a,{...newAtk}]); setNewAtk({name:"",dmg:"",crit:"x2"}); setShowNewAtk(false); }
-                    }}>Adicionar</button>
+                  ) : (
+                    <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                      {attacks.map((atk,i)=>{
+                        const expanded = expandedAtkIdx === i;
+                        const extraStr = (atk.extraDmg||[]).map(e=>`${e.dmg} ${e.type}`).join(", ");
+                        return (
+                          <div key={i} style={{background:"var(--card2)",border:"1px solid var(--border)",borderRadius:6,overflow:"hidden"}}>
+                            {/* Header row */}
+                            <div style={{display:"flex",alignItems:"center",padding:"10px 12px",gap:10,cursor:"pointer",borderBottom:expanded?"1px solid var(--border)":"none"}}
+                              onClick={()=>setExpandedAtkIdx(expanded?null:i)}>
+                              <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.35)" strokeWidth="3" strokeLinecap="round"
+                                style={{transition:"transform 0.2s",transform:expanded?"rotate(0deg)":"rotate(-90deg)",flexShrink:0}}>
+                                <polyline points="6 9 12 15 18 9"/>
+                              </svg>
+                              <div style={{flex:1}}>
+                                <div style={{fontFamily:"Cinzel,serif",fontSize:12,color:"var(--text)",fontWeight:700}}>{atk.name}</div>
+                                <div style={{fontFamily:"Cinzel,serif",fontSize:9,color:"rgba(255,255,255,0.4)",marginTop:2}}>
+                                  Dano: {atk.dmg||"—"}&nbsp;&nbsp;Crítico: x{atk.mult||"2"}
+                                </div>
+                              </div>
+                              {/* Dice roll icon */}
+                              <button onClick={e=>{
+                                e.stopPropagation();
+                                // Teste de ataque: d20 pool baseado no atributo do ataque
+                                const ATTR_MAP={"Agilidade":"AGI","Força":"FOR","Intelecto":"INT","Presença":"PRE","Vigor":"VIG","Nenhum":null};
+                                const attrKey=ATTR_MAP[atk.attrDmg]||null;
+                                const attrVal=attrKey ? (attrs[attrKey]||1) : 1;
+                                const poolSize=attrVal===0?2:attrVal;
+                                const atkRolls=Array.from({length:poolSize},()=>Math.floor(Math.random()*20)+1);
+                                const atkResult=attrVal===0?Math.min(...atkRolls):Math.max(...atkRolls);
+                                const atkBonus=parseInt(atk.bonus||"0");
+                                const critThreshold=parseInt(atk.crit||"20");
+                                const crit=atkResult>=critThreshold;
+                                // Calcula dano (crítico = resultado × multiplicador)
+                                const dm=(atk.dmg||"").match(/(\d+)?[dD](\d+)([+-]\d+)?/);
+                                let dmgRolls=[],dmgTotal=0;
+                                if(dm){
+                                  const dn=parseInt(dm[1]||"1"),dd=parseInt(dm[2]),dmod=parseInt(dm[3]||"0");
+                                  dmgRolls=Array.from({length:dn},()=>Math.floor(Math.random()*dd)+1);
+                                  const base=dmgRolls.reduce((a,b)=>a+b,0)+dmod;
+                                  dmgTotal=crit ? base*parseInt(atk.mult||"2") : base;
+                                }
+                                setRollPopup({
+                                  type:"attack",
+                                  name:atk.name,
+                                  skill:atk.skill||"",
+                                  attrKey:attrKey||"",
+                                  rolls:atkRolls,
+                                  ataque:atkResult+atkBonus,
+                                  dmgRolls,
+                                  dmgTotal,
+                                  worst:attrVal===0,
+                                  crit,
+                                  dice:"D20"
+                                });
+                              }} style={{background:"none",border:"none",cursor:"pointer",padding:4,color:"rgba(255,255,255,0.4)",transition:"color 0.18s"}}
+                                onMouseEnter={e=>e.currentTarget.style.color="#c9a84c"}
+                                onMouseLeave={e=>e.currentTarget.style.color="rgba(255,255,255,0.4)"}>
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                                  <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
+                                </svg>
+                              </button>
+                            </div>
+                            {/* Expanded details */}
+                            {expanded && (
+                              <div style={{padding:"10px 14px",display:"flex",flexDirection:"column",gap:4}}>
+                                {atk.img && (
+                                  <img src={atk.img} alt="" style={{width:64,height:64,objectFit:"cover",borderRadius:4,border:"1px solid rgba(255,255,255,0.1)",marginBottom:4}}/>
+                                )}
+                                {[
+                                  ["Ataque Bônus", atk.bonus||"0"],
+                                  ["Tipo de Dano", atk.type||"—"],
+                                  extraStr?["Dano Extra", extraStr]:null,
+                                  ["Alcance", atk.range||"—"],
+                                  ["Perícia", atk.skill||"—"],
+                                  ["Atributo Dano", atk.attrDmg||"—"],
+                                ].filter(Boolean).map(([label,val])=>(
+                                  <div key={label} style={{display:"flex",gap:6,fontFamily:"Cinzel,serif",fontSize:10}}>
+                                    <span style={{color:"#7c5fbf",minWidth:110}}>{label}:</span>
+                                    <span style={{color:"var(--text)"}}>{val}</span>
+                                  </div>
+                                ))}
+                                {atk.notes && (
+                                  <div style={{marginTop:8,paddingTop:8,borderTop:"1px solid rgba(255,255,255,0.07)",fontFamily:"Crimson Pro,serif",fontSize:13,color:"rgba(255,255,255,0.55)",lineHeight:1.7}}
+                                    dangerouslySetInnerHTML={{__html: atk.notes.replace(/<strong>/g,'<strong style="color:#a78bfa;font-weight:700">')}}/>
+                                )}
+                                <div style={{display:"flex",justifyContent:"space-between",marginTop:8,paddingTop:8,borderTop:"1px solid rgba(255,255,255,0.07)"}}>
+                                  <button onClick={()=>setAttacks(a=>a.filter((_,j)=>j!==i))}
+                                    style={{background:"none",border:"none",cursor:"pointer",fontFamily:"Cinzel,serif",fontSize:10,color:"#f87171",padding:0}}>
+                                    Remover
+                                  </button>
+                                  <button onClick={()=>setAtkModal({mode:"edit",idx:i,data:{...atk}})}
+                                    style={{background:"none",border:"none",cursor:"pointer",fontFamily:"Cinzel,serif",fontSize:10,color:"#4ade80",padding:0}}>
+                                    Editar
+                                  </button>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* ── PODERES ── */}
+            {activeTab==="poderes" && (
+              <div style={{display:"flex",flexDirection:"column",gap:20}}>
+
+                {/* Poder de Origem */}
+                {origem && (
+                  <div>
+                    <div style={{fontFamily:"Cinzel,serif",fontSize:9,letterSpacing:2,color:"var(--gold)",textTransform:"uppercase",marginBottom:10}}>
+                      Poder de Origem · {origem.name}
+                    </div>
+                    <div style={{fontFamily:"Cinzel,serif",fontSize:12,color:"var(--text)",marginBottom:4}}>{origem.power.split(".")[0]}.</div>
+                    <div style={{fontFamily:"Crimson Pro,serif",fontSize:13,color:"var(--muted2)",lineHeight:1.7,marginBottom:8}}>
+                      {origem.power.split(".").slice(1).join(".").trim()}
+                    </div>
+                    <div style={{fontFamily:"Cinzel,serif",fontSize:9,color:"var(--muted)",letterSpacing:1}}>
+                      Perícias: {origem.skills.join(" · ")}
+                    </div>
                   </div>
                 )}
 
-                {/* Attacks list */}
-                {attacks.length===0 ? (
-                  <div style={{textAlign:"center",padding:"20px 0",fontFamily:"Crimson Pro,serif",fontSize:14,color:"var(--muted)",fontStyle:"italic"}}>Você ainda não possui ataques</div>
-                ) : attacks.map((atk,i)=>(
-                  <div key={i} style={{background:"var(--card2)",border:"1px solid var(--border)",borderRadius:6,padding:"10px 14px",display:"flex",alignItems:"center",gap:10}}>
-                    <div style={{width:22,height:22,background:"rgba(122,95,212,0.15)",border:"1px solid rgba(122,95,212,0.3)",borderRadius:4,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,cursor:"pointer"}}
-                      onClick={()=>{
-                        const m=atk.dmg.match(/(\d+)?[dD](\d+)([+-]\d+)?/);
-                        if(m){const n=parseInt(m[1]||"1"),d=parseInt(m[2]),mod=parseInt(m[3]||"0");const rolls=Array.from({length:n},()=>Math.floor(Math.random()*d)+1);const crit=d===20&&rolls.includes(20);setRollPopup({attr:atk.name,rolls,result:rolls.reduce((a,b)=>a+b,0)+mod,worst:false,crit,dice:`D${d}`});}
-                      }}>
-                      <span style={{fontSize:11,color:"#9b80e8"}}>⬡</span>
-                    </div>
-                    <div style={{flex:1}}>
-                      <div style={{fontFamily:"Cinzel,serif",fontSize:12,color:"var(--text)",marginBottom:2}}>{atk.name}</div>
-                      <div style={{fontFamily:"Crimson Pro,serif",fontSize:12,color:"var(--muted2)"}}>
-                        <span>Dano: <span style={{color:"#9b80e8"}}>{atk.dmg}</span></span>
-                        {atk.crit&&<><span style={{margin:"0 8px",color:"var(--muted)"}}>·</span><span>Crítico: <span style={{color:"#9b80e8"}}>{atk.crit}</span></span></>}
+                {/* Poderes de Classe */}
+                {classe && (() => {
+                  const nexNum = nex === 99 ? 99 : nex;
+                  const baseEarned = (CLASS_BASE_ABILITIES[classe.id] || []).filter(a=>a.nex<=nexNum);
+                  const trailEarned = trilha
+                    ? Object.entries(TRAIL_ABILITIES[trilha.id]||{})
+                        .filter(([n])=>parseInt(n)<=nexNum)
+                        .map(([n,a])=>({...a,nex:parseInt(n),isTrilha:true}))
+                    : [];
+
+                  const all = [
+                    ...baseEarned.map(a=>({...a,isTrilha:false})),
+                    ...trailEarned,
+                  ].sort((a,b)=>a.nex-b.nex||(a.name<b.name?-1:1));
+
+                  const groups = {};
+                  all.forEach(a=>{ if(!groups[a.nex]) groups[a.nex]=[]; groups[a.nex].push(a); });
+
+                  const baseUpcoming = (CLASS_BASE_ABILITIES[classe.id]||[]).filter(a=>a.nex>nexNum);
+                  const nextNex = NEX_STEPS.find(n=>n>nexNum);
+
+                  return (
+                    <div>
+                      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
+                        <div style={{fontFamily:"Cinzel,serif",fontSize:9,letterSpacing:2,color:"var(--gold)",textTransform:"uppercase"}}>
+                          Poderes de {classe.name}
+                        </div>
+                        {nex>=10 && (
+                          <div style={{display:"flex",alignItems:"center",gap:6}}>
+                            <span style={{fontFamily:"Cinzel,serif",fontSize:8,letterSpacing:1,color:"var(--muted)",textTransform:"uppercase"}}>Trilha</span>
+                            <select value={trilha?.id||""}
+                              onChange={e=>{const ts=CLASS_TRAILS[classe.id]||[];setTrilha(ts.find(t=>t.id===e.target.value)||null);}}
+                              style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:4,
+                                color:"var(--text)",fontFamily:"Cinzel,serif",fontSize:9,padding:"4px 8px",
+                                cursor:"pointer",outline:"none"}}>
+                              <option value="" style={{background:"#111"}}>— Escolher —</option>
+                              {(CLASS_TRAILS[classe.id]||[]).map(t=>(
+                                <option key={t.id} value={t.id} style={{background:"#111"}}>{t.name}</option>
+                              ))}
+                            </select>
+                          </div>
+                        )}
                       </div>
+
+                      {Object.entries(groups).map(([nexLvl,abils])=>(
+                        <div key={nexLvl} style={{marginBottom:14}}>
+                          <div style={{fontFamily:"Cinzel,serif",fontSize:8,letterSpacing:1,color:"var(--muted)",textTransform:"uppercase",marginBottom:8,display:"flex",alignItems:"center",gap:8}}>
+                            NEX {nexLvl}%
+                            <div style={{flex:1,height:1,background:"rgba(255,255,255,0.08)"}}/>
+                          </div>
+                          {abils.map((a,i)=>(
+                            <div key={i} style={{marginBottom:10,paddingBottom:10,borderBottom:"1px solid rgba(255,255,255,0.05)"}}>
+                              <div style={{display:"flex",alignItems:"baseline",gap:8,marginBottom:3}}>
+                                <span style={{fontFamily:"Cinzel,serif",fontSize:12,color:a.isTrilha?"#b8a0f0":"var(--text)"}}>{a.name}</span>
+                                {a.cost!=="—"&&<span style={{fontFamily:"Cinzel,serif",fontSize:9,color:"var(--muted)"}}>{a.cost}</span>}
+                                {a.isTrilha&&trilha&&<span style={{fontFamily:"Cinzel,serif",fontSize:8,color:"#9b80e8",letterSpacing:1}}>· {trilha.name}</span>}
+                              </div>
+                              <div style={{fontFamily:"Crimson Pro,serif",fontSize:13,color:"var(--muted2)",lineHeight:1.7}}>{a.desc}</div>
+                            </div>
+                          ))}
+                        </div>
+                      ))}
+
+                      {nextNex && baseUpcoming.filter(a=>a.nex===nextNex).length>0 && (
+                        <div style={{opacity:0.4}}>
+                          <div style={{fontFamily:"Cinzel,serif",fontSize:8,letterSpacing:1,color:"var(--muted)",textTransform:"uppercase",marginBottom:8,display:"flex",alignItems:"center",gap:8}}>
+                            Próximo — NEX {nextNex}%
+                            <div style={{flex:1,height:1,background:"rgba(255,255,255,0.08)"}}/>
+                          </div>
+                          {baseUpcoming.filter(a=>a.nex===nextNex).map((a,i)=>(
+                            <div key={i} style={{marginBottom:6}}>
+                              <span style={{fontFamily:"Cinzel,serif",fontSize:12,color:"var(--muted)"}}>{a.name}</span>
+                              {a.cost!=="—"&&<span style={{fontFamily:"Cinzel,serif",fontSize:9,color:"var(--muted)",marginLeft:8}}>{a.cost}</span>}
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
-                    <button onClick={()=>setAttacks(a=>a.filter((_,j)=>j!==i))} style={{background:"none",border:"none",color:"var(--muted)",cursor:"pointer",fontSize:14,padding:"0 4px"}}>✕</button>
+                  );
+                })()}
+
+                {!classe && !origem && (
+                  <div style={{textAlign:"center",padding:"20px 0",fontFamily:"Crimson Pro,serif",fontSize:13,color:"var(--muted)",fontStyle:"italic"}}>
+                    Nenhuma classe ou origem selecionada.
                   </div>
-                ))}
+                )}
               </div>
             )}
 
             {/* ── HABILIDADES ── */}
             {activeTab==="habilidades" && (
               <div style={{display:"flex",flexDirection:"column",gap:10}}>
-                <div style={{fontFamily:"Cinzel,serif",fontSize:9,letterSpacing:2,color:"var(--gold)",textTransform:"uppercase",marginBottom:4}}>Habilidades — NEX {nex}%</div>
-                {classe && (
-                  <div style={{padding:"10px 14px",background:"rgba(122,95,212,0.08)",border:"1px solid rgba(122,95,212,0.2)",borderRadius:6}}>
-                    <div style={{fontFamily:"Cinzel,serif",fontSize:12,color:"var(--text)",marginBottom:4}}>{classe.icon} {classe.name}</div>
-                    <div style={{fontFamily:"Crimson Pro,serif",fontSize:13,color:"var(--muted2)",lineHeight:1.6,fontStyle:"italic"}}>{classe.bonus}</div>
+                {/* Header: filter + Adicionar */}
+                <div style={{display:"flex",gap:8,alignItems:"center"}}>
+                  <input
+                    value={skillFilter} onChange={e=>setSkillFilter(e.target.value)}
+                    placeholder="Filtrar habilidades"
+                    style={{flex:1,fontSize:12,padding:"7px 10px"}}
+                  />
+                  <button onClick={openSkillModal}
+                    style={{padding:"7px 16px",background:"#7c3aed",border:"1px solid #7c3aed",borderRadius:6,cursor:"pointer",
+                      fontFamily:"Cinzel,serif",fontSize:10,letterSpacing:1,color:"#fff",whiteSpace:"nowrap",transition:"all 0.2s"}}
+                    onMouseEnter={e=>e.currentTarget.style.background="#6d28d9"}
+                    onMouseLeave={e=>e.currentTarget.style.background="#7c3aed"}>
+                    + Adicionar
+                  </button>
+                </div>
+
+                {/* Skills list */}
+                {skills.filter(s=>s.name.toLowerCase().includes(skillFilter.toLowerCase())).length === 0 && !showAddSkill && (
+                  <div style={{textAlign:"center",padding:"20px 0",fontFamily:"Crimson Pro,serif",fontSize:13,color:"var(--muted)",fontStyle:"italic"}}>
+                    {skillFilter ? "Nenhuma habilidade encontrada." : "Nenhuma habilidade adicionada."}
                   </div>
                 )}
-                {origem && (
-                  <div style={{padding:"10px 14px",background:"rgba(201,168,76,0.04)",border:"1px solid rgba(201,168,76,0.12)",borderRadius:6}}>
-                    <div style={{fontFamily:"Cinzel,serif",fontSize:9,color:"var(--muted2)",letterSpacing:1,textTransform:"uppercase",marginBottom:4}}>Poder · {origem.name}</div>
-                    <div style={{fontFamily:"Crimson Pro,serif",fontSize:13,color:"var(--text)",lineHeight:1.65}}>{origem.power}</div>
-                  </div>
-                )}
-                <div style={{fontFamily:"Crimson Pro,serif",fontSize:12,color:"var(--muted)",fontStyle:"italic",marginTop:4}}>Novas habilidades ao aumentar o NEX.</div>
+                {skills
+                  .filter(s=>s.name.toLowerCase().includes(skillFilter.toLowerCase()))
+                  .map(skill=>{
+                    const open = openSkillId === skill.id;
+                    return (
+                      <div key={skill.id} style={{background:"var(--card2)",border:"1px solid var(--border)",borderRadius:6,overflow:"hidden"}}>
+                        {/* Row header */}
+                        <div onClick={()=>setOpenSkillId(open ? null : skill.id)}
+                          style={{display:"flex",alignItems:"center",gap:10,padding:"11px 14px",cursor:"pointer",userSelect:"none"}}>
+                          <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="#7c3aed" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
+                            style={{transition:"transform 0.2s",transform:open?"rotate(0deg)":"rotate(-90deg)",flexShrink:0}}>
+                            <polyline points="6 9 12 15 18 9"/>
+                          </svg>
+                          <span style={{fontFamily:"Cinzel,serif",fontSize:12,color:"var(--text)",flex:1}}>{skill.name}</span>
+                          <button onClick={e=>{e.stopPropagation();setSkills(v=>v.filter(s=>s.id!==skill.id));if(openSkillId===skill.id)setOpenSkillId(null);}}
+                            style={{background:"none",border:"none",color:"var(--muted)",cursor:"pointer",fontSize:14,padding:"0 2px",lineHeight:1}}>✕</button>
+                        </div>
+                        {/* Expanded content */}
+                        {open && (
+                          <div style={{padding:"0 14px 12px",display:"flex",flexDirection:"column",gap:8,borderTop:"1px solid var(--border)"}}>
+                            <div style={{display:"flex",gap:8,paddingTop:10}}>
+                              <select value={skill.type}
+                                onChange={e=>setSkills(v=>v.map(s=>s.id===skill.id?{...s,type:e.target.value}:s))}
+                                style={{background:"var(--card)",border:"1px solid var(--border2)",borderRadius:4,color:"var(--muted2)",fontFamily:"Cinzel,serif",fontSize:10,padding:"5px 8px",cursor:"pointer",outline:"none"}}>
+                                {["passiva","ativa","reação"].map(t=><option key={t} value={t} style={{background:"#111"}}>{t.charAt(0).toUpperCase()+t.slice(1)}</option>)}
+                              </select>
+                              <input value={skill.cost}
+                                onChange={e=>setSkills(v=>v.map(s=>s.id===skill.id?{...s,cost:e.target.value}:s))}
+                                placeholder="Custo (ex: 2 PE)"
+                                style={{flex:1,fontSize:12,padding:"5px 10px"}}/>
+                            </div>
+                            <textarea value={skill.desc}
+                              onChange={e=>setSkills(v=>v.map(s=>s.id===skill.id?{...s,desc:e.target.value}:s))}
+                              placeholder="Descrição da habilidade..."
+                              rows={3}
+                              style={{width:"100%",boxSizing:"border-box",fontSize:13,padding:"7px 10px",fontFamily:"Crimson Pro,serif",lineHeight:1.6,resize:"vertical"}}/>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })
+                }
               </div>
             )}
 
             {/* ── RITUAIS ── */}
             {activeTab==="rituais" && (
-              <div style={{textAlign:"center",padding:"24px 0"}}>
-                <div style={{fontSize:32,marginBottom:10}}>🌀</div>
-                <div style={{fontFamily:"Cinzel,serif",fontSize:10,letterSpacing:2,color:"var(--muted)",textTransform:"uppercase",marginBottom:6}}>Nenhum Ritual</div>
-                <div style={{fontFamily:"Crimson Pro,serif",fontSize:13,color:"var(--muted)",fontStyle:"italic",lineHeight:1.65,maxWidth:260,margin:"0 auto"}}>Rituais custam PE e são aprendidos ao aumentar afinidade paranormal. Ocultistas aprendem com base no Intelecto.</div>
+              <div style={{display:"flex",flexDirection:"column",gap:10}}>
+                {/* Header */}
+                <div style={{display:"flex",gap:8,alignItems:"center"}}>
+                  <div style={{flex:1}}>
+                    <div style={{fontFamily:"Cinzel,serif",fontSize:9,letterSpacing:2,color:"var(--gold)",textTransform:"uppercase"}}>Rituais Conhecidos</div>
+                    {classe?.id==="ocultista" && nex && (
+                      <div style={{fontFamily:"Crimson Pro,serif",fontSize:11,color:"var(--muted)",fontStyle:"italic",marginTop:2}}>
+                        Círculos disponíveis: {nex>=85?"1° – 4°":nex>=55?"1° – 3°":nex>=25?"1° – 2°":"apenas 1°"}
+                      </div>
+                    )}
+                  </div>
+                  <button
+                    onClick={()=>{
+                      const novo={id:Date.now(),name:"Novo Ritual",circulo:1,elemento:"",custo:"",desc:""};
+                      setRituais(r=>[...r,novo]);
+                      setOpenSkillId(`ritual_${novo.id}`);
+                    }}
+                    style={{padding:"7px 14px",background:"rgba(122,95,212,0.12)",border:"1px solid rgba(122,95,212,0.35)",borderRadius:6,cursor:"pointer",
+                      fontFamily:"Cinzel,serif",fontSize:9,letterSpacing:1,color:"#9b80e8",whiteSpace:"nowrap",transition:"all 0.2s"}}
+                    onMouseEnter={e=>e.currentTarget.style.background="rgba(122,95,212,0.22)"}
+                    onMouseLeave={e=>e.currentTarget.style.background="rgba(122,95,212,0.12)"}>
+                    + Ritual
+                  </button>
+                </div>
+
+                {rituais.length===0 ? (
+                  <div style={{textAlign:"center",padding:"20px 0"}}>
+                    <div style={{fontSize:28,marginBottom:8,opacity:0.5}}>🌀</div>
+                    <div style={{fontFamily:"Crimson Pro,serif",fontSize:13,color:"var(--muted)",fontStyle:"italic",lineHeight:1.65}}>
+                      {classe?.id==="ocultista"
+                        ? "Adicione os rituais que seu personagem conhece."
+                        : "Rituais são especializados em ocultistas, mas qualquer agente pode aprender com o poder Transcender."}
+                    </div>
+                  </div>
+                ) : (
+                  <div style={{display:"flex",flexDirection:"column",gap:4}}>
+                    {/* Group by circle */}
+                    {[1,2,3,4].map(circulo=>{
+                      const grupo = rituais.filter(r=>r.circulo===circulo);
+                      if(grupo.length===0) return null;
+                      return (
+                        <div key={circulo}>
+                          <div style={{fontFamily:"Cinzel,serif",fontSize:8,letterSpacing:1,color:"#9b80e8",textTransform:"uppercase",margin:"8px 0 4px",display:"flex",alignItems:"center",gap:6}}>
+                            <span>{circulo}° Círculo</span>
+                            <div style={{flex:1,height:1,background:"rgba(122,95,212,0.15)"}}/>
+                          </div>
+                          {grupo.map((r,idx)=>{
+                            const open = openSkillId===`ritual_${r.id}`;
+                            return (
+                              <div key={r.id} style={{background:"var(--card2)",border:"1px solid rgba(122,95,212,0.2)",borderRadius:6,overflow:"hidden",marginBottom:3}}>
+                                <div onClick={()=>setOpenSkillId(open?null:`ritual_${r.id}`)}
+                                  style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px",cursor:"pointer",userSelect:"none"}}>
+                                  <svg width={13} height={13} viewBox="0 0 24 24" fill="none" stroke="#7c3aed" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
+                                    style={{transition:"transform 0.2s",transform:open?"rotate(0deg)":"rotate(-90deg)",flexShrink:0}}>
+                                    <polyline points="6 9 12 15 18 9"/>
+                                  </svg>
+                                  <span style={{fontFamily:"Cinzel,serif",fontSize:11,color:"var(--text)",flex:1}}>{r.name}</span>
+                                  {r.elemento&&(
+                                    <span style={{fontFamily:"Cinzel,serif",fontSize:8,padding:"2px 7px",borderRadius:10,background:"rgba(0,0,0,0.3)",border:"1px solid var(--border)",color:"var(--muted2)"}}>
+                                      {r.elemento}
+                                    </span>
+                                  )}
+                                  {r.custo&&(
+                                    <span style={{fontFamily:"Cinzel,serif",fontSize:8,padding:"2px 7px",borderRadius:10,border:"1px solid rgba(201,168,76,0.2)",color:"var(--gold)"}}>
+                                      {r.custo}
+                                    </span>
+                                  )}
+                                  <button onClick={e=>{e.stopPropagation();setRituais(v=>v.filter(x=>x.id!==r.id));if(openSkillId===`ritual_${r.id}`)setOpenSkillId(null);}}
+                                    style={{background:"none",border:"none",color:"var(--muted)",cursor:"pointer",fontSize:14,padding:"0 2px",lineHeight:1}}>✕</button>
+                                </div>
+                                {open && (
+                                  <div style={{padding:"0 14px 14px",display:"flex",flexDirection:"column",gap:8,borderTop:"1px solid rgba(122,95,212,0.12)"}}>
+                                    <div style={{display:"grid",gridTemplateColumns:"2fr 1fr 1fr",gap:8,paddingTop:10}}>
+                                      <div>
+                                        <div style={{fontFamily:"Cinzel,serif",fontSize:9,color:"var(--muted)",marginBottom:4}}>Nome</div>
+                                        <input value={r.name}
+                                          onChange={e=>setRituais(v=>v.map(x=>x.id===r.id?{...x,name:e.target.value}:x))}
+                                          style={{width:"100%",boxSizing:"border-box",fontSize:12,padding:"6px 8px"}}/>
+                                      </div>
+                                      <div>
+                                        <div style={{fontFamily:"Cinzel,serif",fontSize:9,color:"var(--muted)",marginBottom:4}}>Círculo</div>
+                                        <select value={r.circulo}
+                                          onChange={e=>setRituais(v=>v.map(x=>x.id===r.id?{...x,circulo:parseInt(e.target.value)}:x))}
+                                          style={{width:"100%",background:"var(--card)",border:"1px solid var(--border2)",borderRadius:4,color:"var(--muted2)",fontFamily:"Cinzel,serif",fontSize:11,padding:"6px 8px",cursor:"pointer",outline:"none"}}>
+                                          <option value={1} style={{background:"#111"}}>1° Círculo</option>
+                                          <option value={2} style={{background:"#111"}}>2° Círculo</option>
+                                          <option value={3} style={{background:"#111"}}>3° Círculo</option>
+                                          <option value={4} style={{background:"#111"}}>4° Círculo</option>
+                                        </select>
+                                      </div>
+                                      <div>
+                                        <div style={{fontFamily:"Cinzel,serif",fontSize:9,color:"var(--muted)",marginBottom:4}}>Custo em PE</div>
+                                        <input value={r.custo}
+                                          onChange={e=>setRituais(v=>v.map(x=>x.id===r.id?{...x,custo:e.target.value}:x))}
+                                          placeholder="Ex: 3 PE"
+                                          style={{width:"100%",boxSizing:"border-box",fontSize:12,padding:"6px 8px"}}/>
+                                      </div>
+                                    </div>
+                                    <div>
+                                      <div style={{fontFamily:"Cinzel,serif",fontSize:9,color:"var(--muted)",marginBottom:4}}>Elemento</div>
+                                      <input value={r.elemento}
+                                        onChange={e=>setRituais(v=>v.map(x=>x.id===r.id?{...x,elemento:e.target.value}:x))}
+                                        placeholder="Ex: Fogo, Morte, Mente..."
+                                        style={{width:"100%",boxSizing:"border-box",fontSize:12,padding:"6px 8px"}}/>
+                                    </div>
+                                    <div>
+                                      <div style={{fontFamily:"Cinzel,serif",fontSize:9,color:"var(--muted)",marginBottom:4}}>Descrição / Efeito</div>
+                                      <textarea value={r.desc}
+                                        onChange={e=>setRituais(v=>v.map(x=>x.id===r.id?{...x,desc:e.target.value}:x))}
+                                        placeholder="Descreva o efeito do ritual..."
+                                        rows={3}
+                                        style={{width:"100%",boxSizing:"border-box",fontSize:12,padding:"7px 10px",fontFamily:"Crimson Pro,serif",lineHeight:1.6,resize:"vertical"}}/>
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             )}
 
@@ -6574,6 +10695,230 @@ function MusicScreen({ nowPlaying, onNowPlaying, musicTokens, onMusicTokens, ytP
 /* ═══════════════════════════════
    ROOT
 ═══════════════════════════════ */
+/* ═══════════════════════════════
+   ROADMAP
+═══════════════════════════════ */
+const ROADMAP_STATUS = {
+  done:    { dot:"#4caf50", badge:"Pronto",    bg:"rgba(76,175,80,0.1)",    color:"#7ecb82", border:"rgba(76,175,80,0.28)" },
+  planned: { dot:"#8e6dbf", badge:"Planejado", bg:"rgba(142,109,191,0.1)", color:"#c8a8f0", border:"rgba(142,109,191,0.28)" },
+  backlog: { dot:"#3d3554", badge:"Backlog",   bg:"rgba(50,45,70,0.5)",    color:"#6b6488", border:"rgba(80,72,108,0.3)" },
+};
+
+const PHASE_STATUS = {
+  done:    { label:"Concluído",    color:"#7ecb82", bg:"rgba(76,175,80,0.08)",    border:"rgba(76,175,80,0.28)",    pulse:false },
+  current: { label:"Em andamento", color:"#c9a84c", bg:"rgba(201,168,76,0.08)",  border:"rgba(201,168,76,0.35)",   pulse:true  },
+  future:  { label:"Futuro",       color:"#c8a8f0", bg:"rgba(142,109,191,0.08)", border:"rgba(142,109,191,0.28)",  pulse:false },
+};
+
+function RoadmapItem({ item }) {
+  const [hov, setHov] = useState(false);
+  const s = ROADMAP_STATUS[item.status];
+  return (
+    <div
+      onMouseEnter={() => setHov(true)}
+      onMouseLeave={() => setHov(false)}
+      style={{
+        display:"flex", alignItems:"center", gap:10,
+        padding:"7px 10px", borderRadius:5,
+        background: hov ? "rgba(255,255,255,0.03)" : "transparent",
+        border:`1px solid ${hov ? "rgba(201,168,76,0.1)" : "transparent"}`,
+        transition:"all 0.18s",
+      }}
+    >
+      <div style={{
+        width:7, height:7, borderRadius:"50%", background:s.dot, flexShrink:0,
+        boxShadow: item.status === "done" ? `0 0 5px ${s.dot}99` : "none",
+      }}/>
+      <span style={{
+        fontFamily:"'Crimson Pro',serif", fontSize:14, flex:1,
+        color: item.status === "backlog" ? "var(--muted)" : "var(--muted2)",
+        lineHeight:1.3,
+      }}>{item.nome}</span>
+      <div style={{
+        padding:"2px 8px", borderRadius:3, flexShrink:0,
+        background:s.bg, color:s.color, border:`1px solid ${s.border}`,
+        fontFamily:"Cinzel,serif", fontSize:7, letterSpacing:"0.1em", textTransform:"uppercase",
+      }}>{s.badge}</div>
+    </div>
+  );
+}
+
+function RoadmapScreen() {
+  const canvasRef = useRef(null);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    let animId;
+    let W = window.innerWidth, H = window.innerHeight;
+
+    const mkParticles = () => Array.from({ length: 100 }, () => ({
+      x: Math.random() * W,
+      y: Math.random() * H,
+      r: 0.5 + Math.random() * 2,
+      vx: (Math.random() - 0.5) * 0.08,
+      vy: (Math.random() - 0.5) * 0.08,
+      phase: Math.random() * Math.PI * 2,
+      speed: 0.3 + Math.random() * 0.5,
+    }));
+
+    let particles = mkParticles();
+
+    const resize = () => {
+      W = window.innerWidth; H = window.innerHeight;
+      canvas.width = W; canvas.height = H;
+      particles = mkParticles();
+    };
+    canvas.width = W; canvas.height = H;
+    window.addEventListener("resize", resize);
+
+    const draw = () => {
+      ctx.clearRect(0, 0, W, H);
+      for (const p of particles) {
+        p.x += p.vx; p.y += p.vy;
+        if (p.x < -2) p.x = W + 2; else if (p.x > W + 2) p.x = -2;
+        if (p.y < -2) p.y = H + 2; else if (p.y > H + 2) p.y = -2;
+        p.phase += p.speed * 0.01;
+        const alpha = 0.1 + 0.2 * Math.sin(p.phase);
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(80,200,255,${alpha})`;
+        ctx.fill();
+      }
+      animId = requestAnimationFrame(draw);
+    };
+    draw();
+
+    return () => {
+      cancelAnimationFrame(animId);
+      window.removeEventListener("resize", resize);
+    };
+  }, []);
+
+  return (
+    <>
+      {/* Canvas fora de qualquer div com transform — evita o bug de containing-block */}
+      {createPortal(
+        <canvas ref={canvasRef} style={{
+          position:"fixed", top:0, left:0, width:"100vw", height:"100vh",
+          pointerEvents:"none", zIndex:0,
+        }}/>,
+        document.body
+      )}
+
+      <div className="fade" style={{ maxWidth:760, margin:"0 auto", padding:"8px 0 40px" }}>
+        {/* Hero */}
+        <div style={{ textAlign:"center", padding:"20px 0 32px" }}>
+          <div style={{ fontFamily:"Cinzel,serif", fontSize:10, letterSpacing:"0.2em", color:"var(--gold)", textTransform:"uppercase", marginBottom:14 }}>◈ Roadmap</div>
+          <h1 style={{ fontFamily:"'Cinzel Decorative',serif", fontSize:26, fontWeight:700, color:"var(--text)", marginBottom:10, lineHeight:1.25 }}>
+            O futuro do{" "}
+            <span style={{ background:"linear-gradient(135deg,#c9a84c,#e8c96d)", WebkitBackgroundClip:"text", WebkitTextFillColor:"transparent", backgroundClip:"text" }}>Nexus</span>
+          </h1>
+          <p style={{ fontFamily:"'Crimson Pro',serif", fontSize:15, color:"var(--muted2)", lineHeight:1.7 }}>
+            Cada feature sendo construída com a comunidade.
+          </p>
+        </div>
+
+        {/* Phases */}
+        <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
+          {roadmapData.map((fase) => {
+            const ps = PHASE_STATUS[fase.status];
+            return (
+              <div key={fase.fase} style={{ background:"var(--card)", border:"1px solid var(--border)", borderRadius:10, overflow:"hidden" }}>
+                <div style={{
+                  padding:"18px 24px 14px",
+                  borderBottom:"1px solid var(--border)",
+                  background: fase.status === "done" ? "rgba(76,175,80,0.03)" : fase.status === "current" ? "rgba(201,168,76,0.03)" : "rgba(142,109,191,0.03)",
+                }}>
+                  <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:7 }}>
+                    <span style={{ fontFamily:"Cinzel,serif", fontSize:8, letterSpacing:"0.18em", color:"var(--muted)", textTransform:"uppercase" }}>FASE {fase.fase}</span>
+                    <div style={{
+                      padding:"3px 10px", borderRadius:20,
+                      background:ps.bg, color:ps.color, border:`1px solid ${ps.border}`,
+                      fontFamily:"Cinzel,serif", fontSize:7, letterSpacing:"0.1em", textTransform:"uppercase",
+                      animation: ps.pulse ? "pulse 2s infinite" : "none",
+                    }}>{ps.label}</div>
+                  </div>
+                  <div style={{ fontFamily:"'Cinzel Decorative',serif", fontSize:15, color:"var(--text)", marginBottom:5 }}>{fase.nome}</div>
+                  <div style={{ fontFamily:"'Crimson Pro',serif", fontSize:13, color:"var(--muted2)", lineHeight:1.5 }}>{fase.descricao}</div>
+                </div>
+                <div style={{ padding:"14px 20px 18px" }}>
+                  {fase.sections.map((sec, si) => (
+                    <div key={si} style={{ marginBottom: si < fase.sections.length - 1 ? 16 : 0 }}>
+                      {sec.label && (
+                        <div style={{ fontFamily:"Cinzel,serif", fontSize:8, letterSpacing:"0.18em", color:"var(--muted)", textTransform:"uppercase", marginBottom:6, paddingBottom:5, borderBottom:"1px solid rgba(255,255,255,0.04)" }}>{sec.label}</div>
+                      )}
+                      <div style={{ display:"flex", flexDirection:"column", gap:1 }}>
+                        {sec.items.map((item, ii) => <RoadmapItem key={ii} item={item} />)}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* CTA Card */}
+        <div style={{
+          marginTop:40, padding:"52px 32px 44px", borderRadius:16, textAlign:"center",
+          background:"linear-gradient(160deg,rgba(26,22,14,0.98) 0%,rgba(18,16,10,0.99) 100%)",
+          border:"1px solid var(--border2)",
+          boxShadow:"0 0 60px var(--gold-dim), inset 0 1px 0 rgba(201,168,76,0.07)",
+          position:"relative", overflow:"hidden",
+        }}>
+          {/* ambient glow */}
+          <div style={{
+            position:"absolute", top:"40%", left:"50%", transform:"translate(-50%,-50%)",
+            width:480, height:220, pointerEvents:"none",
+            background:"radial-gradient(ellipse at center, var(--gold-dim) 0%, transparent 70%)",
+          }}/>
+
+          {/* thumbs up icon */}
+          <div style={{ marginBottom:20, position:"relative" }}>
+            <svg width="54" height="54" viewBox="0 0 24 24" fill="none"
+              stroke="var(--gold)" strokeWidth="1.4"
+              strokeLinecap="round" strokeLinejoin="round"
+              style={{ filter:"drop-shadow(0 0 8px var(--gold-glow))" }}>
+              <path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3H14z"/>
+              <path d="M7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"/>
+            </svg>
+          </div>
+
+          {/* title */}
+          <div style={{
+            fontFamily:"'Cinzel Decorative',serif", fontSize:20, fontWeight:700,
+            color:"var(--text)", marginBottom:14, letterSpacing:"0.02em",
+            position:"relative",
+          }}>
+            Tem uma ideia incrível?
+          </div>
+
+          {/* body */}
+          <p style={{
+            fontFamily:"'Crimson Pro',serif", fontSize:16, color:"var(--muted2)",
+            lineHeight:1.75, maxWidth:460, margin:"0 auto 32px", position:"relative",
+          }}>
+            O Nexus é construído com a comunidade. Vote nas próximas features ou sugira algo novo no nosso Discord.
+          </p>
+
+          {/* button */}
+          <a href="https://discord.gg/nexusrpg" target="_blank" rel="noopener noreferrer" style={{ textDecoration:"none", position:"relative" }}>
+            <button className="btn-gold"
+              style={{ padding:"14px 36px", fontSize:"0.78rem", letterSpacing:"0.12em" }}
+              onMouseEnter={e=>{ e.currentTarget.style.transform="translateY(-2px)"; }}
+              onMouseLeave={e=>{ e.currentTarget.style.transform=""; }}
+            >
+              Entrar no Discord
+            </button>
+          </a>
+        </div>
+      </div>
+    </>
+  );
+}
+
 export default function App() {
   const [loggedIn, setLoggedIn] = useState(null); // null = carregando, false = deslogado, true = logado
   const [currentUser, setCurrentUser] = useState(null);
@@ -6587,7 +10932,8 @@ export default function App() {
     try { const s = localStorage.getItem('nexus_system'); return s ? JSON.parse(s) : null; } catch { return null; }
   });
   const [screen, setScreen] = useState(() => localStorage.getItem('nexus_screen') || "dashboard");
-  const [collapsed, setCollapsed] = useState(false);
+  const [collapsed, setCollapsed] = useState(() => localStorage.getItem('nexus_sidebar_collapsed') === 'true');
+  const [showRollPanel, setShowRollPanel] = useState(false);
   const [creatingChar, setCreatingChar] = useState(false);
   const [createdChar, setCreatedChar] = useState(null);
   const charKey = activeSystem ? `nexus_characters_${activeSystem.id}` : null;
@@ -6598,7 +10944,16 @@ export default function App() {
       return key ? JSON.parse(localStorage.getItem(key) || '[]') : [];
     } catch { return []; }
   });
-  const [sessions] = useState([]);
+  const sessKey = activeSystem ? `nexus_sessions_${activeSystem.id}` : null;
+  const [sessions, setSessions] = useState(() => {
+    try {
+      const sys = JSON.parse(localStorage.getItem('nexus_system') || 'null');
+      const key = sys ? `nexus_sessions_${sys.id}` : null;
+      return key ? JSON.parse(localStorage.getItem(key) || '[]') : [];
+    } catch { return []; }
+  });
+  const [userPlans, setUserPlans] = useState([]);  // array de system IDs assinados: ['op','tormenta','dnd']
+  const [showUpgrade, setShowUpgrade] = useState(false);
   const [nowPlaying, setNowPlaying] = useState(null);
   const [musicTokens, setMusicTokens] = useState(() => {
     const now = Date.now();
@@ -6611,15 +10966,26 @@ export default function App() {
       sp: spToken && now < spExp ? spToken : null,
     };
   });
-  const ytPlayerRef = useRef(null);
+  const ytPlayerRef      = useRef(null);
+  const rollCampaignRef  = useRef(null);
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, user => {
       setLoggedIn(!!user);
       setCurrentUser(user || null);
+      if (user) fsEnsureUserDoc(user.uid, user.email || '');
     });
     return unsub;
   }, []);
+
+  // Escuta plano em tempo real — ativa automaticamente após PIX pago
+  useEffect(() => {
+    if (!currentUser) { setUserPlans([]); return; }
+    const unsub = onSnapshot(doc(db, "users", currentUser.uid), snap => {
+      if (snap.exists()) setUserPlans(snap.data().subscribedSystems || []);
+    }, () => {});
+    return unsub;
+  }, [currentUser?.uid]);
 
   useEffect(() => {
     if (!currentUser) { setCampaigns([]); return; }
@@ -6641,16 +11007,106 @@ export default function App() {
     else localStorage.removeItem('nexus_system');
   }, [activeSystem]);
 
+  // Apply the active system's visual identity (drives global CSS variables).
+  useEffect(() => {
+    document.documentElement.dataset.nexusSystem = activeSystem?.id || 'op';
+  }, [activeSystem?.id]);
+
   useEffect(() => { localStorage.setItem('nexus_screen', screen); }, [screen]);
+
+  // ── URL routing ──────────────────────────────────────────────────────────────
+  const SCREEN_PATH = { dashboard:'/painel', sheet:'/fichas', map:'/mapas', master:'/mestre', music:'/trilhas', party:'/campanhas', roadmap:'/roadmap', planos:'/planos' };
+  const PATH_SCREEN = Object.fromEntries(Object.entries(SCREEN_PATH).map(([k,v])=>[v,k]));
+
+  // State → URL: push whenever navigation state changes
+  useEffect(() => {
+    if (loggedIn === null) return; // still loading auth
+    if (!loggedIn) { if (window.location.pathname !== '/login') window.history.replaceState({},'','/login'); return; }
+    if (!activeSystem) { if (window.location.pathname !== '/sistema') window.history.replaceState({},'','/sistema'); return; }
+    let path;
+    if (screen === 'sheet' && createdChar) path = `/fichas/${String(createdChar.id || createdChar.createdAt)}`;
+    else if (screen === 'party' && selectedCampaign) path = `/campanhas/${selectedCampaign.id}`;
+    else path = SCREEN_PATH[screen] || '/painel';
+    if (window.location.pathname !== path) window.history.pushState({},'', path);
+  }, [screen, createdChar, selectedCampaign, loggedIn, activeSystem]);
+
+  // URL → State: apply URL path once after auth+system are ready
+  const _urlInit = useRef(false);
+  useEffect(() => {
+    if (!loggedIn || !activeSystem || _urlInit.current) return;
+    _urlInit.current = true;
+    const path = window.location.pathname;
+    const fichaM = path.match(/^\/fichas\/(.+)$/);
+    const campM  = path.match(/^\/campanhas\/(.+)$/);
+    if (fichaM)      { setScreen('sheet'); }
+    else if (campM)  { setScreen('party'); }
+    else { const s = PATH_SCREEN[path]; if (s) setScreen(s); }
+  }, [loggedIn, activeSystem]);
+
+  // When characters load after a deep link to /fichas/:id, restore the character
+  useEffect(() => {
+    if (!loggedIn || !activeSystem) return;
+    const fichaM = window.location.pathname.match(/^\/fichas\/(.+)$/);
+    if (fichaM && screen === 'sheet' && !createdChar && characters.length > 0) {
+      const char = characters.find(c => String(c.id || c.createdAt) === fichaM[1]);
+      if (char) setCreatedChar(char);
+    }
+  }, [characters, screen, loggedIn, activeSystem]);
+
+  // Popstate: handle browser back / forward
+  useEffect(() => {
+    const onPop = () => {
+      const path = window.location.pathname;
+      const fichaM = path.match(/^\/fichas\/(.+)$/);
+      const campM  = path.match(/^\/campanhas\/(.+)$/);
+      if (fichaM) {
+        const char = characters.find(c => String(c.id || c.createdAt) === fichaM[1]);
+        setScreen('sheet'); setCreatedChar(char || null);
+      } else if (path === '/fichas') {
+        setScreen('sheet'); setCreatedChar(null);
+      } else if (campM) {
+        const camp = campaigns.find(c => c.id === campM[1]);
+        setScreen('party'); if (camp) setSelectedCampaign(camp);
+      } else if (path === '/campanhas') {
+        setScreen('party'); setSelectedCampaign(null);
+      } else {
+        const s = PATH_SCREEN[path] || 'dashboard';
+        setScreen(s); setCreatedChar(null); setSelectedCampaign(null);
+      }
+    };
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+  }, [characters, campaigns]);
   useEffect(() => {
     if (charKey) localStorage.setItem(charKey, JSON.stringify(characters));
   }, [characters, charKey]);
   useEffect(() => {
     if (!activeSystem) return;
     const key = `nexus_characters_${activeSystem.id}`;
-    try { setCharacters(JSON.parse(localStorage.getItem(key) || '[]')); } catch { setCharacters([]); }
+    const localChars = (() => { try { return JSON.parse(localStorage.getItem(key) || '[]'); } catch { return []; } })();
+    setCharacters(localChars);
     setCreatedChar(null);
+    // Tenta carregar do Firestore e mescla (Firestore é fonte de verdade)
+    if (currentUser) {
+      fsLoadCharacters(currentUser.uid, activeSystem.id).then(fsChars => {
+        if (fsChars && fsChars.length > 0) {
+          setCharacters(fsChars);
+          localStorage.setItem(key, JSON.stringify(fsChars));
+        }
+      });
+    }
+  }, [activeSystem?.id, currentUser?.uid]);
+  useEffect(() => {
+    if (!activeSystem) return;
+    const key = `nexus_sessions_${activeSystem.id}`;
+    try { setSessions(JSON.parse(localStorage.getItem(key) || '[]')); } catch { setSessions([]); }
   }, [activeSystem?.id]);
+  useEffect(() => {
+    if (sessKey) localStorage.setItem(sessKey, JSON.stringify(sessions));
+  }, [sessions, sessKey]);
+  useEffect(() => {
+    localStorage.setItem('nexus_sidebar_collapsed', String(collapsed));
+  }, [collapsed]);
 
   /* load YouTube IFrame API once */
   useEffect(() => {
@@ -6668,25 +11124,77 @@ export default function App() {
   };
 
   const handleFinishChar = (char) => {
-    if (characters.length >= 5) return;
+    const sysCharCount = characters.filter(c =>
+      c.systemId === activeSystem?.id || (!c.systemId && activeSystem?.id === 'op')
+    ).length;
+
+    // Limites: assinante do sistema=5, free=1
+    const limit = userPlans.includes(activeSystem?.id) ? 5 : 1;
+    if (sysCharCount >= limit) {
+      setCreatingChar(false);
+      setShowUpgrade(true);
+      return;
+    }
+
     const d = new Date();
     const dateStr = `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${String(d.getFullYear()).slice(-2)}`;
-    const charWithDate = { ...char, id: Date.now(), nex: 5, createdAt: dateStr };
+    const charWithDate = { ...char, id: Date.now(), nex: 5, createdAt: dateStr, systemId: activeSystem?.id };
     setCharacters(prev => [...prev, charWithDate]);
     setCreatedChar(charWithDate);
     setCreatingChar(false);
     setScreen("sheet");
+    // Persiste no Firestore
+    fsSaveCharacter(currentUser?.uid, charWithDate);
   };
 
   const renderScreen = () => {
     const sysName = activeSystem?.name || "Sistema";
     if (creatingChar) return null;
-    if (createdChar && screen === "sheet") return <FullSheet character={createdChar} onBack={()=>setCreatedChar(null)} onUpdate={(updated) => { setCreatedChar(updated); setCharacters(prev => prev.map(c => (c.id && c.id === updated.id) || (!c.id && c.createdAt === updated.createdAt) ? updated : c)); }}/>;
+    if (createdChar && screen === "sheet") {
+      const uid    = currentUser?.uid || "";
+      const uName  = localStorage.getItem("nexus_profile_name") || currentUser?.displayName || "Agente";
+      const uPhoto = localStorage.getItem("nexus_profile_photo") || "";
+      const handleRoll = (roll) => {
+        const c = rollCampaignRef.current;
+        if (!c) return;
+        fsSendMessage(c.id, uid, uName, uPhoto,
+          `${roll.charName} rolou ${roll.expr||roll.attr} → [${roll.rolls.join(",")}] = ${roll.result}`,
+          "roll", { expr:roll.expr||roll.attr, rolls:roll.rolls, total:roll.result, sides:parseInt((roll.dice||"D20").slice(1)), count:roll.rolls.length, crit:!!roll.crit });
+      };
+      const handleSheetUpdate = (updated) => { setCreatedChar(updated); setCharacters(prev => prev.map(c => (c.id && c.id === updated.id) || (!c.id && c.createdAt === updated.createdAt) ? updated : c)); fsSaveCharacter(currentUser?.uid, updated); };
+      const sheetFallback = (
+        <div style={{minHeight:"50vh",display:"flex",alignItems:"center",justifyContent:"center"}}>
+          <div style={{width:32,height:32,border:"2px solid rgba(201,168,76,0.3)",borderTopColor:"var(--gold)",borderRadius:"50%",animation:"spin 0.8s linear infinite"}}/>
+        </div>
+      );
+      const opFill = activeSystem?.id === "op";
+      return (
+        <div style={opFill ? {display:"flex",gap:12,alignItems:"stretch",flex:1,minHeight:0} : {display:"flex",gap:12,alignItems:"start"}}>
+          <div style={opFill ? {flex:1,minWidth:0,display:"flex",flexDirection:"column",minHeight:0} : {flex:1,minWidth:0}}>
+            {activeSystem?.id === "op" ? (
+              <Suspense fallback={sheetFallback}>
+                <OrdemParanormalSheet character={createdChar} onBack={()=>setCreatedChar(null)} onRoll={handleRoll} onUpdate={handleSheetUpdate}/>
+              </Suspense>
+            ) : (
+              <FullSheet character={createdChar} onBack={()=>setCreatedChar(null)} onRoll={handleRoll}
+                showPanel={showRollPanel} onTogglePanel={()=>setShowRollPanel(v=>!v)}
+                onUpdate={handleSheetUpdate}/>
+            )}
+          </div>
+          {showRollPanel && (
+            <SheetRollPanel campaigns={campaigns} uid={uid} userName={uName} userPhoto={uPhoto}
+              onRollReady={c => { rollCampaignRef.current = c; }}/>
+          )}
+        </div>
+      );
+    }
     switch(screen){
-      case "dashboard": return <Dashboard system={activeSystem} onCreateChar={()=>setCreatingChar(true)} characters={characters} sessions={sessions} onSelectChar={c=>{ setCreatedChar(c); setScreen("sheet"); }} onNav={setScreen}/>;
-      case "sheet":     return <SheetList characters={characters} system={activeSystem} onCreateChar={()=>setCreatingChar(true)} onSelectChar={c=>{ setCreatedChar(c); }}/>;
-      case "map":       return <PlaceholderScreen icon="🗺️" title="Editor de Mapas" desc={`Mapas com tiles e névoa de guerra para ${sysName}.`} badge="Em breve" />;
-      case "master":    return <PlaceholderScreen icon="🎭" title="Ajudante do Mestre por Voz" desc={`Ajudante inteligente treinado nas regras de ${sysName}.`} badge="Beta · Pro" />;
+      case "dashboard": return <Dashboard system={activeSystem} onCreateChar={()=>setCreatingChar(true)} characters={characters} sessions={sessions} onSelectChar={c=>{ setCreatedChar(c); setScreen("sheet"); }} onNav={setScreen} userPlans={userPlans} onShowUpgrade={()=>setScreen("planos")}/>;
+      case "sheet":     return <SheetList characters={characters} system={activeSystem} onCreateChar={()=>setCreatingChar(true)} onSelectChar={c=>{ setCreatedChar(c); }} onDeleteChar={(c)=>{ fsDeleteCharacter(currentUser?.uid, c); setCharacters(prev => prev.filter(x => !((x.id && x.id===c.id) || (!x.id && x.createdAt===c.createdAt)))); if (createdChar && ((createdChar.id && createdChar.id===c.id) || (!createdChar.id && createdChar.createdAt===c.createdAt))) setCreatedChar(null); }}/>;
+      case "map":       return <MapEditor />;
+      case "master":    return <MasterAssistant system={activeSystem} onAddSession={()=>setSessions(prev=>[...prev,{id:Date.now(),date:new Date().toLocaleDateString('pt-BR')}])} />;
+      case "roadmap":   return <RoadmapScreen />;
+      case "planos":    return <PlansScreen userPlans={userPlans} currentUser={currentUser}/>;
       case "party": {
         const uid = currentUser?.uid || "";
         const userName = localStorage.getItem("nexus_profile_name") || currentUser?.displayName || "Agente";
@@ -6697,7 +11205,7 @@ export default function App() {
             <>
               <CampaignDetail campaign={live} uid={uid} userName={userName} userPhoto={userPhoto}
                 characters={characters} onBack={()=>setSelectedCampaign(null)}/>
-              {showCreateCampaign && <CreateCampaignModal onClose={()=>setShowCreateCampaign(false)} onCreate={async(data)=>{const r=await fsCreateCampaign(uid,userName,data);if(r){setShowCreateCampaign(false);setCampaignSubKey(k=>k+1);return true;}return false;}}/>}
+              {showCreateCampaign && <CreateCampaignModal onClose={()=>setShowCreateCampaign(false)} onCreate={async(data)=>{const r=await fsCreateCampaign(uid,userName,data);if(r&&!r.limitError){setShowCreateCampaign(false);setCampaignSubKey(k=>k+1);return true;}return r||false;}}/>}
               {showJoinCampaign && <JoinCampaignModal onClose={()=>setShowJoinCampaign(false)} onJoin={async(code)=>{const r=await fsJoinCampaign(uid,userName,code);if(!r?.error){setShowJoinCampaign(false);setCampaignSubKey(k=>k+1);}return r;}}/>}
             </>
           );
@@ -6708,12 +11216,12 @@ export default function App() {
               onOpenCampaign={setSelectedCampaign}
               onCreateCampaign={()=>setShowCreateCampaign(true)}
               onJoinCampaign={()=>setShowJoinCampaign(true)}/>
-            {showCreateCampaign && <CreateCampaignModal onClose={()=>setShowCreateCampaign(false)} onCreate={async(data)=>{const r=await fsCreateCampaign(uid,userName,data);if(r){setShowCreateCampaign(false);setCampaignSubKey(k=>k+1);return true;}return false;}}/>}
+            {showCreateCampaign && <CreateCampaignModal onClose={()=>setShowCreateCampaign(false)} onCreate={async(data)=>{const r=await fsCreateCampaign(uid,userName,data);if(r&&!r.limitError){setShowCreateCampaign(false);setCampaignSubKey(k=>k+1);return true;}return r||false;}}/>}
             {showJoinCampaign && <JoinCampaignModal onClose={()=>setShowJoinCampaign(false)} onJoin={async(code)=>{const r=await fsJoinCampaign(uid,userName,code);if(!r?.error)setShowJoinCampaign(false);return r;}}/>}
           </>
         );
       }
-      default: return <Dashboard system={activeSystem} onCreateChar={()=>setCreatingChar(true)} characters={characters} sessions={sessions} onNav={setScreen}/>;
+      default: return <Dashboard system={activeSystem} onCreateChar={()=>setCreatingChar(true)} characters={characters} sessions={sessions} onNav={setScreen} userPlans={userPlans} onShowUpgrade={()=>setScreen("planos")}/>;
     }
   };
 
@@ -6728,19 +11236,20 @@ export default function App() {
   return (
     <>
       <G/>
+      <ThemeStyles/>
       <Deco/>
-      <div style={{display:"flex", minHeight:"100vh", background:"var(--bg)", position:"relative", zIndex:1}}>
-        <Sidebar active={screen} onNav={setScreen} collapsed={collapsed} setCollapsed={setCollapsed} system={activeSystem} onChangeSystem={()=>setActiveSystem(null)} onLogout={handleLogout} campaignCount={campaigns.filter(c=>c.isActive).length}/>
+      <div style={{display:"flex", minHeight:"100vh", background: screen === "roadmap" ? "transparent" : "var(--bg)", position:"relative", zIndex:1}}>
+        <Sidebar active={screen} onNav={setScreen} collapsed={collapsed} setCollapsed={setCollapsed} system={activeSystem} onChangeSystem={()=>setActiveSystem(null)} onLogout={handleLogout} campaignCount={campaigns.filter(c=>c.isActive&&c.masterId===currentUser?.uid).length}/>
         <div style={{flex:1, display:"flex", flexDirection:"column", minWidth:0, overflow:"hidden"}}>
           <Topbar screen={screen} system={activeSystem} onChangeSystem={()=>setActiveSystem(null)} onLogout={handleLogout}/>
           {/* hidden div that hosts the YT IFrame player — never unmounts */}
           <div id="yt-player-host" style={{ position:"fixed", top:-9999, left:-9999, width:1, height:1, pointerEvents:"none" }} />
-          <main style={{flex:1, overflowY:"auto", padding:"20px 20px", paddingBottom: nowPlaying ? 112 : 20}}>
+          <main style={{flex:1, overflowY: (screen==="master" || (screen==="sheet" && createdChar && activeSystem?.id==="op")) ? "hidden" : "auto", padding: screen==="master" ? 0 : ((screen==="sheet" && createdChar && activeSystem?.id==="op") ? "12px 14px" : "20px 20px"), paddingBottom: screen==="master" ? 0 : ((screen==="sheet" && createdChar && activeSystem?.id==="op") ? 12 : (nowPlaying ? 112 : 20)), display:"flex", flexDirection:"column", minHeight:0}}>
             {/* MusicScreen is always mounted so audio persists across navigation */}
             <div style={{ display: screen === "music" ? "block" : "none" }}>
               <MusicScreen nowPlaying={nowPlaying} onNowPlaying={setNowPlaying} musicTokens={musicTokens} onMusicTokens={setMusicTokens} ytPlayerRef={ytPlayerRef} />
             </div>
-            {screen !== "music" && renderScreen()}
+            {screen !== "music" && <div style={(screen==="master" || (screen==="sheet" && createdChar && activeSystem?.id==="op")) ? {flex:1, display:"flex", flexDirection:"column", minHeight:0} : {}}>{renderScreen()}</div>}
           </main>
           {nowPlaying && <MusicPlayerBar nowPlaying={nowPlaying} onNowPlaying={setNowPlaying} ytPlayerRef={ytPlayerRef} />}
           <div style={{borderTop:"1px solid var(--border2)", padding:"9px 20px", display:"flex", gap:12, alignItems:"center", background:"rgba(6,6,6,0.6)"}}>
@@ -6772,6 +11281,7 @@ export default function App() {
           </div>
         </div>
       </div>
+      {showUpgrade && <UpgradeModal onClose={()=>setShowUpgrade(false)} onGoToPlans={()=>{setShowUpgrade(false);setScreen("planos");}}/>}
     </>
   );
 }
