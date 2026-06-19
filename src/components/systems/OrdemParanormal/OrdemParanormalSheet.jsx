@@ -67,6 +67,9 @@ function startWhisper() {
 function stopWhisper(w) { if (!w) return; try { w.src.stop(); w.ctx.close(); } catch {} }
 
 export default function OrdemParanormalSheet({ character, onBack, onUpdate, onRoll, rollCampaign, onOpenHistory }) {
+  /* ── mobile section switcher (Ficha | Perícias | Ações) ── */
+  const [mobileSec, setMobileSec] = useState("ficha");
+
   /* ── persisted state ── */
   const [attrs, setAttrs] = useState(character.attrs || { AGI: 1, FOR: 1, INT: 1, PRE: 1, VIG: 1 });
   const [origem] = useState(character.origem ?? null);
@@ -378,13 +381,23 @@ export default function OrdemParanormalSheet({ character, onBack, onUpdate, onRo
             <span><b style={{ color: "var(--gold2)" }}>1–5</b> testar AGI/FOR/INT/PRE/VIG</span>
           </div>
         )}
+
+        {/* ── Mobile section switcher — hidden on desktop ── */}
+        <div className="op-mobile-secnav">
+          {[["ficha","◈ Ficha"],["pericias","⬢ Perícias"],["abas","⚔ Ações"]].map(([id, lbl]) => (
+            <button key={id} className={`op-mobile-secbtn${mobileSec === id ? " active" : ""}`}
+              onClick={() => setMobileSec(id)}>
+              {lbl}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* ═══ 3-COLUMN DOSSIER ═══ */}
       <div className="op-sheet-grid" style={{ position: "relative", zIndex: 1 }}>
 
         {/* ── LEFT ── */}
-        <div className="op-col op-stagger" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        <div className={`op-col op-stagger${mobileSec !== "ficha" ? " op-mobile-hidden" : ""}`} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           {/* portrait + identity */}
           <div className="op-ink op-photo-frame" style={{ position: "relative", height: 220, overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}
             role="button" tabIndex={0} aria-label="Retrato do agente" onClick={() => setShowUpload(true)}
@@ -499,7 +512,7 @@ export default function OrdemParanormalSheet({ character, onBack, onUpdate, onRo
         </div>
 
         {/* ── CENTER: perícias ── */}
-        <div className="op-ink op-col-panel" style={{ display: "flex", flexDirection: "column", minHeight: 0, overflow: "hidden", background: "rgba(0,0,0,0.22)" }}>
+        <div className={`op-ink op-col-panel${mobileSec !== "pericias" ? " op-mobile-hidden" : ""}`} style={{ display: "flex", flexDirection: "column", minHeight: 0, overflow: "hidden", background: "rgba(0,0,0,0.22)" }}>
           <div style={{ padding: "10px 12px", borderBottom: "1px solid var(--border2)", display: "flex", flexDirection: "column", gap: 8 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               <span className="op-label" style={{ color: "var(--el-glow)" }}>Relatório de Capacidades</span>
@@ -543,7 +556,7 @@ export default function OrdemParanormalSheet({ character, onBack, onUpdate, onRo
         </div>
 
         {/* ── RIGHT: tabs ── */}
-        <div className="op-col" style={{ minWidth: 0 }}>
+        <div className={`op-col${mobileSec !== "abas" ? " op-mobile-hidden" : ""}`} style={{ minWidth: 0 }}>
           <div className="op-tabs-row" style={{ borderBottom: "1px solid var(--border2)", position: "sticky", top: 0, zIndex: 2, background: "var(--bg)" }} role="tablist">
             {TABS.map(([id, lbl]) => (
               <div key={id} className={`op-tab ${activeTab === id ? "active" : ""}`} role="tab" aria-selected={activeTab === id} tabIndex={0}

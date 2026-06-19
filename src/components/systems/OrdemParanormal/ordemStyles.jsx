@@ -165,6 +165,14 @@ export const OrdemSheetStyles = () => (
     .op-el-erupt{ animation:op-erupt 1.5s cubic-bezier(.2,.6,.2,1) forwards; }
     @keyframes op-erupt{ 0%{ transform:scale(0) rotate(-30deg); opacity:0; } 30%{ opacity:1; } 60%{ transform:scale(1.4) rotate(8deg); } 100%{ transform:scale(8) rotate(0); opacity:0; } }
 
+    /* ── MOBILE SECTION NAV (Ficha | Perícias | Ações) ── */
+    .op-mobile-secnav{ display:none; }
+    .op-mobile-secbtn{ flex:1; padding:11px 8px; font-family:var(--font-title,'Cinzel',serif); font-size:11px; font-weight:600;
+      letter-spacing:0.07em; text-transform:uppercase; background:none; border:none; border-bottom:2px solid transparent;
+      color:var(--muted2); cursor:pointer; white-space:nowrap; min-height:44px; -webkit-tap-highlight-color:transparent; transition:color 0.15s; }
+    .op-mobile-secbtn.active{ color:var(--el-glow); border-bottom-color:var(--el-accent); }
+    .op-mobile-secbtn:active{ background:rgba(255,255,255,0.04); }
+
     /* full-viewport fill + independent column scroll (desktop) */
     .op-sheet-grid{ display:grid; grid-template-columns:280px minmax(0,420px) minmax(0,1fr); gap:14px; align-items:start; }
     @media(min-width:769px){
@@ -180,6 +188,10 @@ export const OrdemSheetStyles = () => (
       .op-sheet-grid{ grid-template-columns:1fr; }
       .op-sheet.op-fill{ height:auto; overflow:visible; }
       .op-col,.op-col-panel,.op-col-rows{ overflow:visible; max-height:none; }
+
+      /* Section switcher */
+      .op-mobile-secnav{ display:flex; border-top:1px solid var(--border2); margin:8px -0px 0; }
+      .op-mobile-hidden{ display:none !important; }
 
       /* Header */
       .op-tab{ font-size:11px; padding:11px 12px; min-height:44px; -webkit-tap-highlight-color:transparent; }
