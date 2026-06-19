@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { ThemeStyles } from "./themes/ThemeProvider";
 import { ELEMENTOS } from "./components/systems/OrdemParanormal/elementos";
 import ElementoSymbol from "./components/systems/OrdemParanormal/ElementoSymbol";
+import DossierCard from "./components/systems/OrdemParanormal/DossierCard";
 import { initializeApp } from "firebase/app";
 import {
   getAuth, onAuthStateChanged,
@@ -487,17 +488,21 @@ const G = () => (
       .sidebar-desktop{display:none !important}
       .bottomnav{
         display:flex;position:fixed;bottom:0;left:0;right:0;z-index:200;
-        background:rgba(5,5,5,0.97);border-top:1px solid var(--border);
-        backdrop-filter:blur(12px);padding:0;
+        background:rgba(5,5,8,0.97);border-top:1px solid var(--border);
+        backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);
+        padding:0 0 env(safe-area-inset-bottom,0);
+        box-shadow:0 -4px 20px rgba(0,0,0,0.5);
       }
       .bottomnav button{
         flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;
-        gap:3px;padding:10px 4px;background:none;border:none;cursor:pointer;
-        font-family:'Cinzel',serif;font-size:7px;letter-spacing:1px;text-transform:uppercase;
-        color:var(--muted2);transition:all 0.2s;
+        gap:3px;padding:10px 2px 8px;background:none;border:none;cursor:pointer;
+        font-family:'Cinzel',serif;font-size:7px;letter-spacing:0.8px;text-transform:uppercase;
+        color:var(--muted);transition:all 0.2s;min-height:56px;-webkit-tap-highlight-color:transparent;
       }
+      .bottomnav button svg{width:20px;height:20px;opacity:0.7;transition:opacity 0.2s}
       .bottomnav button.active{color:var(--gold)}
-      .bottomnav button span.icon{font-size:18px}
+      .bottomnav button.active svg{opacity:1;filter:drop-shadow(0 0 5px var(--gold))}
+      .bottomnav button:active{background:rgba(255,255,255,0.05)}
       .sheet-grid{grid-template-columns:1fr !important}
       .dash-stats{grid-template-columns:repeat(2,1fr)}
       .dash-sessions{grid-template-columns:1fr}
@@ -513,11 +518,21 @@ const G = () => (
       .btn-gold{padding:10px 18px;font-size:0.75rem;letter-spacing:0.08em}
       .btn-ghost{padding:10px 16px}
       .login-card{padding:28px 20px !important;max-width:100% !important}
+      main{padding-bottom:calc(72px + env(safe-area-inset-bottom,0)) !important}
+      .nexus-footer{display:none}
     }
 
     @media(max-width:480px){
       .dash-stats{grid-template-columns:repeat(2,1fr)}
       .char-meta{grid-template-columns:1fr 1fr}
+    }
+
+    /* ── DOSSIER CARD (dashboard OP) ── */
+    .op-dossier-card{ -webkit-tap-highlight-color:transparent; }
+    @media(max-width:500px){
+      .op-dossier-card{ flex-wrap:wrap; padding:10px 12px; gap:10px; }
+      .op-dossier-vitals{ min-width:0 !important; width:100%; flex-direction:row !important; align-items:center; gap:12px !important; }
+      .op-dossier-vitals>:last-child{ margin-left:auto; }
     }
 
     /* ── DESKTOP LOGIN LAYOUT ── */
@@ -944,6 +959,20 @@ const navItems = [
     svg: <NavIco d={[]} extra={<><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></>}/> },
 ];
 
+function MobileBottomNav({ active, onNav }) {
+  const items = navItems.slice(0, 6);
+  return (
+    <div className="bottomnav">
+      {items.map(item => (
+        <button key={item.id} className={active === item.id ? "active" : ""} onClick={() => onNav(item.id)}>
+          <span style={{display:"flex",alignItems:"center",justifyContent:"center"}}>{item.svg}</span>
+          <span>{item.label}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function Sidebar({ active, onNav, collapsed, setCollapsed, system, onChangeSystem, onLogout, campaignCount }) {
   const [profilePhoto, setProfilePhoto] = useState(() => localStorage.getItem("nexus_profile_photo") || "");
   const [profileName, setProfileName] = useState(() => localStorage.getItem("nexus_profile_name") || "Agente");
@@ -972,7 +1001,7 @@ function Sidebar({ active, onNav, collapsed, setCollapsed, system, onChangeSyste
   const avatarLetter = profileName.trim().charAt(0).toUpperCase() || "A";
 
   return (
-    <div style={{
+    <div className="sidebar-desktop" style={{
       width: collapsed ? 60 : 220,
       background:"var(--surface)", borderRight:"1px solid var(--border)",
       display:"flex", flexDirection:"column",
@@ -2401,6 +2430,111 @@ function RollFeed({ campaignId, uid }) {
   );
 }
 
+/* ════════════════════════════════════════════════════════════════════════
+ *  CAMPAIGN ROLL DRAWER — histórico de rolagens em tempo real (drawer lateral)
+ *  Lê campaigns/{id}/messages (type=="roll") via onSnapshot. Cada card usa o
+ *  elemento do PERSONAGEM que rolou (rollData.elemento), não o ativo.
+ * ════════════════════════════════════════════════════════════════════════ */
+function fmtRollTime(ts) {
+  if (!ts?.toDate) return "";
+  const d = ts.toDate();
+  const p = (n) => String(n).padStart(2, "0");
+  return `${p(d.getDate())}/${p(d.getMonth()+1)}/${String(d.getFullYear()).slice(-2)} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+function RollDrawerCard({ r }) {
+  const rd = r.rollData || {};
+  const el = rd.elemento && ELEMENTOS[rd.elemento] ? ELEMENTOS[rd.elemento] : null;
+  const color = el ? el.accent : "#c9a84c";
+  const isAttack = rd.kind === "attack";
+  return (
+    <div className="op-rollcard">
+      <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:6 }}>
+        {r.userPhoto
+          ? <img src={r.userPhoto} alt="" style={{ width:24, height:24, borderRadius:"50%", objectFit:"cover", border:`1px solid ${color}` }} />
+          : <span style={{ width:24, height:24, borderRadius:"50%", display:"inline-flex", alignItems:"center", justifyContent:"center", background:`${color}22`, border:`1px solid ${color}`, fontSize:11, color }}>{(rd.charName||r.userName||"?").slice(0,1).toUpperCase()}</span>}
+        <span style={{ fontFamily:"'Cinzel',serif", fontSize:13, color:"var(--text)", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{rd.charName || r.userName}</span>
+      </div>
+      <div style={{ border:`1px solid ${color}`, background:`${color}14`, borderRadius:6, padding:"12px 14px" }}>
+        <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:8 }}>
+          {el && <ElementoSymbol id={rd.elemento} size={16} />}
+          <span style={{ fontFamily:"'Cinzel',serif", fontWeight:700, fontSize:13, color, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{rd.name || rd.expr}</span>
+          {rd.crit && <span style={{ marginLeft:"auto", fontSize:9, fontFamily:"'Share Tech Mono',monospace", color:"#ffe86a", letterSpacing:"0.1em", flexShrink:0 }}>CRÍTICO</span>}
+        </div>
+        {isAttack ? (
+          <div style={{ display:"flex" }}>
+            <div style={{ flex:1, textAlign:"center", borderRight:`1px solid ${color}40` }}>
+              <div style={{ fontFamily:"'Share Tech Mono',monospace", fontSize:34, color, lineHeight:1 }}>{rd.total}</div>
+              <div style={{ fontFamily:"'Cinzel',serif", fontSize:8, letterSpacing:"0.15em", textTransform:"uppercase", color:"var(--muted)", marginTop:3 }}>Ataque</div>
+            </div>
+            <div style={{ flex:1, textAlign:"center" }}>
+              <div style={{ fontFamily:"'Share Tech Mono',monospace", fontSize:34, color:"#fff", lineHeight:1 }}>{rd.dano ?? "—"}</div>
+              <div style={{ fontFamily:"'Cinzel',serif", fontSize:8, letterSpacing:"0.15em", textTransform:"uppercase", color:"var(--muted)", marginTop:3 }}>Dano</div>
+            </div>
+          </div>
+        ) : (
+          <div style={{ textAlign:"center" }}>
+            <div style={{ fontFamily:"'Share Tech Mono',monospace", fontSize:48, color, lineHeight:1 }}>{rd.total}</div>
+          </div>
+        )}
+        {Array.isArray(rd.rolls) && rd.rolls.length > 0 && (
+          <div style={{ marginTop:8, textAlign:"center", fontFamily:"'Share Tech Mono',monospace", fontSize:11, color:"var(--muted2)" }}>[{rd.rolls.join(" · ")}]</div>
+        )}
+      </div>
+      <div style={{ textAlign:"right", marginTop:4, fontFamily:"'IM Fell English',serif", fontStyle:"italic", fontSize:11, color:"var(--muted)" }}>{fmtRollTime(r.timestamp)}</div>
+    </div>
+  );
+}
+
+function CampaignRollDrawer({ campaign, onClose }) {
+  const [rolls, setRolls] = useState([]);
+
+  useEffect(() => {
+    if (!campaign?.id) return;
+    const q = query(collection(db,"campaigns",campaign.id,"messages"), where("type","==","roll"), limit(80));
+    const unsub = onSnapshot(q, snap => {
+      const cutoff = Date.now() - MSG_TTL_MS;
+      const data = snap.docs.map(d => ({ id:d.id, ...d.data() }))
+        .filter(d => (d.timestamp?.seconds ?? 0) * 1000 > cutoff)
+        .sort((a,b) => (b.timestamp?.seconds ?? 0) - (a.timestamp?.seconds ?? 0))
+        .slice(0, 50);
+      setRolls(data);
+    }, () => {});
+    return unsub;
+  }, [campaign?.id]);
+
+  useEffect(() => {
+    const esc = (e) => e.key === "Escape" && onClose();
+    document.addEventListener("keydown", esc);
+    return () => document.removeEventListener("keydown", esc);
+  }, [onClose]);
+
+  const drawerVars = { "--el-accent":"#c9a84c", "--el-border":"rgba(201,168,76,0.40)", "--el-glow":"rgba(201,168,76,0.45)" };
+
+  return createPortal(
+    <>
+      <div className="op-drawer-overlay" onClick={onClose} />
+      <div className="op-roll-drawer" style={drawerVars} role="dialog" aria-label="Histórico de rolagens da campanha">
+        <div className="op-roll-drawer-head">
+          <div style={{ minWidth:0 }}>
+            <div style={{ fontFamily:"'Cinzel',serif", fontSize:9, letterSpacing:"0.2em", textTransform:"uppercase", color:"var(--muted)", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{campaign.name}</div>
+            <div style={{ fontFamily:"'Cinzel Decorative',serif", fontSize:17, color:"var(--gold2)" }}>Resultados <span style={{ color:"var(--muted)" }}>[{rolls.length}]</span></div>
+          </div>
+          <button onClick={onClose} aria-label="Fechar" style={{ background:"none", border:"none", color:"var(--muted2)", fontSize:24, cursor:"pointer", lineHeight:1, flexShrink:0 }}>×</button>
+        </div>
+        <div className="op-roll-drawer-body">
+          {rolls.length === 0 ? (
+            <div style={{ textAlign:"center", padding:"40px 14px", color:"rgba(232,228,217,0.4)", fontStyle:"italic", fontFamily:"'IM Fell English',serif", fontSize:14, lineHeight:1.6 }}>
+              Nenhuma rolagem registrada ainda.<br/>As rolagens da campanha aparecem aqui em tempo real.
+            </div>
+          ) : rolls.map(r => <RollDrawerCard key={r.id} r={r} />)}
+        </div>
+      </div>
+    </>,
+    document.body
+  );
+}
+
 /* ── CAMPAIGN MAP TAB ── */
 function CampaignMapTab({ campaignId, uid, isMaster }) {
   const canvasRef    = useRef(null);
@@ -2799,6 +2933,167 @@ function rollDiceStr(notation) {
   return { total:sum, rolls, notation };
 }
 
+const OP_RITUAIS = [
+  // Círculo 1 — Conhecimento
+  { nome:'Amaldiçoar Arma', elemento:'Conhecimento', circulo:1, execucao:'padrão', alcance:'toque', alvo:'1 arma corpo a corpo ou munição', duracao:'cena', resistencia:'-', custo:2, descricao:'Imbui a arma com o elemento, causando +1d6 de dano elemental. (Discente +2PE: +2d6 / Verdadeiro +5PE: +4d6)' },
+  { nome:'Compreensão Paranormal', elemento:'Conhecimento', circulo:1, execucao:'padrão', alcance:'toque', alvo:'1 ser ou objeto', duracao:'cena', resistencia:'Vontade anula', custo:2, descricao:'Entende qualquer idioma humano. Tocando um ser, comunica-se como se falem o mesmo idioma. Tocando animal, percebe sentimentos básicos.' },
+  { nome:'Enfeitiçar', elemento:'Conhecimento', circulo:1, execucao:'padrão', alcance:'médio', alvo:'1 ser', duracao:'cena', resistencia:'Vontade anula', custo:2, descricao:'O alvo se torna prestativo, obedecendo ordens que não coloquem sua vida em risco.' },
+  { nome:'Perturbação', elemento:'Conhecimento', circulo:1, execucao:'padrão', alcance:'médio', alvo:'1 ser', duracao:'instantânea', resistencia:'Vontade anula', custo:2, descricao:'Força o alvo a obedecer uma ordem simples e imediata.' },
+  { nome:'Ouvir os Sussurros', elemento:'Conhecimento', circulo:1, execucao:'padrão', alcance:'pessoal', alvo:'você', duracao:'cena', resistencia:'-', custo:2, descricao:'Você se comunica com vozes do Outro Lado para receber informações sobre a área ou situação atual.' },
+  { nome:'Tecer Ilusão', elemento:'Conhecimento', circulo:1, execucao:'padrão', alcance:'curto', alvo:'área', duracao:'cena', resistencia:'Vontade desacredita', custo:2, descricao:'Cria uma ilusão visual ou sonora realista que pode enganar os sentidos dos alvos.' },
+  { nome:'Terceiro Olho', elemento:'Conhecimento', circulo:1, execucao:'padrão', alcance:'pessoal', alvo:'você', duracao:'cena', resistencia:'-', custo:2, descricao:'Você enxerga manifestações paranormais, auras e o elemento de seres.' },
+  // Círculo 1 — Energia
+  { nome:'Amaldiçoar Arma', elemento:'Energia', circulo:1, execucao:'padrão', alcance:'toque', alvo:'1 arma corpo a corpo ou munição', duracao:'cena', resistencia:'-', custo:2, descricao:'Imbui a arma com Energia, causando +1d6 de dano de Energia. (Discente +2PE: +2d6 / Verdadeiro +5PE: +4d6)' },
+  { nome:'Amaldiçoar Tecnologia', elemento:'Energia', circulo:1, execucao:'padrão', alcance:'toque', alvo:'1 acessório ou arma de fogo', duracao:'cena', resistencia:'-', custo:2, descricao:'Imbui o item com Energia, fazendo-o funcionar acima da capacidade. Recebe uma modificação à sua escolha. (Discente +2PE: duas modificações / Verdadeiro +5PE: três modificações)' },
+  { nome:'Coincidência Forçada', elemento:'Energia', circulo:1, execucao:'padrão', alcance:'curto', alvo:'1 ser', duracao:'cena', resistencia:'-', custo:2, descricao:'Manipula os caminhos do caos para que o alvo tenha mais sorte. O alvo recebe +2 em testes de perícias. (Discente +2PE: aliados à escolha / Verdadeiro +5PE: aliados à escolha, bônus +5)' },
+  { nome:'Eletrocussão', elemento:'Energia', circulo:1, execucao:'padrão', alcance:'médio', alvo:'1 ser', duracao:'instantânea', resistencia:'Reflexos reduz à metade', custo:2, descricao:'Uma corrente voltaica eletrocuta o alvo, causando dano de Energia.' },
+  { nome:'Embaralhar', elemento:'Energia', circulo:1, execucao:'padrão', alcance:'pessoal', alvo:'você', duracao:'cena', resistencia:'-', custo:2, descricao:'Cria duplicatas ilusórias para confundir inimigos, concedendo bônus na Defesa.' },
+  { nome:'Luz', elemento:'Energia', circulo:1, execucao:'padrão', alcance:'toque', alvo:'1 objeto', duracao:'cena', resistencia:'-', custo:1, descricao:'O objeto tocado brilha como uma lâmpada, iluminando a área ao redor.' },
+  { nome:'Polarização Caótica', elemento:'Energia', circulo:1, execucao:'padrão', alcance:'médio', alvo:'objetos metálicos', duracao:'cena', resistencia:'Vontade anula', custo:2, descricao:'Objetos metálicos são atraídos ou repelidos conforme sua vontade.' },
+  // Círculo 1 — Morte
+  { nome:'Amaldiçoar Arma', elemento:'Morte', circulo:1, execucao:'padrão', alcance:'toque', alvo:'1 arma corpo a corpo ou munição', duracao:'cena', resistencia:'-', custo:2, descricao:'Imbui a arma com Morte, causando +1d6 de dano de Morte. (Discente +2PE: +2d6 / Verdadeiro +5PE: +4d6)' },
+  { nome:'Cicatrização', elemento:'Morte', circulo:1, execucao:'padrão', alcance:'toque', alvo:'1 ser', duracao:'instantânea', resistencia:'-', custo:2, descricao:'Acelera o tempo ao redor das feridas, que cicatrizam instantaneamente. Recupera 3d8+3 PV, mas o alvo envelhece 1 ano. (Discente +2PE: 5d8+5 / Verdadeiro +9PE: 7d8+7, alcance curto, vários alvos)' },
+  { nome:'Consumir Manancial', elemento:'Morte', circulo:1, execucao:'padrão', alcance:'pessoal', alvo:'você', duracao:'instantânea', resistencia:'-', custo:2, descricao:'Suga o tempo de vida de plantas e insetos ao redor, gerando Lodo e recebendo 3d6 PV temporários (desaparecem ao fim da cena). (Discente +2PE: 6d6 / Verdadeiro +5PE: área 6m, afeta seres vivos, causa 3d6 dano)' },
+  { nome:'Decadência', elemento:'Morte', circulo:1, execucao:'padrão', alcance:'toque', alvo:'1 ser', duracao:'instantânea', resistencia:'Fortitude reduz à metade', custo:2, descricao:'Espirais de trevas envolvem sua mão e definha o alvo: 2d8+2 dano de Morte. (Discente +2PE: 3d8+3, sem resistência, ataque como parte da execução / Verdadeiro +5PE: área explosão 6m, 8d8+8)' },
+  { nome:'Definhar', elemento:'Morte', circulo:1, execucao:'padrão', alcance:'curto', alvo:'1 ser', duracao:'cena', resistencia:'Fortitude parcial', custo:2, descricao:'Lufada de cinzas drena as forças: alvo fica fatigado (ou vulnerável se passar no teste). (Discente +2PE: exausto / Verdadeiro +5PE: até 5 seres)' },
+  { nome:'Espirais da Perdição', elemento:'Morte', circulo:1, execucao:'padrão', alcance:'médio', alvo:'área', duracao:'cena', resistencia:'-', custo:2, descricao:'Inimigos na área sofrem penalidade em seus testes de ataque.' },
+  { nome:'Nuvem de Cinzas', elemento:'Morte', circulo:1, execucao:'padrão', alcance:'curto', alvo:'área', duracao:'cena', resistencia:'-', custo:2, descricao:'Uma nuvem de cinzas fornece camuflagem para você e seus aliados.' },
+  // Círculo 1 — Sangue
+  { nome:'Amaldiçoar Arma', elemento:'Sangue', circulo:1, execucao:'padrão', alcance:'toque', alvo:'1 arma corpo a corpo ou munição', duracao:'cena', resistencia:'-', custo:2, descricao:'Imbui a arma com Sangue, causando +1d6 de dano de Sangue. (Discente +2PE: +2d6 / Verdadeiro +5PE: +4d6)' },
+  { nome:'Arma Atroz', elemento:'Sangue', circulo:1, execucao:'padrão', alcance:'toque', alvo:'1 arma corpo a corpo', duracao:'sustentada', resistencia:'-', custo:2, descricao:'A arma recebe +2 em testes de ataque e +1 na margem de ameaça. (Discente +2PE: +5 em testes / Verdadeiro +5PE: +5 testes e +2 margem/multiplicador)' },
+  { nome:'Armadura de Sangue', elemento:'Sangue', circulo:1, execucao:'padrão', alcance:'pessoal', alvo:'você', duracao:'cena', resistencia:'-', custo:2, descricao:'Sangue cobre seu corpo como carapaça: +5 em Defesa (não cumulativo com equipamento). (Discente +5PE: +10 Defesa e RD 5 balistico/corte/impacto/perf. / Verdadeiro +9PE: +15 e RD 10)' },
+  { nome:'Corpo Adaptado', elemento:'Sangue', circulo:1, execucao:'padrão', alcance:'toque', alvo:'1 pessoa ou animal', duracao:'cena', resistencia:'-', custo:2, descricao:'Modifica a biologia do alvo: imune a calor e frio extremos, pode respirar na água. (Discente +2PE: duração 1 dia / Verdadeiro +5PE: alcance curto, alvos escolhidos)' },
+  { nome:'Distorcer Aparência', elemento:'Sangue', circulo:1, execucao:'padrão', alcance:'pessoal', alvo:'você', duracao:'cena', resistencia:'Vontade desacredita', custo:2, descricao:'Modifica sua aparência (altura, peso, pele, cabelo, voz, digital, córnea). Recebe +10 em Enganação.' },
+  { nome:'Fortalecimento Sensorial', elemento:'Sangue', circulo:1, execucao:'padrão', alcance:'toque', alvo:'1 ser', duracao:'cena', resistencia:'-', custo:2, descricao:'Aprimora os sentidos e percepção do alvo, concedendo bônus em testes de Percepção.' },
+  { nome:'Ódio Incontrolável', elemento:'Sangue', circulo:1, execucao:'padrão', alcance:'toque', alvo:'1 ser', duracao:'cena', resistencia:'-', custo:2, descricao:'Aumenta dano corpo a corpo e perícias físicas do alvo, mas penaliza perícias mentais.' },
+  // Círculo 1 — Medo
+  { nome:'Cinerária', elemento:'Medo', circulo:1, execucao:'padrão', alcance:'curto', alvo:'área: nuvem 6m de raio', duracao:'cena', resistencia:'-', custo:2, descricao:'Névoa carregada de essência paranormal: rituais conjurados dentro têm DT +5. (Discente +2PE: rituais custam -2PE / Verdadeiro +5PE: rituais causam dano maximizado)' },
+  // Círculo 2 — Conhecimento
+  { nome:'Aprimorar Mente', elemento:'Conhecimento', circulo:2, execucao:'padrão', alcance:'toque', alvo:'1 ser', duracao:'cena', resistencia:'-', custo:3, descricao:'O alvo recebe +1 em Intelecto ou Presença (à escolha; não fornece PE nem perícias). (Discente +3PE: +2 / Verdadeiro +7PE: +3)' },
+  { nome:'Detecção de Ameaças', elemento:'Conhecimento', circulo:2, execucao:'padrão', alcance:'pessoal', alvo:'esfera 18m de raio', duracao:'cena', resistencia:'-', custo:3, descricao:'Percepção aguçada sobre perigos. Quando ser hostil entra na área, você sente e pode testar Percepção DT 20 para localizar. (Discente +3PE: não fica desprevenido / Verdadeiro +5PE: duração 1 dia)' },
+  { nome:'Esconder dos Olhos', elemento:'Conhecimento', circulo:2, execucao:'padrão', alcance:'pessoal', alvo:'você', duracao:'cena', resistencia:'-', custo:3, descricao:'Torna você invisível aos olhos comuns durante a cena.' },
+  { nome:'Invadir Mente', elemento:'Conhecimento', circulo:2, execucao:'padrão', alcance:'médio', alvo:'1 ser', duracao:'instantânea/sustentada', resistencia:'Vontade parcial', custo:3, descricao:'Gera uma rajada mental causando dano, ou se conecta telepaticamente ao alvo.' },
+  { nome:'Localização', elemento:'Conhecimento', circulo:2, execucao:'padrão', alcance:'ilimitado', alvo:'1 objeto ou ser marcado', duracao:'cena', resistencia:'-', custo:3, descricao:'Determina a direção de um objeto ou ser marcado à sua escolha, independente da distância.' },
+  // Círculo 2 — Energia
+  { nome:'Chamas do Caos', elemento:'Energia', circulo:2, execucao:'padrão', alcance:'curto', alvo:'veja texto', duracao:'cena', resistencia:'-', custo:3, descricao:'Manipula fogo (escolha 1): Chamejar (arma +1d6 fogo), Esquentar (objeto 1d6/rodada), Extinguir (chama Grande ou menor), ou Modelar (move chama 9m, 3d6 a quem atravessa). (Discente +3PE: projeta labareda 4d6 / Verdadeiro +7PE: 8d6)' },
+  { nome:'Contenção Fantasmagórica', elemento:'Energia', circulo:2, execucao:'padrão', alcance:'médio', alvo:'1 ser', duracao:'cena', resistencia:'Reflexos anula', custo:3, descricao:'Três laços de Energia surgem e deixam o alvo agarrado. O alvo pode gastar ação padrão: Atletismo DT ritual para destruir laços. Afeta criaturas incorpóreas. (Discente +3PE: 6 laços, múltiplos alvos / Verdadeiro +5PE: laços destruídos liberam 2d6+2 dano)' },
+  { nome:'Dissonância Acústica', elemento:'Energia', circulo:2, execucao:'padrão', alcance:'médio', alvo:'esfera 6m de raio', duracao:'sustentada', resistencia:'-', custo:2, descricao:'Área de dissonância sonora: todos ficam surdos e não podem conjurar rituais dentro. (Verdadeiro +3PE: nenhum som sai da área, mas internos podem se comunicar e conjurar normalmente)' },
+  { nome:'Sopro do Caos', elemento:'Energia', circulo:2, execucao:'padrão', alcance:'curto', alvo:'área', duracao:'cena', resistencia:'-', custo:3, descricao:'Move o ar de formas impossíveis: pode empurrar seres, criar correntes de ar e obstáculos.' },
+  { nome:'Tela de Ruído', elemento:'Energia', circulo:2, execucao:'padrão', alcance:'pessoal', alvo:'você', duracao:'cena', resistencia:'-', custo:3, descricao:'Cria uma película protetora de energia que absorve parte do dano recebido.' },
+  // Círculo 2 — Morte
+  { nome:'Desacelerar Impacto', elemento:'Morte', circulo:2, execucao:'reação', alcance:'curto', alvo:'1 ser ou objetos até 10 espaços', duracao:'até chegar ao solo ou cena', resistencia:'-', custo:3, descricao:'O alvo cai lentamente (18m/rodada, sem dano de queda). Projéteis causam metade do dano. (Discente +3PE: objetos até 100 espaços)' },
+  { nome:'Eco Espiral', elemento:'Morte', circulo:2, execucao:'padrão', alcance:'curto', alvo:'1 ser', duracao:'sustentada', resistencia:'-', custo:3, descricao:'Repete concentrado o dano que o alvo sofreu ao longo das rodadas.' },
+  { nome:'Miasma Entrópico', elemento:'Morte', circulo:2, execucao:'padrão', alcance:'médio', alvo:'área', duracao:'cena', resistencia:'Fortitude parcial', custo:3, descricao:'Nuvem tóxica: alvos ficam enjoados e sufocando.' },
+  { nome:'Paradoxo', elemento:'Morte', circulo:2, execucao:'padrão', alcance:'curto', alvo:'área', duracao:'cena', resistencia:'Fortitude parcial', custo:3, descricao:'Área de tempo paradoxal que envelhece corpo e alma dos que estão nela.' },
+  { nome:'Velocidade Mortal', elemento:'Morte', circulo:2, execucao:'padrão', alcance:'toque', alvo:'1 ser', duracao:'cena', resistencia:'-', custo:3, descricao:'O alvo acelera no tempo, realizando ações adicionais em seu turno.' },
+  // Círculo 2 — Sangue
+  { nome:'Aprimorar Físico', elemento:'Sangue', circulo:2, execucao:'padrão', alcance:'toque', alvo:'1 ser', duracao:'cena', resistencia:'-', custo:3, descricao:'Músculos tonificados e ligamentos reforçados: +1 em Agilidade ou Força. (Discente +3PE: +2 / Verdadeiro +7PE: +3)' },
+  { nome:'Descarnar', elemento:'Sangue', circulo:2, execucao:'padrão', alcance:'toque', alvo:'1 ser', duracao:'instantânea', resistencia:'Fortitude parcial', custo:3, descricao:'Lacerações se manifestam na pele: 6d8 dano (corte + Sangue) e hemorragia severa (2d8/turno, Fortitude para estancar). (Discente +3PE: 10d8 / 4d8 hemorragia / Verdadeiro +7PE: seus ataques causam +4d8 Sangue e hemorragia)' },
+  { nome:'Flagelo de Sangue', elemento:'Sangue', circulo:2, execucao:'padrão', alcance:'curto', alvo:'1 pessoa', duracao:'cena', resistencia:'Vontade anula', custo:3, descricao:'O alvo deve obedecer uma ordem, agindo para cumpri-la no próximo turno.' },
+  { nome:'Hemofagia', elemento:'Sangue', circulo:2, execucao:'padrão', alcance:'toque', alvo:'1 ser', duracao:'instantânea', resistencia:'Fortitude parcial', custo:3, descricao:'Absorve o sangue do alvo, causando dano e recuperando PV iguais ao dano causado.' },
+  { nome:'Transfusão Vital', elemento:'Sangue', circulo:2, execucao:'padrão', alcance:'toque', alvo:'seres tocados', duracao:'instantânea', resistencia:'-', custo:3, descricao:'Transfere vida do conjurador para vários alvos, curando-os instantaneamente.' },
+  // Círculo 2 — Medo
+  { nome:'Proteção contra Rituais', elemento:'Medo', circulo:2, execucao:'padrão', alcance:'toque', alvo:'1 ser', duracao:'cena', resistencia:'-', custo:3, descricao:'O alvo recebe resistência contra efeitos e criaturas paranormais.' },
+  { nome:'Rejeitar Névoa', elemento:'Medo', circulo:2, execucao:'padrão', alcance:'toque', alvo:'1 ser', duracao:'cena', resistencia:'-', custo:2, descricao:'Concede bônus em testes de resistência contra rituais.' },
+  // Círculo 3 — Conhecimento
+  { nome:'Alterar Memória', elemento:'Conhecimento', circulo:3, execucao:'padrão', alcance:'toque', alvo:'1 pessoa', duracao:'instantânea', resistencia:'Vontade anula', custo:4, descricao:'Invade a mente e altera ou apaga memórias de até 1 hora atrás. O alvo recupera as memórias após 1d4 dias. (Verdadeiro +4PE: até 24h de memórias; requer 4° círculo)' },
+  { nome:'Contato Paranormal', elemento:'Conhecimento', circulo:3, execucao:'completa', alcance:'pessoal', alvo:'você', duracao:'1 dia', resistencia:'-', custo:4, descricao:'Barganha com a entidade de Conhecimento: recebe 6d6 para adicionar em testes de perícia, mas rolar 6 em qualquer dado custa 2 SAN. (Discente +4PE: d8, perda 3 SAN / Verdadeiro +9PE: d12, perda 5 SAN)' },
+  { nome:'Mergulho Mental', elemento:'Conhecimento', circulo:3, execucao:'padrão', alcance:'toque', alvo:'1 ser', duracao:'sustentada', resistencia:'Vontade anula', custo:4, descricao:'Você se infiltra na mente do alvo e vasculha seus pensamentos, descobrindo memórias e segredos.' },
+  { nome:'Vidência', elemento:'Conhecimento', circulo:3, execucao:'padrão', alcance:'longo', alvo:'1 ser ou local marcado', duracao:'sustentada', resistencia:'-', custo:4, descricao:'Você pode observar e ouvir um alvo marcado à distância, como se estivesse presente.' },
+  // Círculo 3 — Energia
+  { nome:'Convocação Instantânea', elemento:'Energia', circulo:3, execucao:'padrão', alcance:'ilimitado', alvo:'1 objeto de até 2 espaços', duracao:'instantânea', resistencia:'Vontade anula (se empunhado)', custo:4, descricao:'Invoca um objeto marcado de qualquer lugar para sua mão. (Discente +4PE: até 10 espaços / Verdadeiro +9PE: 1 recipiente Médio permanente, convocado com ação padrão — custa 1 PE permanente)' },
+  { nome:'Salto Fantasma', elemento:'Energia', circulo:3, execucao:'padrão', alcance:'longo', alvo:'você e aliados escolhidos', duracao:'instantânea', resistencia:'-', custo:4, descricao:'Teletransporta você e outros seres para um ponto visível dentro do alcance.' },
+  { nome:'Transfigurar Água', elemento:'Energia', circulo:3, execucao:'padrão', alcance:'médio', alvo:'água e gelo em área', duracao:'cena', resistencia:'-', custo:4, descricao:'Água e gelo se comportam de forma caótica, criando obstáculos ou causando dano.' },
+  { nome:'Transfigurar Terra', elemento:'Energia', circulo:3, execucao:'padrão', alcance:'médio', alvo:'rochas, lama e areia em área', duracao:'cena', resistencia:'-', custo:4, descricao:'Rochas, lama e areia se comportam de forma caótica, soterando seres ou criando barreiras.' },
+  // Círculo 3 — Morte
+  { nome:'Âncora Temporal', elemento:'Morte', circulo:3, execucao:'padrão', alcance:'curto', alvo:'1 ser', duracao:'cena', resistencia:'Vontade parcial', custo:4, descricao:'Aura espiralada: início de cada turno, o alvo testa Vontade ou não pode se deslocar. 2 sucessos seguidos encerram. (Verdadeiro +4PE: alvos à escolha; requer 4° círculo)' },
+  { nome:'Poeira da Podridão', elemento:'Morte', circulo:3, execucao:'padrão', alcance:'médio', alvo:'área', duracao:'cena', resistencia:'Fortitude parcial', custo:4, descricao:'Nuvem de poeira que apodrece tudo que toca, causando dano de Morte a seres e danificando objetos.' },
+  { nome:'Tentáculos de Lodo', elemento:'Morte', circulo:3, execucao:'padrão', alcance:'médio', alvo:'área', duracao:'cena', resistencia:'Reflexos anula', custo:4, descricao:'Tentáculos de Lodo negro atacam e agarram seres na área, causando dano e limitando movimento.' },
+  { nome:'Zerar Entropia', elemento:'Morte', circulo:3, execucao:'padrão', alcance:'curto', alvo:'1 ser', duracao:'cena', resistencia:'Fortitude parcial', custo:4, descricao:'O alvo fica lento (se falhar na resistência) ou paralisado (falha por muito).' },
+  // Círculo 3 — Sangue
+  { nome:'Ferver Sangue', elemento:'Sangue', circulo:3, execucao:'padrão', alcance:'médio', alvo:'1 ser', duracao:'cena', resistencia:'Fortitude parcial', custo:4, descricao:'Faz o sangue do alvo entrar em ebulição: dano e condição fraco ao alvo.' },
+  { nome:'Forma Monstruosa', elemento:'Sangue', circulo:3, execucao:'padrão', alcance:'pessoal', alvo:'você', duracao:'cena', resistencia:'-', custo:4, descricao:'Você assume a aparência e forma de uma criatura monstruosa, com atributos e habilidades alterados.' },
+  { nome:'Purgatório', elemento:'Sangue', circulo:3, execucao:'padrão', alcance:'médio', alvo:'área', duracao:'cena', resistencia:'Fortitude parcial', custo:4, descricao:'Área de sangue: alvos dentro ficam vulneráveis a dano, e quem tentar sair sofre dor.' },
+  { nome:'Vomitar Pestes', elemento:'Sangue', circulo:3, execucao:'padrão', alcance:'curto', alvo:'área', duracao:'cena', resistencia:'-', custo:4, descricao:'Vomita um enxame de pequenas criaturas de Sangue que atacam e infestam inimigos.' },
+  // Círculo 3 — Medo
+  { nome:'Dissipar Ritual', elemento:'Medo', circulo:3, execucao:'padrão', alcance:'médio', alvo:'1 ser/objeto ou esfera 3m', duracao:'instantânea', resistencia:'Vontade anula (itens)', custo:4, descricao:'Dissipa rituais ativos com DT ≤ seu teste de Ocultismo. Em item amaldiçoado: torna-o mundano por 1 dia.' },
+  // Círculo 4 — Conhecimento
+  { nome:'Controle Mental', elemento:'Conhecimento', circulo:4, execucao:'padrão', alcance:'médio', alvo:'1 pessoa ou animal', duracao:'sustentada', resistencia:'Vontade parcial', custo:5, descricao:'Domina a mente do alvo, que obedece todos os comandos exceto suicídio. Teste de Vontade no fim de cada turno (quem passa fica pasmo por 1 rodada, uma vez por cena). (Discente +5PE: até 5 alvos / Verdadeiro +10PE: até 10 alvos)' },
+  { nome:'Inexistir', elemento:'Conhecimento', circulo:4, execucao:'padrão', alcance:'toque', alvo:'1 ser', duracao:'instantânea', resistencia:'Vontade anula', custo:5, descricao:'Você toca um alvo e o apaga completamente da existência, como se nunca tivesse existido.' },
+  { nome:'Possessão', elemento:'Conhecimento', circulo:4, execucao:'padrão', alcance:'curto', alvo:'1 pessoa', duracao:'sustentada', resistencia:'Vontade anula', custo:5, descricao:'Transfere sua consciência para o corpo do alvo, controlando-o. Seu corpo fica indefeso.' },
+  // Círculo 4 — Energia
+  { nome:'Alterar Destino', elemento:'Energia', circulo:4, execucao:'reação', alcance:'pessoal', alvo:'você', duracao:'instantânea', resistencia:'-', custo:4, descricao:'Vislumbra o futuro próximo: +15 em um teste de resistência ou na Defesa contra um ataque. (Verdadeiro +5PE: alcance curto, 1 aliado)' },
+  { nome:'Deflagração de Energia', elemento:'Energia', circulo:4, execucao:'completa', alcance:'pessoal', alvo:'explosão 15m de raio', duracao:'instantânea', resistencia:'Fortitude parcial', custo:5, descricao:'Explosão imensa: 3d10×10 dano de Energia e itens tecnológicos ficam quebrados (voltam após 1d4 rodadas se passarem na resistência). Você não é afetado. (Verdadeiro +5PE: afeta apenas alvos à escolha)' },
+  { nome:'Teletransporte', elemento:'Energia', circulo:4, execucao:'padrão', alcance:'ilimitado', alvo:'você e aliados', duracao:'instantânea', resistencia:'-', custo:5, descricao:'Teletransporta você e outros seres para qualquer local que você conheça bem.' },
+  // Círculo 4 — Morte
+  { nome:'Convocar o Algoz', elemento:'Morte', circulo:4, execucao:'padrão', alcance:'1,5m', alvo:'1 pessoa', duracao:'sustentada', resistencia:'Vontade / Fortitude parcial', custo:5, descricao:'Manifesta o medo da vítima como algoz incorpóreo (só ela vê com clareza). Flutua 12m/turno em direção à vítima. Em alcance curto: Vontade ou abalado. Adjacente: Fortitude ou colapso (0 PV). Incorpóreo e indestrutível.' },
+  { nome:'Distorção Temporal', elemento:'Morte', circulo:4, execucao:'padrão', alcance:'pessoal', alvo:'você', duracao:'3 rodadas', resistencia:'-', custo:5, descricao:'Cria um bolsão temporal de 3 rodadas: você age livremente, mas não pode se deslocar nem interagir com o mundo.' },
+  { nome:'Fim Inevitável', elemento:'Morte', circulo:4, execucao:'completa', alcance:'curto', alvo:'área', duracao:'cena', resistencia:'Fortitude parcial', custo:5, descricao:'Abre uma ruptura no espaço que suga tudo ao redor, causando dano massivo.' },
+  // Círculo 4 — Sangue
+  { nome:'Capturar o Coração', elemento:'Sangue', circulo:4, execucao:'padrão', alcance:'curto', alvo:'1 pessoa', duracao:'cena', resistencia:'Vontade parcial', custo:5, descricao:'Desperta paixão doentia no alvo, que age para agradá-lo. Teste de Vontade por turno; 2 sucessos consecutivos encerram o efeito.' },
+  { nome:'Invólucro de Carne', elemento:'Sangue', circulo:4, execucao:'completa', alcance:'toque', alvo:'1 ser', duracao:'cena', resistencia:'-', custo:5, descricao:'Cria um clone de carne e sangue com as mesmas estatísticas do alvo tocado.' },
+  { nome:'Vínculo de Sangue', elemento:'Sangue', circulo:4, execucao:'padrão', alcance:'toque', alvo:'1 ser', duracao:'sustentada', resistencia:'Vontade anula', custo:5, descricao:'O alvo sofre todo dano e efeitos negativos que você sofrer durante a duração.' },
+  // Círculo 4 — Medo
+  { nome:'Canalizar o Medo', elemento:'Medo', circulo:4, execucao:'padrão', alcance:'toque', alvo:'1 pessoa', duracao:'permanente até usar', resistencia:'-', custo:5, descricao:'Transfere um ritual de até 3° círculo que você conhece. O alvo pode conjurá-lo uma vez sem custo. Seus PE máximos diminuem pelo custo do ritual até ser usado.' },
+  { nome:'Conhecendo o Medo', elemento:'Medo', circulo:4, execucao:'padrão', alcance:'toque', alvo:'1 pessoa', duracao:'instantânea', resistencia:'Vontade parcial', custo:5, descricao:'Manifesta medo absoluto: falha na resistência → SAN vai a 0 e enlouquece; sucesso → 10d6 dano mental e apavorado por 1 rodada. Enlouquecido pode virar criatura paranormal.' },
+  { nome:'Lâmina do Medo', elemento:'Medo', circulo:4, execucao:'padrão', alcance:'toque', alvo:'1 ser', duracao:'instantânea', resistencia:'Vontade parcial', custo:5, descricao:'Golpeia o alvo com uma lâmina de medo puro, causando dano de Medo e infligindo penalidades.' },
+  { nome:'Medo Tangível', elemento:'Medo', circulo:4, execucao:'padrão', alcance:'pessoal', alvo:'você', duracao:'cena', resistencia:'-', custo:5, descricao:'Você recebe uma série de imunidades enquanto o Medo se manifesta em sua forma mais pura.' },
+  { nome:'Presença do Medo', elemento:'Medo', circulo:4, execucao:'completa', alcance:'pessoal', alvo:'você', duracao:'cena', resistencia:'-', custo:5, descricao:'Você assume uma forma impossível dentro da Realidade, tornando-se uma manifestação do Medo absoluto.' },
+];
+
+const OP_CONDICOES = [
+  { nome:'Abalado', cor:'#e09050', descricao:'-2 em todos os testes.' },
+  { nome:'Apavorado', cor:'#e07070', descricao:'Deve fugir da fonte do medo. Se não puder fugir, fica abalado em vez disso.' },
+  { nome:'Atordoado', cor:'#e07070', descricao:'Perde todas as ações no próximo turno (pode reagir normalmente).' },
+  { nome:'Cego', cor:'#e07070', descricao:'50% de chance de falha em ataques. -5 em Defesa e testes que dependam de visão.' },
+  { nome:'Debilitado', cor:'#e09050', descricao:'Pode realizar apenas 1 ação por turno (padrão OU movimento).' },
+  { nome:'Enjoado', cor:'#e09050', descricao:'-2 em ataques e testes de perícia.' },
+  { nome:'Exausto', cor:'#e09050', descricao:'Velocidade reduzida à metade. -5 em todos os testes de ataque e perícia.' },
+  { nome:'Exposto', cor:'#e07070', descricao:'-5 em Defesa.' },
+  { nome:'Fatigado', cor:'#f0c040', descricao:'-2 em todos os testes de ataque e perícia.' },
+  { nome:'Imóvel', cor:'#e09050', descricao:'Não pode se mover. Ataques corpo a corpo contra o alvo recebem +5.' },
+  { nome:'Inconsciente', cor:'#e07070', descricao:'Não pode agir. Defesa -5; falha automática em Reflexos. Encerrado ao recuperar 1+ PV.' },
+  { nome:'Lento', cor:'#f0c040', descricao:'Deslocamento reduzido à metade.' },
+  { nome:'Machucado', cor:'#f0c040', descricao:'Com metade ou menos dos PV totais. Pré-requisito para certas habilidades; sem penalidade direta.' },
+  { nome:'Morrendo', cor:'#e07070', descricao:'PV em 0. Se iniciar 3 turnos morrendo na mesma cena, morre. Encerrado por Medicina DT 20 ou efeito específico.' },
+  { nome:'Paralisado', cor:'#e07070', descricao:'Não pode agir nem se mover. Defesa -5; falha automática em Fortitude e Reflexos.' },
+  { nome:'Pasmo', cor:'#e09050', descricao:'Perde a próxima ação padrão.' },
+  { nome:'Perturbado', cor:'#b030d8', descricao:'SAN abaixo da metade. Alucinações e percepção distorcida (sem penalidade mecânica direta, mas criaturas podem se beneficiar).' },
+  { nome:'Enlouquecendo', cor:'#e07070', descricao:'SAN chegou a 0. Removido da cena; pode se tornar criatura paranormal a critério do mestre.' },
+  { nome:'Surdo', cor:'#f0c040', descricao:'Não pode ouvir. Falha automática em testes que dependam de audição.' },
+  { nome:'Vulnerável', cor:'#e09050', descricao:'Sofre dano dobrado de um tipo específico (indicado pelo efeito causador).' },
+];
+
+const OP_ARMAS = [
+  { nome:'Soco', prof:'Simples', cat:'Corpo a Corpo', dano:'1+FOR', tipo:'Impacto', prop:'Não letal', esp:'-' },
+  { nome:'Faca', prof:'Simples', cat:'Corpo a Corpo', dano:'1d4', tipo:'Corte', prop:'Leve, 1 mão', esp:'1' },
+  { nome:'Bengala', prof:'Simples', cat:'Corpo a Corpo', dano:'1d4', tipo:'Impacto', prop:'Leve, 1 mão', esp:'1' },
+  { nome:'Machadinha', prof:'Simples', cat:'Corpo a Corpo', dano:'1d4', tipo:'Corte', prop:'Leve, arremesso', esp:'1' },
+  { nome:'Clava', prof:'Simples', cat:'Corpo a Corpo', dano:'1d6', tipo:'Impacto', prop:'2 mãos', esp:'2' },
+  { nome:'Foice', prof:'Simples', cat:'Corpo a Corpo', dano:'1d6', tipo:'Corte', prop:'2 mãos', esp:'2' },
+  { nome:'Machado', prof:'Simples', cat:'Corpo a Corpo', dano:'1d6', tipo:'Corte', prop:'1 mão', esp:'2' },
+  { nome:'Machado de Batalha', prof:'Simples', cat:'Corpo a Corpo', dano:'1d8', tipo:'Corte', prop:'2 mãos, pesada', esp:'3' },
+  { nome:'Arco', prof:'Simples', cat:'À Distância', dano:'1d6', tipo:'Perfuração', prop:'2 mãos, alcance 18m', esp:'2' },
+  { nome:'Bodoque', prof:'Simples', cat:'À Distância', dano:'1d4', tipo:'Impacto', prop:'2 mãos', esp:'1' },
+  { nome:'Frasco Incendiário', prof:'Simples', cat:'À Distância', dano:'2d6', tipo:'Fogo', prop:'Arremesso, área 1,5m', esp:'1' },
+  { nome:'Espada Curta', prof:'Tática', cat:'Corpo a Corpo', dano:'1d6', tipo:'Corte', prop:'Leve, 1 mão', esp:'1' },
+  { nome:'Florete', prof:'Tática', cat:'Corpo a Corpo', dano:'1d6', tipo:'Perfuração', prop:'1 mão, +2 ataque', esp:'2' },
+  { nome:'Espada', prof:'Tática', cat:'Corpo a Corpo', dano:'1d8', tipo:'Corte', prop:'1 mão', esp:'2' },
+  { nome:'Katana', prof:'Tática', cat:'Corpo a Corpo', dano:'1d8', tipo:'Corte', prop:'Versátil', esp:'2' },
+  { nome:'Lança', prof:'Tática', cat:'Corpo a Corpo', dano:'1d8', tipo:'Perfuração', prop:'2 mãos, alcance 3m', esp:'3' },
+  { nome:'Martelo de Guerra', prof:'Tática', cat:'Corpo a Corpo', dano:'1d8', tipo:'Impacto', prop:'Versátil', esp:'2' },
+  { nome:'Espada Grande', prof:'Tática', cat:'Corpo a Corpo', dano:'1d10', tipo:'Corte', prop:'2 mãos, pesada', esp:'3' },
+  { nome:'Pistola', prof:'Tática', cat:'À Distância', dano:'1d8', tipo:'Balístico', prop:'1 mão, fogo', esp:'1' },
+  { nome:'Pistola Pesada', prof:'Tática', cat:'À Distância', dano:'1d12', tipo:'Balístico', prop:'1 mão, fogo', esp:'2' },
+  { nome:'Submetralhadora', prof:'Tática', cat:'À Distância', dano:'1d8', tipo:'Balístico', prop:'2 mãos, fogo, automática', esp:'3' },
+  { nome:'Escopeta', prof:'Tática', cat:'À Distância', dano:'2d6', tipo:'Balístico', prop:'2 mãos, fogo, curto alcance', esp:'3' },
+  { nome:'Fuzil', prof:'Tática', cat:'À Distância', dano:'1d12', tipo:'Balístico', prop:'2 mãos, fogo', esp:'3' },
+  { nome:'Rifle de Precisão', prof:'Tática', cat:'À Distância', dano:'2d8', tipo:'Balístico', prop:'2 mãos, fogo, longo alcance', esp:'4' },
+  { nome:'Metralhadora', prof:'Pesada', cat:'À Distância', dano:'2d12', tipo:'Balístico', prop:'2 mãos, fogo, automática', esp:'5' },
+  { nome:'Lança-Chamas', prof:'Pesada', cat:'À Distância', dano:'2d8', tipo:'Fogo', prop:'2 mãos, cone 6m', esp:'5' },
+  { nome:'Bazuca', prof:'Pesada', cat:'À Distância', dano:'6d6', tipo:'Balístico', prop:'2 mãos, explosão 6m', esp:'5' },
+];
+
 function BestiaryTab({ campaignId }) {
   const [creatures,    setCreatures]   = useState([]);
   const [search,       setSearch]      = useState('');
@@ -2811,6 +3106,12 @@ function BestiaryTab({ campaignId }) {
   const [opTab,        setOpTab]       = useState('STATUS');
   const [opCombTab,    setOpCombTab]   = useState('AÇÕES');
   const [opExpAcao,    setOpExpAcao]   = useState(null);
+  const [bestedTab,    setBestedTab]   = useState('criaturas');
+  const [ritualElem,   setRitualElem]  = useState('Todos');
+  const [ritualCirc,   setRitualCirc]  = useState(0);
+  const [ritualSearch, setRitualSearch]= useState('');
+  const [ritualExp,    setRitualExp]   = useState(null);
+  const [armaFilter,   setArmaFilter]  = useState('Todos');
 
   const SYS_COLORS = { 'Genérico':'#8888aa', 'Ordem Paranormal':'#b030d8', 'Tormenta 20':'#d4621e', 'D&D 5e':'#4a6fa5' };
   const OPC = '#b030d8';
@@ -2933,6 +3234,13 @@ function BestiaryTab({ campaignId }) {
   const vcHpPct = vcHpMax > 0 ? vcHpCur/vcHpMax : 1;
   const OP_PERICIAS = [['PERCEPÇÃO','perPercepcao'],['INICIATIVA','perIniciativa'],['FORTITUDE','perFortitude'],['REFLEXOS','perReflexos'],['VONTADE','perVontade']];
   const OP_ATTRS    = [['AGI','agi'],['FOR','atFor'],['INT','atInt'],['PRE','pre'],['VIG','vig']];
+
+  const ELEM_COLORS = { Conhecimento:'#f0c040', Energia:'#4080e0', Morte:'#808080', Sangue:'#e04040', Medo:'#b030d8' };
+  const filteredRituais = OP_RITUAIS.filter(r=>
+    (ritualElem==='Todos'||r.elemento===ritualElem) &&
+    (ritualCirc===0||r.circulo===ritualCirc) &&
+    (!ritualSearch||r.nome.toLowerCase().includes(ritualSearch.toLowerCase())||r.descricao.toLowerCase().includes(ritualSearch.toLowerCase()))
+  );
 
   return (
     <div style={{ display:'flex', flexDirection:'column', flex:1, overflow:'hidden' }}>
@@ -3131,71 +3439,202 @@ function BestiaryTab({ campaignId }) {
         </div>
       )}
 
-      {/* Toolbar */}
-      <div style={{ display:'flex', gap:8, padding:'8px 4px', alignItems:'center', flexWrap:'wrap', flexShrink:0 }}>
-        <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Buscar criatura…"
-          style={{ background:'var(--card)', border:'1px solid var(--border)', borderRadius:6, color:'var(--text)', padding:'6px 12px', fontFamily:'Crimson Pro,serif', fontSize:14, outline:'none', flex:1, minWidth:140 }}/>
-        <select value={filterSys} onChange={e=>setFilterSys(e.target.value)}
-          style={{ background:'var(--card)', border:'1px solid var(--border)', borderRadius:6, color:'var(--muted)', padding:'6px 10px', fontFamily:'Cinzel,serif', fontSize:10, letterSpacing:1, outline:'none', cursor:'pointer' }}>
-          <option value="Todos">Todos</option>
-          {[...new Set(creatures.map(c=>c.system).filter(Boolean))].map(s=><option key={s}>{s}</option>)}
-        </select>
-        <button onClick={openNew}
-          style={{ padding:'7px 16px', borderRadius:6, border:`1px solid rgba(176,48,216,0.5)`, background:'rgba(176,48,216,0.15)', color:'#e0c8ff', cursor:'pointer', fontFamily:'Cinzel,serif', fontSize:10, letterSpacing:1, whiteSpace:'nowrap' }}>
-          + Adicionar Criatura
-        </button>
+      {/* Section Tabs */}
+      <div style={{ display:'flex', borderBottom:'1px solid var(--border)', flexShrink:0 }}>
+        {[['criaturas','Criaturas'],['rituais','Rituais'],['condicoes','Condições'],['armas','Armas']].map(([k,l])=>(
+          <button key={k} onClick={()=>setBestedTab(k)}
+            style={{ flex:1, padding:'9px 4px', fontFamily:'Cinzel,serif', fontSize:9, letterSpacing:1, border:'none', background:'transparent', cursor:'pointer', color:bestedTab===k?'#fff':'var(--muted)', borderBottom:bestedTab===k?`2px solid ${OPC}`:'2px solid transparent', textTransform:'uppercase', transition:'color .15s' }}>
+            {l}
+          </button>
+        ))}
       </div>
 
-      {/* List */}
-      <div style={{ overflowY:'auto', flex:1, display:'flex', flexDirection:'column', gap:6, paddingRight:2 }}>
-        {filtered.length===0 && (
-          <div style={{ textAlign:'center', padding:40, color:'var(--muted)', fontFamily:'Crimson Pro,serif', fontSize:15 }}>
-            {creatures.length===0 ? 'Nenhuma criatura no bestiário. Clique em "+ Adicionar Criatura" para começar.' : 'Nenhuma criatura encontrada.'}
+      {/* CRIATURAS */}
+      {bestedTab==='criaturas' && (<>
+        <div style={{ display:'flex', gap:8, padding:'8px 4px', alignItems:'center', flexWrap:'wrap', flexShrink:0 }}>
+          <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Buscar criatura…"
+            style={{ background:'var(--card)', border:'1px solid var(--border)', borderRadius:6, color:'var(--text)', padding:'6px 12px', fontFamily:'Crimson Pro,serif', fontSize:14, outline:'none', flex:1, minWidth:140 }}/>
+          <select value={filterSys} onChange={e=>setFilterSys(e.target.value)}
+            style={{ background:'var(--card)', border:'1px solid var(--border)', borderRadius:6, color:'var(--muted)', padding:'6px 10px', fontFamily:'Cinzel,serif', fontSize:10, letterSpacing:1, outline:'none', cursor:'pointer' }}>
+            <option value="Todos">Todos</option>
+            {[...new Set(creatures.map(c=>c.system).filter(Boolean))].map(s=><option key={s}>{s}</option>)}
+          </select>
+          <button onClick={openNew}
+            style={{ padding:'7px 16px', borderRadius:6, border:`1px solid rgba(176,48,216,0.5)`, background:'rgba(176,48,216,0.15)', color:'#e0c8ff', cursor:'pointer', fontFamily:'Cinzel,serif', fontSize:10, letterSpacing:1, whiteSpace:'nowrap' }}>
+            + Adicionar Criatura
+          </button>
+        </div>
+        <div style={{ overflowY:'auto', flex:1, display:'flex', flexDirection:'column', gap:6, paddingRight:2 }}>
+          {filtered.length===0 && (
+            <div style={{ textAlign:'center', padding:40, color:'var(--muted)', fontFamily:'Crimson Pro,serif', fontSize:15 }}>
+              {creatures.length===0 ? 'Nenhuma criatura no bestiário. Clique em "+ Adicionar Criatura" para começar.' : 'Nenhuma criatura encontrada.'}
+            </div>
+          )}
+          {filtered.map(c=>{
+            const col = SYS_COLORS[c.system]||'#8888aa';
+            const hpM = parseInt(c.hpMax)||0;
+            const hpC = parseInt(c.hpCurrent != null ? c.hpCurrent : c.hpMax)||hpM;
+            const hpColor = hpC<=hpM*0.25?'#e07070':hpC<=hpM*0.5?'#e0a050':'#70c870';
+            return (
+              <div key={c.id} style={{ background:'var(--card)', border:'1px solid var(--border)', borderRadius:8, overflow:'hidden', transition:'border-color .15s' }}
+                onMouseEnter={e=>e.currentTarget.style.borderColor='rgba(176,48,216,0.3)'}
+                onMouseLeave={e=>e.currentTarget.style.borderColor='var(--border)'}>
+                <div style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 12px', cursor: isOP(c.system)?'pointer':'default' }}
+                  onClick={()=>{ if(isOP(c.system)){ setOpTab('STATUS'); setOpCombTab('AÇÕES'); setOpExpAcao(null); setViewCreature(c); } }}>
+                  <div style={{ width:8, height:8, borderRadius:'50%', background:col, flexShrink:0 }}/>
+                  <div style={{ flex:1, minWidth:0 }}>
+                    <div style={{ fontFamily:'Cinzel,serif', fontSize:13, color:'var(--text)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{c.name}</div>
+                    <div style={{ display:'flex', gap:8, marginTop:2, alignItems:'center', flexWrap:'wrap' }}>
+                      <span style={{ fontSize:9, color:col, fontFamily:'Cinzel,serif', letterSpacing:1 }}>{c.system}</span>
+                      {isOP(c.system) ? (
+                        <>
+                          {c.vd&&<span style={{ fontSize:9, color:'var(--muted)', fontFamily:'Cinzel,serif' }}>VD {c.vd}</span>}
+                          {c.category&&<span style={{ fontSize:9, color:'var(--muted)', fontFamily:'Cinzel,serif' }}>{c.category}</span>}
+                          {hpM>0&&<span style={{ fontSize:9, color:hpColor, fontFamily:'Cinzel,serif' }}>HP {hpC}/{hpM}</span>}
+                        </>
+                      ) : (
+                        <>
+                          {c.hp&&<span style={{ fontSize:9, color:'var(--muted)', fontFamily:'Cinzel,serif' }}>HP {c.hp}</span>}
+                          {c.ac&&<span style={{ fontSize:9, color:'var(--muted)', fontFamily:'Cinzel,serif' }}>CA {c.ac}</span>}
+                          {c.initiative&&<span style={{ fontSize:9, color:'var(--muted)', fontFamily:'Cinzel,serif' }}>Init {c.initiative}</span>}
+                        </>
+                      )}
+                    </div>
+                  </div>
+                  <div style={{ display:'flex', gap:6 }}>
+                    <button onClick={e=>{e.stopPropagation();openEdit(c);}}
+                      style={{ padding:'3px 8px', borderRadius:4, border:'1px solid var(--border)', background:'transparent', color:'var(--muted)', cursor:'pointer', fontSize:10 }}>✏️</button>
+                    <button onClick={e=>{e.stopPropagation();deleteCreature(c.id);}}
+                      style={{ padding:'3px 8px', borderRadius:4, border:'1px solid rgba(139,32,32,0.3)', background:'transparent', color:'#e07070', cursor:'pointer', fontSize:10 }}>🗑</button>
+                  </div>
+                  {isOP(c.system)&&<span style={{ fontSize:9, color:'var(--muted)', letterSpacing:1 }}>ver ▶</span>}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </>)}
+
+      {/* RITUAIS */}
+      {bestedTab==='rituais' && (<>
+          <div style={{ padding:'8px 4px', display:'flex', gap:6, flexShrink:0, flexWrap:'wrap' }}>
+            <input value={ritualSearch} onChange={e=>setRitualSearch(e.target.value)} placeholder="Buscar ritual…"
+              style={{ background:'var(--card)', border:'1px solid var(--border)', borderRadius:6, color:'var(--text)', padding:'5px 10px', fontFamily:'Crimson Pro,serif', fontSize:13, outline:'none', flex:1, minWidth:120 }}/>
+            <select value={ritualElem} onChange={e=>setRitualElem(e.target.value)}
+              style={{ background:'var(--card)', border:'1px solid var(--border)', borderRadius:6, color:'var(--muted)', padding:'5px 8px', fontFamily:'Cinzel,serif', fontSize:9, letterSpacing:1, outline:'none', cursor:'pointer' }}>
+              <option value="Todos">Todos Elementos</option>
+              {['Conhecimento','Energia','Morte','Sangue','Medo'].map(e=><option key={e}>{e}</option>)}
+            </select>
+            <select value={ritualCirc} onChange={e=>setRitualCirc(Number(e.target.value))}
+              style={{ background:'var(--card)', border:'1px solid var(--border)', borderRadius:6, color:'var(--muted)', padding:'5px 8px', fontFamily:'Cinzel,serif', fontSize:9, letterSpacing:1, outline:'none', cursor:'pointer' }}>
+              <option value={0}>Todos Círculos</option>
+              {[1,2,3,4].map(c=><option key={c} value={c}>{c}° Círculo</option>)}
+            </select>
           </div>
-        )}
-        {filtered.map(c=>{
-          const col = SYS_COLORS[c.system]||'#8888aa';
-          const hpM = parseInt(c.hpMax)||0;
-          const hpC = parseInt(c.hpCurrent != null ? c.hpCurrent : c.hpMax)||hpM;
-          const hpColor = hpC<=hpM*0.25?'#e07070':hpC<=hpM*0.5?'#e0a050':'#70c870';
-          return (
-            <div key={c.id} style={{ background:'var(--card)', border:'1px solid var(--border)', borderRadius:8, overflow:'hidden', transition:'border-color .15s' }}
-              onMouseEnter={e=>e.currentTarget.style.borderColor='rgba(176,48,216,0.3)'}
-              onMouseLeave={e=>e.currentTarget.style.borderColor='var(--border)'}>
-              <div style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 12px', cursor: isOP(c.system)?'pointer':'default' }}
-                onClick={()=>{ if(isOP(c.system)){ setOpTab('STATUS'); setOpCombTab('AÇÕES'); setOpExpAcao(null); setViewCreature(c); } }}>
-                <div style={{ width:8, height:8, borderRadius:'50%', background:col, flexShrink:0 }}/>
-                <div style={{ flex:1, minWidth:0 }}>
-                  <div style={{ fontFamily:'Cinzel,serif', fontSize:13, color:'var(--text)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{c.name}</div>
-                  <div style={{ display:'flex', gap:8, marginTop:2, alignItems:'center', flexWrap:'wrap' }}>
-                    <span style={{ fontSize:9, color:col, fontFamily:'Cinzel,serif', letterSpacing:1 }}>{c.system}</span>
-                    {isOP(c.system) ? (
-                      <>
-                        {c.vd&&<span style={{ fontSize:9, color:'var(--muted)', fontFamily:'Cinzel,serif' }}>VD {c.vd}</span>}
-                        {c.category&&<span style={{ fontSize:9, color:'var(--muted)', fontFamily:'Cinzel,serif' }}>{c.category}</span>}
-                        {hpM>0&&<span style={{ fontSize:9, color:hpColor, fontFamily:'Cinzel,serif' }}>HP {hpC}/{hpM}</span>}
-                      </>
-                    ) : (
-                      <>
-                        {c.hp&&<span style={{ fontSize:9, color:'var(--muted)', fontFamily:'Cinzel,serif' }}>HP {c.hp}</span>}
-                        {c.ac&&<span style={{ fontSize:9, color:'var(--muted)', fontFamily:'Cinzel,serif' }}>CA {c.ac}</span>}
-                        {c.initiative&&<span style={{ fontSize:9, color:'var(--muted)', fontFamily:'Cinzel,serif' }}>Init {c.initiative}</span>}
-                      </>
-                    )}
+          <div style={{ overflowY:'auto', flex:1, display:'flex', flexDirection:'column', gap:4, padding:'0 4px 8px' }}>
+            {filteredRituais.length===0 && (
+              <div style={{ textAlign:'center', padding:40, color:'var(--muted)', fontFamily:'Crimson Pro,serif', fontSize:14 }}>Nenhum ritual encontrado.</div>
+            )}
+            {filteredRituais.map((r,i)=>{
+              const rKey = r.elemento+'|'+r.nome+'|'+r.circulo;
+              const exp = ritualExp===rKey;
+              const ec = ELEM_COLORS[r.elemento]||OPC;
+              return (
+                <div key={rKey+i} style={{ background:'var(--card)', border:`1px solid ${exp ? ec+'55' : 'var(--border)'}`, borderRadius:8, overflow:'hidden' }}>
+                  <div style={{ display:'flex', alignItems:'center', gap:10, padding:'9px 12px', cursor:'pointer' }} onClick={()=>setRitualExp(exp?null:rKey)}>
+                    <div style={{ width:6, height:6, borderRadius:'50%', background:ec, flexShrink:0 }}/>
+                    <div style={{ flex:1, minWidth:0 }}>
+                      <span style={{ fontFamily:'Cinzel,serif', fontSize:12, color:'var(--text)' }}>{r.nome}</span>
+                      <span style={{ fontFamily:'Cinzel,serif', fontSize:9, color:ec, marginLeft:8, letterSpacing:1 }}>{r.elemento}</span>
+                    </div>
+                    <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+                      <span style={{ fontFamily:'Cinzel,serif', fontSize:9, color:'var(--muted)', letterSpacing:1 }}>{r.circulo}° circ.</span>
+                      <span style={{ fontFamily:'Cinzel,serif', fontSize:9, color:OPC }}>{r.custo} PE</span>
+                      <span style={{ fontSize:11, color:'var(--muted)' }}>{exp?'∧':'∨'}</span>
+                    </div>
+                  </div>
+                  {exp && (
+                    <div style={{ padding:'0 12px 12px', borderTop:'1px solid var(--border)' }}>
+                      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'4px 12px', padding:'8px 0', fontFamily:'Cinzel,serif', fontSize:9, letterSpacing:1 }}>
+                        <div><span style={{ color:'var(--muted)' }}>EXECUÇÃO </span><span style={{ color:'var(--text)' }}>{r.execucao}</span></div>
+                        <div><span style={{ color:'var(--muted)' }}>ALCANCE </span><span style={{ color:'var(--text)' }}>{r.alcance}</span></div>
+                        <div><span style={{ color:'var(--muted)' }}>ALVO </span><span style={{ color:'var(--text)' }}>{r.alvo}</span></div>
+                        <div><span style={{ color:'var(--muted)' }}>DURAÇÃO </span><span style={{ color:'var(--text)' }}>{r.duracao}</span></div>
+                        {r.resistencia&&r.resistencia!=='-'&&<div style={{ gridColumn:'1/-1' }}><span style={{ color:'var(--muted)' }}>RESISTÊNCIA </span><span style={{ color:'var(--text)' }}>{r.resistencia}</span></div>}
+                      </div>
+                      <div style={{ fontFamily:'Crimson Pro,serif', fontSize:13, color:'rgba(255,255,255,0.85)', lineHeight:1.6, marginTop:4 }}>{r.descricao}</div>
+                      <div style={{ display:'flex', justifyContent:'flex-end', marginTop:8 }}>
+                        <button onClick={()=>doRoll('1d20')} title="Rolar 1d20 para conjurar"
+                          style={{ display:'flex', alignItems:'center', gap:4, padding:'4px 10px', borderRadius:5, border:`1px solid ${ec}44`, background:`${ec}11`, color:ec, cursor:'pointer', fontFamily:'Cinzel,serif', fontSize:9, letterSpacing:1 }}>
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><polygon points="12 2 22 8.5 22 15.5 12 22 2 15.5 2 8.5 12 2"/></svg>
+                          1d20
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+      </>)}
+
+      {/* CONDIÇÕES */}
+      {bestedTab==='condicoes' && (
+        <div style={{ overflowY:'auto', flex:1, padding:'8px 4px' }}>
+          <div style={{ fontFamily:'Cinzel,serif', fontSize:9, letterSpacing:2, color:'var(--muted)', textTransform:'uppercase', padding:'4px 2px 10px' }}>Referência de Condições — Ordem Paranormal</div>
+          <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
+            {OP_CONDICOES.map(c=>(
+              <div key={c.nome} style={{ display:'flex', alignItems:'flex-start', gap:10, background:'var(--card)', border:`1px solid ${c.cor}33`, borderRadius:8, padding:'10px 12px' }}>
+                <div style={{ width:8, height:8, borderRadius:'50%', background:c.cor, flexShrink:0, marginTop:4 }}/>
+                <div style={{ flex:1 }}>
+                  <div style={{ fontFamily:'Cinzel,serif', fontSize:11, color:c.cor, letterSpacing:1, marginBottom:3 }}>{c.nome}</div>
+                  <div style={{ fontFamily:'Crimson Pro,serif', fontSize:13, color:'rgba(255,255,255,0.8)', lineHeight:1.5 }}>{c.descricao}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ARMAS */}
+      {bestedTab==='armas' && (<>
+          <div style={{ padding:'8px 4px 4px', flexShrink:0 }}>
+            <select value={armaFilter} onChange={e=>setArmaFilter(e.target.value)}
+              style={{ background:'var(--card)', border:'1px solid var(--border)', borderRadius:6, color:'var(--muted)', padding:'5px 8px', fontFamily:'Cinzel,serif', fontSize:9, letterSpacing:1, outline:'none', cursor:'pointer' }}>
+              <option value="Todos">Todas Proficiências</option>
+              {['Simples','Tática','Pesada'].map(p=><option key={p}>{p}</option>)}
+            </select>
+          </div>
+          <div style={{ overflowY:'auto', flex:1, padding:'4px 4px 8px' }}>
+            <div style={{ fontFamily:'Cinzel,serif', fontSize:9, letterSpacing:2, color:'var(--muted)', textTransform:'uppercase', padding:'4px 2px 8px' }}>Tabela de Armas — Ordem Paranormal</div>
+            {['Simples','Tática','Pesada'].filter(p=>armaFilter==='Todos'||armaFilter===p).map(prof=>{
+              const armas = OP_ARMAS.filter(a=>a.prof===prof);
+              return (
+                <div key={prof} style={{ marginBottom:16 }}>
+                  <div style={{ fontFamily:'Cinzel,serif', fontSize:10, letterSpacing:2, color:OPC, textTransform:'uppercase', marginBottom:6, borderBottom:`1px solid ${OPC}33`, paddingBottom:4 }}>{prof}</div>
+                  <div style={{ display:'flex', flexDirection:'column', gap:3 }}>
+                    {armas.map(a=>(
+                      <div key={a.nome+a.cat} style={{ display:'grid', gridTemplateColumns:'1fr auto auto', gap:8, background:'var(--card)', border:'1px solid var(--border)', borderRadius:6, padding:'7px 10px', alignItems:'center' }}>
+                        <div>
+                          <div style={{ fontFamily:'Cinzel,serif', fontSize:11, color:'var(--text)' }}>{a.nome}</div>
+                          <div style={{ fontFamily:'Cinzel,serif', fontSize:8, color:'var(--muted)', letterSpacing:1, marginTop:1 }}>{a.cat} · {a.prop}</div>
+                        </div>
+                        <div style={{ textAlign:'center' }}>
+                          <div style={{ fontFamily:'Cinzel,serif', fontSize:13, color:'var(--text)', fontWeight:600 }}>{a.dano}</div>
+                          <div style={{ fontFamily:'Cinzel,serif', fontSize:8, color:'var(--muted)', letterSpacing:1 }}>{a.tipo}</div>
+                        </div>
+                        <button onClick={()=>doRoll(a.dano)} title={`Rolar dano de ${a.nome}`}
+                          style={{ background:'transparent', border:'none', cursor:'pointer', padding:'2px 4px', color:OPC, display:'flex', alignItems:'center' }}>
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="12 2 22 8.5 22 15.5 12 22 2 15.5 2 8.5 12 2"/></svg>
+                        </button>
+                      </div>
+                    ))}
                   </div>
                 </div>
-                <div style={{ display:'flex', gap:6 }}>
-                  <button onClick={e=>{e.stopPropagation();openEdit(c);}}
-                    style={{ padding:'3px 8px', borderRadius:4, border:'1px solid var(--border)', background:'transparent', color:'var(--muted)', cursor:'pointer', fontSize:10 }}>✏️</button>
-                  <button onClick={e=>{e.stopPropagation();deleteCreature(c.id);}}
-                    style={{ padding:'3px 8px', borderRadius:4, border:'1px solid rgba(139,32,32,0.3)', background:'transparent', color:'#e07070', cursor:'pointer', fontSize:10 }}>🗑</button>
-                </div>
-                {isOP(c.system)&&<span style={{ fontSize:9, color:'var(--muted)', letterSpacing:1 }}>ver ▶</span>}
-              </div>
-            </div>
-          );
-        })}
-      </div>
+              );
+            })}
+          </div>
+      </>)}
 
       {/* Add/Edit Modal */}
       {modal && (
@@ -3744,12 +4183,12 @@ function CampaignDetail({ campaign, uid, userName, userPhoto, characters, onBack
       )}
 
       {/* ── Tabs ── */}
-      <div style={{display:"flex",gap:2,borderBottom:"1px solid var(--border)",flexShrink:0,marginTop:8,paddingBottom:0}}>
+      <div style={{display:"flex",gap:2,borderBottom:"1px solid var(--border)",flexShrink:0,marginTop:8,paddingBottom:0,overflowX:"auto",scrollbarWidth:"none",WebkitOverflowScrolling:"touch"}}>
         {tabs.map(tab=>{
           const active = activeTab===tab.id;
           return (
             <button key={tab.id} onClick={()=>setActiveTab(tab.id)} style={{
-              padding:"10px 18px",border:"none",cursor:"pointer",
+              padding:"10px 14px",border:"none",cursor:"pointer",flexShrink:0,
               fontFamily:"Cinzel,serif",fontSize:9,letterSpacing:"0.1em",textTransform:"uppercase",
               color: active ? "#e0c8ff" : "rgba(255,255,255,0.4)",
               background: active ? "rgba(176,48,216,0.15)" : "transparent",
@@ -4104,7 +4543,9 @@ function Dashboard({ system, onCreateChar, characters, sessions, onSelectChar, o
         </div>
         {sysChars.length === 0 ? <EmptyChars/> : (
           <div style={{display:"flex", flexDirection:"column", gap:10}}>
-            {sysChars.map((c,i)=>(
+            {sysChars.map((c,i)=> system?.id === "op"
+              ? <DossierCard key={i} character={c} systemAccent={system?.accent} onClick={()=>onSelectChar && onSelectChar(c)} />
+              : (
               <div key={i} style={{
                 background:"var(--card)", border:"1px solid var(--border)", borderRadius:8,
                 padding:"14px 18px", display:"flex", alignItems:"center", gap:16,
@@ -4130,7 +4571,6 @@ function Dashboard({ system, onCreateChar, characters, sessions, onSelectChar, o
                     {c.classe?.name || "—"} · {c.origem?.name || "—"} · {system?.name}
                   </div>
                 </div>
-                {/* NEX mini bar */}
                 <div style={{display:"flex", flexDirection:"column", gap:4, minWidth:100}}>
                   <span style={{fontFamily:"Cinzel,serif", fontSize:11, color:"var(--muted)"}}>NEX {c.nex ?? 5}%</span>
                   <div style={{height:4, background:"rgba(255,255,255,0.06)", borderRadius:2}}>
@@ -4241,27 +4681,27 @@ function SheetList({ characters, system, onCreateChar, onSelectChar, onDeleteCha
 
       {/* Cards grid */}
       {filtered.length > 0 && (
-        <div style={{display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:14}}>
+        <div style={{display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(300px,1fr))", gap:18}}>
           {filtered.map((c, i) => (
             <div key={i} style={{
-              background:"var(--card)", borderRadius:10,
-              border:"1px solid rgba(255,255,255,0.06)",
+              background:"var(--card)", borderRadius:14,
+              border:"1px solid rgba(255,255,255,0.07)",
               position:"relative", overflow:"hidden",
-              transition:"border-color 0.2s, transform 0.2s",
+              transition:"border-color 0.22s, transform 0.22s, box-shadow 0.22s",
             }}
-              onMouseEnter={e=>{e.currentTarget.style.borderColor="rgba(124,58,237,0.45)"; e.currentTarget.style.transform="translateY(-2px)"}}
-              onMouseLeave={e=>{e.currentTarget.style.borderColor="rgba(255,255,255,0.06)"; e.currentTarget.style.transform="translateY(0)"}}>
+              onMouseEnter={e=>{e.currentTarget.style.borderColor="rgba(124,58,237,0.5)"; e.currentTarget.style.transform="translateY(-3px)"; e.currentTarget.style.boxShadow="0 12px 40px rgba(124,58,237,0.18)"}}
+              onMouseLeave={e=>{e.currentTarget.style.borderColor="rgba(255,255,255,0.07)"; e.currentTarget.style.transform="translateY(0)"; e.currentTarget.style.boxShadow="none"}}>
 
               {/* Gear + menu */}
-              <div style={{position:"absolute", top:10, right:12, zIndex:3}}>
+              <div style={{position:"absolute", top:12, right:14, zIndex:3}}>
                 <button onClick={(e)=>{e.stopPropagation(); setMenuOpen(menuOpen===i?null:i);}} title="Opções" aria-label="Opções da ficha"
-                  style={{background:"none", border:"none", fontSize:17, color:"rgba(255,255,255,0.35)", cursor:"pointer", lineHeight:1, padding:2}}>⚙</button>
+                  style={{background:"none", border:"none", fontSize:18, color:"rgba(255,255,255,0.3)", cursor:"pointer", lineHeight:1, padding:2}}>⚙</button>
                 {menuOpen===i && (
                   <>
                     <div onClick={()=>setMenuOpen(null)} style={{position:"fixed", inset:0, zIndex:2}}/>
-                    <div style={{position:"absolute", top:28, right:0, zIndex:4, background:"#15110a", border:"1px solid var(--border2)", borderRadius:6, minWidth:158, boxShadow:"0 8px 24px rgba(0,0,0,0.6)", overflow:"hidden"}}>
+                    <div style={{position:"absolute", top:30, right:0, zIndex:4, background:"#15110a", border:"1px solid var(--border2)", borderRadius:8, minWidth:164, boxShadow:"0 8px 32px rgba(0,0,0,0.7)", overflow:"hidden"}}>
                       <button onClick={()=>{ setMenuOpen(null); setConfirmDelete(c); }}
-                        style={{display:"flex", alignItems:"center", gap:8, width:"100%", textAlign:"left", background:"none", border:"none", color:"#e57373", padding:"10px 14px", fontFamily:"Cinzel,serif", fontSize:11, letterSpacing:1, cursor:"pointer"}}
+                        style={{display:"flex", alignItems:"center", gap:8, width:"100%", textAlign:"left", background:"none", border:"none", color:"#e57373", padding:"11px 16px", fontFamily:"Cinzel,serif", fontSize:11, letterSpacing:1, cursor:"pointer"}}
                         onMouseEnter={e=>e.currentTarget.style.background="rgba(229,57,53,0.12)"}
                         onMouseLeave={e=>e.currentTarget.style.background="none"}>
                         🗑 Excluir Ficha
@@ -4271,39 +4711,40 @@ function SheetList({ characters, system, onCreateChar, onSelectChar, onDeleteCha
                 )}
               </div>
 
-              {/* Card body */}
-              <div style={{display:"flex", gap:14, padding:"18px 16px 0"}}>
-                {/* Avatar */}
-                <div style={{
-                  width:82, height:82, borderRadius:8, flexShrink:0,
-                  background:"rgba(124,58,237,0.12)", border:"1px solid rgba(124,58,237,0.25)",
-                  display:"flex", alignItems:"center", justifyContent:"center", fontSize:34,
-                  overflow:"hidden",
-                }}>
-                  {c.form?.avatar
-                    ? <img src={c.form.avatar} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>
-                    : "🕵️"}
-                </div>
+              {/* Avatar (full-width top) */}
+              <div style={{
+                width:"100%", height:180,
+                background:"rgba(124,58,237,0.10)",
+                borderBottom:"1px solid rgba(255,255,255,0.06)",
+                display:"flex", alignItems:"center", justifyContent:"center",
+                fontSize:56, overflow:"hidden", position:"relative",
+              }}>
+                {c.form?.avatar
+                  ? <img src={c.form.avatar} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>
+                  : <span style={{opacity:0.18}}>🕵️</span>}
+                {/* subtle gradient overlay */}
+                <div style={{position:"absolute",bottom:0,left:0,right:0,height:60,background:"linear-gradient(to top, rgba(12,12,20,0.8), transparent)"}}/>
+              </div>
 
-                <div style={{flex:1, minWidth:0, paddingRight:24}}>
-                  <div style={{fontFamily:"Cinzel,serif", fontSize:17, fontWeight:700, color:"#fff", marginBottom:5, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap"}}>
-                    {c.form?.personagem || "Sem nome"}
-                  </div>
-                  <div style={{fontFamily:"Crimson Pro,serif", fontSize:14, color:"rgba(255,255,255,0.55)", marginBottom:5}}>
-                    {c.classe?.name || "—"}
-                  </div>
-                  <div style={{fontFamily:"Crimson Pro,serif", fontSize:12, color:"rgba(255,255,255,0.3)"}}>
-                    Registrado em {c.createdAt || "—"}
-                  </div>
+              {/* Info */}
+              <div style={{padding:"16px 18px 0"}}>
+                <div style={{fontFamily:"Cinzel,serif", fontSize:19, fontWeight:700, color:"#fff", marginBottom:4, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap"}}>
+                  {c.form?.personagem || "Sem nome"}
+                </div>
+                <div style={{fontFamily:"Inter,system-ui,sans-serif", fontSize:14, color:"rgba(255,255,255,0.5)", marginBottom:4}}>
+                  {c.classe?.name || "—"}
+                </div>
+                <div style={{fontFamily:"Inter,system-ui,sans-serif", fontSize:12, color:"rgba(255,255,255,0.25)"}}>
+                  Registrado em {c.createdAt || "—"}
                 </div>
               </div>
 
               {/* Footer */}
-              <div style={{display:"flex", justifyContent:"flex-end", padding:"14px 16px"}}>
+              <div style={{padding:"16px 18px 18px"}}>
                 <button onClick={()=>onSelectChar(c)} style={{
-                  background:purple, color:"#fff", border:"none",
-                  borderRadius:6, padding:"8px 20px",
-                  fontFamily:"Cinzel,serif", fontSize:10, letterSpacing:1.5,
+                  width:"100%", background:purple, color:"#fff", border:"none",
+                  borderRadius:8, padding:"11px 0",
+                  fontFamily:"Cinzel,serif", fontSize:11, letterSpacing:1.5,
                   textTransform:"uppercase", cursor:"pointer", transition:"background 0.2s",
                 }}
                   onMouseEnter={e=>{e.currentTarget.style.background=purpleHover}}
@@ -10934,6 +11375,7 @@ export default function App() {
   const [screen, setScreen] = useState(() => localStorage.getItem('nexus_screen') || "dashboard");
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem('nexus_sidebar_collapsed') === 'true');
   const [showRollPanel, setShowRollPanel] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const [creatingChar, setCreatingChar] = useState(false);
   const [createdChar, setCreatedChar] = useState(null);
   const charKey = activeSystem ? `nexus_characters_${activeSystem.id}` : null;
@@ -11154,12 +11596,20 @@ export default function App() {
       const uid    = currentUser?.uid || "";
       const uName  = localStorage.getItem("nexus_profile_name") || currentUser?.displayName || "Agente";
       const uPhoto = localStorage.getItem("nexus_profile_photo") || "";
+      const activeRollCampaign = campaigns.filter(c => c.isActive !== false)[0] ?? null;
       const handleRoll = (roll) => {
-        const c = rollCampaignRef.current;
+        const c = rollCampaignRef.current || activeRollCampaign;
         if (!c) return;
+        const isAtk = roll.kind === "attack";
         fsSendMessage(c.id, uid, uName, uPhoto,
           `${roll.charName} rolou ${roll.expr||roll.attr} → [${roll.rolls.join(",")}] = ${roll.result}`,
-          "roll", { expr:roll.expr||roll.attr, rolls:roll.rolls, total:roll.result, sides:parseInt((roll.dice||"D20").slice(1)), count:roll.rolls.length, crit:!!roll.crit });
+          "roll", {
+            expr: roll.expr || roll.attr, rolls: roll.rolls, total: roll.result,
+            sides: parseInt((roll.dice||"D20").slice(1)), count: roll.rolls.length, crit: !!roll.crit,
+            name: roll.name || roll.attr || roll.expr, kind: roll.kind || null, rollType: roll.rollType || null,
+            elemento: roll.elemento || null, charName: roll.charName || uName,
+            dano: isAtk ? (roll.dano ?? null) : null,
+          });
       };
       const handleSheetUpdate = (updated) => { setCreatedChar(updated); setCharacters(prev => prev.map(c => (c.id && c.id === updated.id) || (!c.id && c.createdAt === updated.createdAt) ? updated : c)); fsSaveCharacter(currentUser?.uid, updated); };
       const sheetFallback = (
@@ -11172,9 +11622,13 @@ export default function App() {
         <div style={opFill ? {display:"flex",gap:12,alignItems:"stretch",flex:1,minHeight:0} : {display:"flex",gap:12,alignItems:"start"}}>
           <div style={opFill ? {flex:1,minWidth:0,display:"flex",flexDirection:"column",minHeight:0} : {flex:1,minWidth:0}}>
             {activeSystem?.id === "op" ? (
-              <Suspense fallback={sheetFallback}>
-                <OrdemParanormalSheet character={createdChar} onBack={()=>setCreatedChar(null)} onRoll={handleRoll} onUpdate={handleSheetUpdate}/>
-              </Suspense>
+              <>
+                <Suspense fallback={sheetFallback}>
+                  <OrdemParanormalSheet character={createdChar} onBack={()=>{ setCreatedChar(null); setHistoryOpen(false); }} onRoll={handleRoll} onUpdate={handleSheetUpdate}
+                    rollCampaign={activeRollCampaign} onOpenHistory={()=>setHistoryOpen(true)}/>
+                </Suspense>
+                {historyOpen && activeRollCampaign && <CampaignRollDrawer campaign={activeRollCampaign} onClose={()=>setHistoryOpen(false)}/>}
+              </>
             ) : (
               <FullSheet character={createdChar} onBack={()=>setCreatedChar(null)} onRoll={handleRoll}
                 showPanel={showRollPanel} onTogglePanel={()=>setShowRollPanel(v=>!v)}
@@ -11252,7 +11706,8 @@ export default function App() {
             {screen !== "music" && <div style={(screen==="master" || (screen==="sheet" && createdChar && activeSystem?.id==="op")) ? {flex:1, display:"flex", flexDirection:"column", minHeight:0} : {}}>{renderScreen()}</div>}
           </main>
           {nowPlaying && <MusicPlayerBar nowPlaying={nowPlaying} onNowPlaying={setNowPlaying} ytPlayerRef={ytPlayerRef} />}
-          <div style={{borderTop:"1px solid var(--border2)", padding:"9px 20px", display:"flex", gap:12, alignItems:"center", background:"rgba(6,6,6,0.6)"}}>
+          <MobileBottomNav active={screen} onNav={setScreen}/>
+          <div className="nexus-footer" style={{borderTop:"1px solid var(--border2)", padding:"9px 20px", display:"flex", gap:12, alignItems:"center", background:"rgba(6,6,6,0.6)"}}>
             <div style={{display:"flex", gap:8, alignItems:"center"}}>
               <NexusLogo size={16}/>
               <span style={{fontFamily:"Cinzel,serif", fontSize:8, letterSpacing:2, color:"var(--muted2)", textTransform:"uppercase"}}>Nexus RPG · v0.1 Beta</span>

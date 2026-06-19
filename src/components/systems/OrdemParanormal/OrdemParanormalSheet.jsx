@@ -18,6 +18,10 @@ import { OrdemSheetStyles } from "./ordemStyles";
 import { getElementTheme, ELEMENT_UNLOCK_NEX } from "./elementos";
 import ElementoSymbol from "./ElementoSymbol";
 import ElementoAfinidadeModal from "./ElementoAfinidadeModal";
+import HabilidadesTab from "./Tabs/HabilidadesTab";
+import RituaisTab from "./Tabs/RituaisTab";
+import InventarioTab from "./Tabs/InventarioTab";
+import DescricaoTab from "./Tabs/DescricaoTab";
 import {
   ATTR_KEYS, ATTR_LABELS, PERICIAS, PERICIA_GRUPOS, defaultTrainedSet, treinoColor,
   nexStats, deriveStats, rollOP, rollExpr, nexLevel, NEX_LADDER, rollPayload,
@@ -62,7 +66,7 @@ function startWhisper() {
 }
 function stopWhisper(w) { if (!w) return; try { w.src.stop(); w.ctx.close(); } catch {} }
 
-export default function OrdemParanormalSheet({ character, onBack, onUpdate, onRoll }) {
+export default function OrdemParanormalSheet({ character, onBack, onUpdate, onRoll, rollCampaign, onOpenHistory }) {
   /* ── persisted state ── */
   const [attrs, setAttrs] = useState(character.attrs || { AGI: 1, FOR: 1, INT: 1, PRE: 1, VIG: 1 });
   const [origem] = useState(character.origem ?? null);
@@ -83,12 +87,30 @@ export default function OrdemParanormalSheet({ character, onBack, onUpdate, onRo
   const [pe, setPe] = useState(character.pe ?? cs0.pe);
 
   const [attacks, setAttacks] = useState(character.attacks ?? character.ataques ?? []);
-  const [skills, setSkills] = useState(character.skills ?? []);
-  const [poderes, setPoderes] = useState(character.poderes ?? []);
   const [rituais, setRituais] = useState(character.rituais ?? []);
-  const [itens, setItens] = useState(character.itens ?? []);
-  const [diario, setDiario] = useState(character.diario ?? []);
-  const [creditos, setCreditos] = useState(character.creditos ?? 0);
+  // legados preservados no snapshot (migrados para habilidades/inventario; mantidos p/ não perder dados)
+  const [skills] = useState(character.skills ?? []);
+  const [poderes] = useState(character.poderes ?? []);
+  const [itens] = useState(character.itens ?? []);
+  const [diario] = useState(character.diario ?? []);
+  const [creditos] = useState(character.creditos ?? 0);
+
+  /* ── tab v2 state (migra dados legados de poderes/skills/itens na 1ª carga) ── */
+  const [habilidades, setHabilidades] = useState(() => {
+    // só migra na 1ª carga de uma ficha legada (campo ausente); depois respeita exclusões do jogador
+    if (character.habilidades !== undefined) return character.habilidades;
+    return [
+      ...(character.poderes || []).map((p) => ({ id: p.id || Date.now() + Math.random(), nome: p.name || "Poder", descricao: p.desc || "", dados: "", imagem_url: "" })),
+      ...(character.skills || []).map((s) => ({ id: s.id || Date.now() + Math.random(), nome: s.name || "Habilidade", descricao: typeof s.desc === "string" ? s.desc : "", dados: "", imagem_url: "" })),
+    ];
+  });
+  const [inventario, setInventario] = useState(() => {
+    if (character.inventario !== undefined) return character.inventario;
+    const itensMig = (character.itens || []).map((it) => ({ id: it.id || Date.now() + Math.random(), nome: it.name || "Item", tipo: "geral", categoria: "I", espacos: Number(it.peso) || 0, descricao: it.desc || "", melhorias: [], is_equipado: false }));
+    return { itens: itensMig, pontos_prestigio: 0, patente: "Recruta", limite_itens: [2, 0, 0, 0], no_inventario: [itensMig.length, 0, 0, 0], limite_credito: "Baixo", carga_maxima: 20 };
+  });
+  const [descricao, setDescricao] = useState(character.descricao ?? {});
+  const [dtRituais, setDtRituais] = useState(character.dtRituais ?? 16);
   const [rollHistory, setRollHistory] = useState(character.rollHistory ?? []);
   const [trilha] = useState(character.trilha ?? null);
 
@@ -151,6 +173,7 @@ export default function OrdemParanormalSheet({ character, onBack, onUpdate, onRo
     pv: hp, san, pe, pvMax, sanMax, peMax, attacks, ataques: attacks, skills, poderes, rituais, itens,
     diario, creditos, rollHistory, trilha, defesaBonus, esquivaBonus, bloqueio, protecao, resistencias,
     proeficiencia, elementoAfinidade, elementoEscolhidoEm, elementoGmOverride, elementoNotas,
+    habilidades, inventario, descricao, dtRituais,
   };
   const latest = useRef(snapshot);
   latest.current = snapshot;
@@ -172,7 +195,7 @@ export default function OrdemParanormalSheet({ character, onBack, onUpdate, onRo
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [attrs, form, skillTreino, skillOutros, pdBonus, nex, hp, san, pe, pvMax, sanMax, peMax, attacks, skills, poderes,
       rituais, itens, diario, creditos, defesaBonus, esquivaBonus, bloqueio, protecao, resistencias,
-      proeficiencia, elementoAfinidade, elementoNotas]);
+      proeficiencia, elementoAfinidade, elementoNotas, habilidades, inventario, descricao, dtRituais]);
   useEffect(() => () => flushSave(), []); // flush on unmount
   const handleBack = () => { flushSave(); onBack?.(); };
 
@@ -202,28 +225,34 @@ export default function OrdemParanormalSheet({ character, onBack, onUpdate, onRo
   const fireRoll = (label, res) => {
     // nova rolagem substitui a anterior (não acumula); crítico → modal central, normal → corner card
     setRoll({ attr: label, ...res, ts: Date.now() });
-    onRoll?.(rollPayload(label, { ...res, expr: res.expr || label }, charName));
+    onRoll?.(rollPayload(label, { ...res, expr: res.expr || label }, charName, elementoAfinidade));
     pushHistory({ label, rolls: res.rolls, result: res.result, crit: !!res.crit, ts: Date.now() });
   };
-  const rollAttr = (k) => fireRoll(ATTR_LABELS[k], rollOP(attrs[k]));
+  const rollAttr = (k) => fireRoll(`${ATTR_LABELS[k]} (${k})`, { ...rollOP(attrs[k]), rollType: "attribute" });
   const rollSkill = (p) => {
     const ak = skillAttr[p.base] || p.attr;
     const base = rollOP(attrs[ak]);
     const tBonus = skillTreino[p.base] ?? (trained.has(p.base) ? 5 : 0);
     const other = Number(skillOutros[p.base] || 0);
-    fireRoll(`${p.base} (${ak})`, { ...base, result: base.result + tBonus + other });
+    fireRoll(`${p.base} (${ak})`, { ...base, result: base.result + tBonus + other, rollType: "skill" });
   };
   const rollFree = () => {
     const res = rollExpr(diceInput);
     if (!res) { setRoll({ phase: "result", attr: "ERRO", rolls: [], result: "ex: 1d20+3", crit: false }); return; }
-    fireRoll(diceInput.toUpperCase(), { ...res, expr: diceInput });
+    fireRoll(diceInput.toUpperCase(), { ...res, expr: diceInput, rollType: "custom" });
     setDiceInput("");
   };
   const rollAttack = (a) => {
     const atkAttr = a.attr || "FOR"; // teste de ataque (Luta/Pontaria) — usa FOR por padrão
     const atk = rollOP(attrs[atkAttr] || 1);
     const dmg = rollExpr(a.dano || a.damage || "1d6") || { rolls: [0], result: 0, dice: "D6" };
-    fireRoll(a.name || "Ataque", { ...atk, kind: "attack", dano: dmg.result, danoRolls: dmg.rolls });
+    fireRoll(a.name || "Ataque", { ...atk, kind: "attack", rollType: "attack", dano: dmg.result, danoRolls: dmg.rolls });
+  };
+  /* rolagem livre de uma notação de dados (habilidades, rituais, dano de item) → corner card */
+  const rollDados = (label, expr) => {
+    const res = rollExpr(expr);
+    if (!res) return;
+    fireRoll(label || expr, { ...res, expr, rollType: "custom" });
   };
 
   /* ── keyboard shortcuts ── */
@@ -273,8 +302,7 @@ export default function OrdemParanormalSheet({ character, onBack, onUpdate, onRo
     "--crisis-vignette": theme.crisis.vignette,
   };
 
-  const TABS = [["combate", "Combate"], ["poderes", "Poderes"], ["skills", "Skills"], ["rituais", "Rituais"], ["itens", "Itens"], ["diario", "Diário"]];
-  const totalPeso = itens.reduce((s, it) => s + (Number(it.qtd) || 1) * (Number(it.peso) || 0), 0);
+  const TABS = [["combate", "Combate"], ["habilidades", "Habilidades"], ["rituais", "Rituais"], ["inventario", "Inventário"], ["descricao", "Descrição"]];
   const filteredPericias = PERICIAS.filter((p) => p.base.toLowerCase().includes(skillFilter.toLowerCase()));
 
   const inputMini = { padding: "4px 7px", fontSize: 13, width: "100%" };
@@ -516,7 +544,7 @@ export default function OrdemParanormalSheet({ character, onBack, onUpdate, onRo
 
         {/* ── RIGHT: tabs ── */}
         <div className="op-col" style={{ minWidth: 0 }}>
-          <div style={{ display: "flex", width: "100%", borderBottom: "1px solid var(--border2)", position: "sticky", top: 0, zIndex: 2, background: "var(--bg)" }} role="tablist">
+          <div className="op-tabs-row" style={{ borderBottom: "1px solid var(--border2)", position: "sticky", top: 0, zIndex: 2, background: "var(--bg)" }} role="tablist">
             {TABS.map(([id, lbl]) => (
               <div key={id} className={`op-tab ${activeTab === id ? "active" : ""}`} role="tab" aria-selected={activeTab === id} tabIndex={0}
                 onClick={() => setActiveTab(id)} onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && setActiveTab(id)}>{lbl}</div>
@@ -525,148 +553,28 @@ export default function OrdemParanormalSheet({ character, onBack, onUpdate, onRo
           <div className="op-ink" style={{ borderRadius: "0 0 6px 6px", padding: 14, background: "rgba(0,0,0,0.25)", minHeight: 280 }}>
 
             {activeTab === "combate" && (
-              <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-                <div>
-                  <div className="op-label" style={{ marginBottom: 6 }}>Console de Rolagem</div>
-                  <div style={{ display: "flex", gap: 8 }}>
-                    <span className="op-data" style={{ color: "#4ade80", alignSelf: "center" }}>›</span>
-                    <input ref={diceRef} className="op-terminal" value={diceInput} placeholder="ex: 2d6+3, 1d20, 4d4-1"
-                      onChange={(e) => setDiceInput(e.target.value)} onKeyDown={(e) => e.key === "Enter" && rollFree()} aria-label="Expressão de dados" />
-                    <button className="op-rolar" onClick={rollFree}>
-                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="18" height="18" rx="3" /><circle cx="8" cy="8" r="1.4" fill="currentColor" /><circle cx="16" cy="16" r="1.4" fill="currentColor" /><circle cx="12" cy="12" r="1.4" fill="currentColor" /></svg>Rolar
-                    </button>
-                  </div>
-                  {rollHistory.length > 0 && (
-                    <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 3 }}>
-                      {rollHistory.slice(0, 5).map((h) => (
-                        <div key={h.id} className="op-data" style={{ fontSize: 10, color: "var(--muted2)", display: "flex", justifyContent: "space-between", gap: 8 }}>
-                          <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{h.label} [{(h.rolls || []).join(",")}]</span>
-                          <span style={{ color: h.crit ? "#ffe86a" : "var(--el-glow)", fontWeight: 700 }}>{h.result}</span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-
-                <div>
-                  <div className="op-label" style={{ marginBottom: 6 }}>Testes de Atributo</div>
-                  <div style={{ display: "grid", gridTemplateColumns: "repeat(5,1fr)", gap: 6 }}>
-                    {ATTR_KEYS.map((k) => <button key={k} className="op-emrg" onClick={() => rollAttr(k)} aria-label={`Testar ${ATTR_LABELS[k]}`}>{k}</button>)}
-                  </div>
-                </div>
-
-                <div>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-                    <span className="op-label">Arsenal · {attacks.length}</span>
-                    <MiniBtn onClick={add(setAttacks, { name: "Nova arma", dano: "1d6", critico: "", tipo: "", alcance: "" })}>+ Novo</MiniBtn>
-                  </div>
-                  {attacks.length === 0 ? <Empty>Nenhum ataque registrado.</Empty> : (
-                    <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
-                      {attacks.map((a, i) => (
-                        <div key={a.id || i} className="op-ink" style={{ padding: "9px 11px", background: "rgba(0,0,0,0.3)", display: "flex", flexDirection: "column", gap: 6 }}>
-                          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                            <span style={{ fontSize: 16 }}>⚔</span>
-                            <input value={a.name || ""} onChange={(e) => upd(setAttacks)(i, { name: e.target.value })} style={{ ...inputMini, flex: 1, fontFamily: "var(--font-title,'Cinzel',serif)" }} />
-                            <button className="op-rolar" style={{ padding: "6px 10px", fontSize: 9 }} onClick={() => rollAttack(a)}>🎲</button>
-                            <button onClick={() => rm(setAttacks)(i)} aria-label="Remover" style={{ background: "none", border: "none", color: "var(--danger-text)", cursor: "pointer" }}>×</button>
-                          </div>
-                          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 6 }}>
-                            <LabeledMini label="Dano" value={a.dano || ""} onChange={(v) => upd(setAttacks)(i, { dano: v })} />
-                            <LabeledMini label="Crítico" value={a.critico || ""} onChange={(v) => upd(setAttacks)(i, { critico: v })} />
-                            <LabeledMini label="Tipo" value={a.tipo || ""} onChange={(v) => upd(setAttacks)(i, { tipo: v })} />
-                            <LabeledMini label="Alcance" value={a.alcance || ""} onChange={(v) => upd(setAttacks)(i, { alcance: v })} />
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
+              <CombateTab
+                diceRef={diceRef} diceInput={diceInput} setDiceInput={setDiceInput} rollFree={rollFree}
+                attrs={attrs} rollAttr={rollAttr} attacks={attacks} setAttacks={setAttacks}
+                rollAttack={rollAttack} upd={upd} rm={rm} add={add}
+                rollCampaign={rollCampaign} onOpenHistory={onOpenHistory}
+              />
             )}
 
-            {activeTab === "poderes" && (
-              <ListEditor title="Poderes Paranormais" items={poderes} onAdd={add(setPoderes, { name: "Novo poder", nexReq: nex, peCost: "", desc: "", usos: 0 })}
-                empty="Nenhum poder registrado." render={(p, i) => (
-                  <div key={p.id || i} className="op-ink" style={{ padding: "10px 12px", background: "rgba(0,0,0,0.3)", display: "flex", flexDirection: "column", gap: 6 }}>
-                    <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                      <input value={p.name} onChange={(e) => upd(setPoderes)(i, { name: e.target.value })} style={{ ...inputMini, flex: 1, fontFamily: "var(--font-title,'Cinzel',serif)", color: "var(--el-glow)" }} />
-                      <button onClick={() => rm(setPoderes)(i)} style={{ background: "none", border: "none", color: "var(--danger-text)", cursor: "pointer" }}>×</button>
-                    </div>
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr auto", gap: 6, alignItems: "center" }}>
-                      <LabeledMini label="NEX" value={p.nexReq} onChange={(v) => upd(setPoderes)(i, { nexReq: v })} />
-                      <LabeledMini label="Custo PE" value={p.peCost} onChange={(v) => upd(setPoderes)(i, { peCost: v })} />
-                      <span className="op-data" style={{ fontSize: 11, color: "var(--muted2)", display: "flex", alignItems: "center", gap: 4 }}>
-                        usos <MiniBtn onClick={() => upd(setPoderes)(i, { usos: Math.max(0, (p.usos || 0) - 1) })}>−</MiniBtn>{p.usos || 0}<MiniBtn onClick={() => upd(setPoderes)(i, { usos: (p.usos || 0) + 1 })}>+</MiniBtn>
-                      </span>
-                    </div>
-                    <textarea value={p.desc} onChange={(e) => upd(setPoderes)(i, { desc: e.target.value })} placeholder="Descrição…" style={{ minHeight: 50, fontSize: 13 }} />
-                  </div>
-                )} />
-            )}
-
-            {activeTab === "skills" && (
-              <ListEditor title="Habilidades" items={skills} onAdd={add(setSkills, { name: "Nova habilidade", desc: "", categoria: "Geral" })}
-                empty="Nenhuma habilidade registrada." render={(s, i) => (
-                  <div key={s.id || i} className="op-ink" style={{ padding: "10px 12px", background: "rgba(0,0,0,0.3)", display: "flex", flexDirection: "column", gap: 6 }}>
-                    <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                      <input value={s.name} onChange={(e) => upd(setSkills)(i, { name: e.target.value })} style={{ ...inputMini, flex: 1, fontFamily: "var(--font-title,'Cinzel',serif)" }} />
-                      <button onClick={() => rm(setSkills)(i)} style={{ background: "none", border: "none", color: "var(--danger-text)", cursor: "pointer" }}>×</button>
-                    </div>
-                    {s.desc !== undefined && (typeof s.desc === "string" && s.desc.includes("<")
-                      ? <div style={{ fontSize: 13, color: "var(--muted2)" }} dangerouslySetInnerHTML={{ __html: s.desc }} />
-                      : <textarea value={s.desc || ""} onChange={(e) => upd(setSkills)(i, { desc: e.target.value })} placeholder="Descrição…" style={{ minHeight: 44, fontSize: 13 }} />)}
-                  </div>
-                )} />
+            {activeTab === "habilidades" && (
+              <HabilidadesTab habilidades={habilidades} setHabilidades={setHabilidades} onRollDados={rollDados} nex={nex} classe={classe} />
             )}
 
             {activeTab === "rituais" && (
-              <ListEditor title="Rituais" items={rituais} onAdd={add(setRituais, { name: "Novo ritual", circulo: 1, elemento: "", alcance: "", execucao: "", duracao: "", resistencia: "", desc: "" })}
-                empty="Nenhum ritual conhecido." render={(r, i) => (
-                  <div key={r.id || i} className="op-ink" style={{ padding: "10px 12px", background: "rgba(74,14,110,0.12)", display: "flex", flexDirection: "column", gap: 6 }}>
-                    <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                      <input value={r.name} onChange={(e) => upd(setRituais)(i, { name: e.target.value })} style={{ ...inputMini, flex: 1, fontFamily: "var(--font-title,'Cinzel',serif)", color: "var(--paranormal-text)" }} />
-                      <button onClick={() => rm(setRituais)(i)} style={{ background: "none", border: "none", color: "var(--danger-text)", cursor: "pointer" }}>×</button>
-                    </div>
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6 }}>
-                      <LabeledMini label="Círculo" value={r.circulo} onChange={(v) => upd(setRituais)(i, { circulo: v })} />
-                      <LabeledMini label="Elemento" value={r.elemento} onChange={(v) => upd(setRituais)(i, { elemento: v })} />
-                      <LabeledMini label="Alcance" value={r.alcance} onChange={(v) => upd(setRituais)(i, { alcance: v })} />
-                      <LabeledMini label="Execução" value={r.execucao} onChange={(v) => upd(setRituais)(i, { execucao: v })} />
-                      <LabeledMini label="Duração" value={r.duracao} onChange={(v) => upd(setRituais)(i, { duracao: v })} />
-                      <LabeledMini label="Resist." value={r.resistencia} onChange={(v) => upd(setRituais)(i, { resistencia: v })} />
-                    </div>
-                    <textarea value={r.desc} onChange={(e) => upd(setRituais)(i, { desc: e.target.value })} placeholder="Efeito…" style={{ minHeight: 48, fontSize: 13 }} />
-                  </div>
-                )} />
+              <RituaisTab rituais={rituais} setRituais={setRituais} dtRituais={dtRituais} setDtRituais={setDtRituais} onRollDados={rollDados} />
             )}
 
-            {activeTab === "itens" && (
-              <div>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8, gap: 10, flexWrap: "wrap" }}>
-                  <span className="op-label">Inventário</span>
-                  <span className="op-data" style={{ fontSize: 11, color: "var(--muted2)", display: "flex", gap: 12, alignItems: "center" }}>
-                    <span>Peso: <b style={{ color: "var(--el-glow)" }}>{totalPeso.toFixed(1)}</b></span>
-                    <span style={{ display: "flex", alignItems: "center", gap: 4 }}>Créditos <input type="number" value={creditos} onChange={(e) => setCreditos(parseInt(e.target.value, 10) || 0)} style={{ ...inputMini, width: 70 }} /></span>
-                    <MiniBtn onClick={add(setItens, { name: "Novo item", qtd: 1, peso: 0, desc: "" })}>+ Novo</MiniBtn>
-                  </span>
-                </div>
-                {itens.length === 0 ? <Empty>Inventário vazio.</Empty> : (
-                  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                    {itens.map((it, i) => (
-                      <div key={it.id || i} className="op-ink" style={{ padding: "8px 10px", background: "rgba(0,0,0,0.3)", display: "grid", gridTemplateColumns: "1fr 52px 52px 24px", gap: 6, alignItems: "center" }}>
-                        <input value={it.name} onChange={(e) => upd(setItens)(i, { name: e.target.value })} style={inputMini} />
-                        <LabeledMini label="Qtd" value={it.qtd} onChange={(v) => upd(setItens)(i, { qtd: v })} />
-                        <LabeledMini label="Peso" value={it.peso} onChange={(v) => upd(setItens)(i, { peso: v })} />
-                        <button onClick={() => rm(setItens)(i)} style={{ background: "none", border: "none", color: "var(--danger-text)", cursor: "pointer" }}>×</button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
+            {activeTab === "inventario" && (
+              <InventarioTab inventario={inventario} setInventario={setInventario} onRollDados={rollDados} />
             )}
 
-            {activeTab === "diario" && (
-              <DiarioTab diario={diario} setDiario={setDiario} addEntry={add(setDiario, { date: new Date().toLocaleDateString("pt-BR"), title: "Nova entrada", text: "" })} upd={upd(setDiario)} rm={rm(setDiario)} />
+            {activeTab === "descricao" && (
+              <DescricaoTab descricao={descricao} setDescricao={setDescricao} isMaster={!!character.viewerIsMaster} />
             )}
           </div>
 
@@ -861,6 +769,132 @@ export default function OrdemParanormalSheet({ character, onBack, onUpdate, onRo
 }
 
 /* ════════════════════════════════════════════════════════════════════════
+ *  COMBATE TAB — console de rolagem, testes de atributo, arsenal
+ * ════════════════════════════════════════════════════════════════════════ */
+const isRanged = (a) => {
+  const al = (a.alcance || "").toLowerCase().trim();
+  const ta = (a.tipo_arma || "").toLowerCase();
+  if (ta.includes("disparo") || ta.includes("fogo") || ta.includes("distância")) return true;
+  return al && al !== "—" && al !== "-" && !al.includes("corpo");
+};
+function ArsenalCard({ a, i, attrs, upd, rm, setAttacks, rollAttack }) {
+  const [expanded, setExpanded] = useState(false);
+  const ranged = isRanged(a);
+  const attrKey = a.attr || (ranged ? "AGI" : "FOR");
+  const attrVal = attrs[attrKey] ?? 0;
+  const tag = (color) => ({
+    fontFamily: "var(--font-data,'Share Tech Mono',monospace)", fontSize: 10,
+    padding: "2px 7px", borderRadius: 3, border: `1px solid ${color}40`,
+    background: `${color}12`, color, whiteSpace: "nowrap",
+  });
+  return (
+    <div className="op-arsenal-row" style={{ display: "flex", flexDirection: "column", gap: 0 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "2px 0" }}>
+        <span style={{ fontSize: 16, flexShrink: 0 }}>{ranged ? "🔫" : "⚔️"}</span>
+        <span style={{ flex: 1, fontFamily: "var(--font-title,'Cinzel',serif)", fontWeight: 600, fontSize: 13,
+          letterSpacing: "0.04em", color: "var(--text)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", cursor: "pointer" }}
+          onClick={() => setExpanded(v => !v)}>{a.name || "Sem nome"}</span>
+        <div style={{ display: "flex", gap: 4, alignItems: "center", flexShrink: 0, flexWrap: "wrap" }}>
+          {a.dano && <span style={tag("var(--el-accent)")}>{a.dano}</span>}
+          {a.tipo && <span style={tag("var(--muted2)")}>{a.tipo}</span>}
+          {a.alcance && <span style={tag("#7a9ed4")}>{a.alcance}</span>}
+          <span style={{ ...tag("var(--el-glow)"), fontWeight: 700 }} title={`Teste: ${attrKey}`}>{attrKey} {attrVal}</span>
+        </div>
+        <button className="op-rolar" style={{ padding: "5px 10px", fontSize: 11, flexShrink: 0 }} onClick={() => rollAttack(a)} title="Rolar ataque + dano">🎲</button>
+        <button onClick={() => setExpanded(v => !v)} style={{ background: "none", border: "none", color: "var(--muted2)", cursor: "pointer", fontSize: 13, padding: "0 2px" }}>{expanded ? "▲" : "▼"}</button>
+        <button onClick={() => rm(setAttacks)(i)} aria-label="Remover" style={{ background: "none", border: "none", color: "var(--danger-text)", cursor: "pointer", fontSize: 15, lineHeight: 1 }}>×</button>
+      </div>
+      {expanded && (
+        <div style={{ marginTop: 8, padding: 10, background: "rgba(0,0,0,0.3)", borderRadius: 4, border: "1px solid var(--border)" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
+            <label style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+              <span className="op-label" style={{ fontSize: 8 }}>Nome</span>
+              <input value={a.name || ""} onChange={(e) => upd(setAttacks)(i, { name: e.target.value })}
+                style={{ padding: "4px 7px", fontSize: 13, fontFamily: "var(--font-title,'Cinzel',serif)", fontWeight: 600 }} />
+            </label>
+            <label style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+              <span className="op-label" style={{ fontSize: 8 }}>Atributo de Teste</span>
+              <select value={attrKey} onChange={(e) => upd(setAttacks)(i, { attr: e.target.value })} style={{ padding: "4px 7px", fontSize: 12, appearance: "auto" }}>
+                {ATTR_KEYS.map(k => <option key={k} value={k}>{k} — {ATTR_LABELS[k]} ({attrs[k] ?? 0})</option>)}
+              </select>
+            </label>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 6 }}>
+            <LabeledMini label="Dano" value={a.dano || ""} onChange={(v) => upd(setAttacks)(i, { dano: v })} />
+            <LabeledMini label="Crítico" value={a.critico || ""} onChange={(v) => upd(setAttacks)(i, { critico: v })} />
+            <LabeledMini label="Tipo" value={a.tipo || ""} onChange={(v) => upd(setAttacks)(i, { tipo: v })} />
+            <LabeledMini label="Alcance" value={a.alcance || ""} onChange={(v) => upd(setAttacks)(i, { alcance: v })} />
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function CombateTab({ diceRef, diceInput, setDiceInput, rollFree, attrs, rollAttr, attacks, setAttacks, rollAttack, upd, rm, add, rollCampaign, onOpenHistory }) {
+  const [filter, setFilter] = useState("");
+  const inputMini = { padding: "4px 7px", fontSize: 13, width: "100%" };
+  const shown = attacks.filter((a) => (a.name || "").toLowerCase().includes(filter.toLowerCase()));
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      {/* ── CONSOLE DE ROLAGEM ── */}
+      <div className="op-ink" style={{ padding: "12px 13px", background: "rgba(0,0,0,0.3)" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 9 }}>
+          <span className="op-label" style={{ color: "var(--el-accent)" }}>Console de Rolagem</span>
+          {rollCampaign && (
+            <button onClick={onOpenHistory} className="op-hist-btn" title="Histórico de rolagens da campanha" aria-label="Abrir histórico da campanha">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></svg>
+              Histórico
+            </button>
+          )}
+        </div>
+        <div style={{ display: "flex", gap: 8 }}>
+          <span className="op-data" style={{ color: "#4ade80", alignSelf: "center" }}>›</span>
+          <input ref={diceRef} className="op-terminal" value={diceInput} placeholder="ex: 2d6+3, 1d20, 4d4-1"
+            onChange={(e) => setDiceInput(e.target.value)} onKeyDown={(e) => e.key === "Enter" && rollFree()} aria-label="Expressão de dados" />
+          <button className="op-rolar" onClick={rollFree}>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="18" height="18" rx="3" /><circle cx="8" cy="8" r="1.4" fill="currentColor" /><circle cx="16" cy="16" r="1.4" fill="currentColor" /><circle cx="12" cy="12" r="1.4" fill="currentColor" /></svg>Rolar
+          </button>
+        </div>
+      </div>
+
+      {/* ── TESTES DE ATRIBUTO ── */}
+      <div>
+        <div className="op-label" style={{ marginBottom: 8 }}>Testes de Atributo</div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(5,1fr)", gap: 7 }}>
+          {ATTR_KEYS.map((k) => (
+            <button key={k} className="op-attr-card" onClick={() => rollAttr(k)} aria-label={`Testar ${ATTR_LABELS[k]}`} title={`1d20 + ${ATTR_LABELS[k]}`}>
+              <span className="op-attr-name">{k}</span>
+              <span className="op-attr-val">{attrs[k] ?? 0}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* ── ARSENAL ── */}
+      <div>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8, gap: 8 }}>
+          <span className="op-label">Arsenal · {attacks.length}</span>
+          <MiniBtn onClick={add(setAttacks, { name: "Nova arma", dano: "1d6", critico: "20", tipo: "", alcance: "Pessoal", attr: "FOR" })}>+ Novo</MiniBtn>
+        </div>
+        {attacks.length > 3 && (
+          <input value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="🔍 filtrar ataques…"
+            style={{ ...inputMini, marginBottom: 8, fontFamily: "var(--font-data,'Share Tech Mono',monospace)" }} />
+        )}
+        {attacks.length === 0 ? <Empty>Nenhum ataque registrado.</Empty> : shown.length === 0 ? <Empty>Nenhum ataque encontrado.</Empty> : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+            {shown.map((a) => {
+              const i = attacks.indexOf(a);
+              return <ArsenalCard key={a.id || i} a={a} i={i} attrs={attrs} upd={upd} rm={rm} setAttacks={setAttacks} rollAttack={rollAttack} />;
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ════════════════════════════════════════════════════════════════════════
  *  SMALL PARTS
  * ════════════════════════════════════════════════════════════════════════ */
 function Field({ label, value, editMode, onChange, placeholder }) {
@@ -903,49 +937,6 @@ function LabeledMini({ label, value, onChange }) {
 }
 function Empty({ children }) {
   return <div className="op-data" style={{ fontSize: 11, color: "var(--muted)", padding: "14px 0", fontStyle: "italic" }}>{children}</div>;
-}
-function ListEditor({ title, items, onAdd, empty, render }) {
-  return (
-    <div>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-        <span className="op-label">{title}</span>
-        <MiniBtn onClick={onAdd}>+ Novo</MiniBtn>
-      </div>
-      {items.length === 0 ? <Empty>{empty}</Empty> : <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>{items.map(render)}</div>}
-    </div>
-  );
-}
-function DiarioTab({ diario, addEntry, upd, rm }) {
-  const [q, setQ] = useState("");
-  const [open, setOpen] = useState({});
-  const list = diario.filter((e) => !q || `${e.title} ${e.text}`.toLowerCase().includes(q.toLowerCase()));
-  return (
-    <div>
-      <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
-        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="🔍 buscar no diário…" style={{ padding: "5px 8px", fontSize: 13 }} />
-        <MiniBtn onClick={addEntry}>+ Entrada</MiniBtn>
-      </div>
-      {list.length === 0 ? <Empty>Nenhuma entrada.</Empty> : (
-        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          {list.map((e, i) => {
-            const realIdx = diario.indexOf(e);
-            const isOpen = open[e.id] ?? i === 0;
-            return (
-              <div key={e.id || i} className="op-ink" style={{ background: "rgba(0,0,0,0.3)" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", cursor: "pointer" }} onClick={() => setOpen((o) => ({ ...o, [e.id]: !isOpen }))}>
-                  <span className="op-data" style={{ fontSize: 9, color: "var(--muted)" }}>{e.date}</span>
-                  <input value={e.title} onClick={(ev) => ev.stopPropagation()} onChange={(ev) => upd(realIdx, { title: ev.target.value })} style={{ flex: 1, padding: "3px 6px", fontSize: 13, fontFamily: "var(--font-title,'Cinzel',serif)" }} />
-                  <button onClick={(ev) => { ev.stopPropagation(); rm(realIdx); }} style={{ background: "none", border: "none", color: "var(--danger-text)", cursor: "pointer" }}>×</button>
-                  <span style={{ color: "var(--muted)" }}>{isOpen ? "▾" : "▸"}</span>
-                </div>
-                {isOpen && <textarea value={e.text} onChange={(ev) => upd(realIdx, { text: ev.target.value })} placeholder="Registre a sessão…" style={{ minHeight: 110, fontSize: 14, lineHeight: 1.6, border: "none", borderTop: "1px solid var(--border)", borderRadius: 0 }} />}
-              </div>
-            );
-          })}
-        </div>
-      )}
-    </div>
-  );
 }
 function Readout({ label, value, note, onStep }) {
   return (

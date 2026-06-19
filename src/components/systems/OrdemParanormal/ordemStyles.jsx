@@ -14,8 +14,8 @@ export const OrdemSheetStyles = () => (
       background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E"); }
     .op-ink{ border:1px solid var(--border2); border-radius:3px; position:relative; background:var(--card); }
     .op-ink::after{ content:""; position:absolute; inset:3px; border:1px solid rgba(201,168,76,0.10); border-radius:2px; pointer-events:none; box-shadow:inset 0 0 22px rgba(0,0,0,0.55); }
-    .op-label{ font-family:var(--font-title,'Cinzel',serif); font-size:9px; letter-spacing:0.22em; text-transform:uppercase; color:var(--muted2); }
-    .op-data{ font-family:var(--font-data,'Share Tech Mono',monospace); }
+    .op-label{ font-family:Inter,'Inter var',system-ui,sans-serif; font-size:10px; letter-spacing:0.18em; text-transform:uppercase; color:var(--muted2); font-weight:600; }
+    .op-data{ font-family:var(--font-data,'Share Tech Mono',monospace); font-size:13px; }
     .op-stagg0{ animation:op-rise 0.5s ease both; } .op-stagger>*{ animation:op-rise 0.5s ease both; }
     .op-stagger>*:nth-child(1){animation-delay:.04s}.op-stagger>*:nth-child(2){animation-delay:.10s}.op-stagger>*:nth-child(3){animation-delay:.16s}.op-stagger>*:nth-child(4){animation-delay:.22s}.op-stagger>*:nth-child(5){animation-delay:.28s}.op-stagger>*:nth-child(6){animation-delay:.34s}.op-stagger>*:nth-child(7){animation-delay:.40s}.op-stagger>*:nth-child(8){animation-delay:.46s}
     @keyframes op-rise{ from{ opacity:0; transform:translateY(10px); } to{ opacity:1; transform:translateY(0); } }
@@ -70,8 +70,10 @@ export const OrdemSheetStyles = () => (
       font-family:var(--font-display,'Cinzel Decorative',serif); font-size:clamp(34px,9vw,90px); color:rgba(229,57,53,0.07);
       letter-spacing:0.12em; transform:rotate(-14deg); text-transform:uppercase; }
 
-    /* ── TABS (underline, full width) ── */
-    .op-tab{ flex:1; text-align:center; font-family:var(--font-title,'Cinzel',serif); font-size:11px; letter-spacing:0.07em; text-transform:uppercase; padding:11px 6px; cursor:pointer;
+    /* ── TABS (underline, scrollable) ── */
+    .op-tabs-row{ display:flex; width:100%; overflow-x:auto; scrollbar-width:none; -webkit-overflow-scrolling:touch; }
+    .op-tabs-row::-webkit-scrollbar{ display:none; }
+    .op-tab{ flex:0 0 auto; min-width:70px; text-align:center; font-family:Inter,'Inter var',system-ui,sans-serif; font-size:11.5px; font-weight:600; letter-spacing:0.08em; text-transform:uppercase; padding:11px 14px; cursor:pointer;
       border:none; border-bottom:2px solid transparent; background:transparent; color:var(--muted2); transition:all 0.18s; white-space:nowrap; }
     .op-tab:hover{ color:var(--text); background:rgba(201,168,76,0.05); }
     .op-tab.active{ color:var(--el-glow); background:rgba(201,168,76,0.08); border-bottom:2px solid var(--el-accent); font-weight:700; }
@@ -91,7 +93,7 @@ export const OrdemSheetStyles = () => (
     /* ── PERÍCIA ROWS (PERÍCIA · DADOS · BÔNUS · TREINO · OUTROS) ── */
     .op-col-panel{ --skill-cols:22px minmax(0,1fr) 34px 38px 42px 42px 26px; }
     .op-skill,.op-skill-head{ display:grid; grid-template-columns:var(--skill-cols,22px minmax(0,1fr) 34px 38px 42px 42px 26px); gap:0 4px; align-items:center; }
-    .op-skill{ padding:5px 10px; border-bottom:1px solid rgba(201,168,76,0.06); font-family:var(--font-data,'Share Tech Mono',monospace); font-size:12px; transition:background 0.15s; }
+    .op-skill{ padding:5px 10px; border-bottom:1px solid rgba(201,168,76,0.06); font-family:Inter,'Inter var',system-ui,sans-serif; font-size:13px; transition:background 0.15s; }
     .op-skill:hover{ background:rgba(214,184,74,0.12); }
     .op-skill-head{ padding:6px 10px; border-bottom:1px solid var(--border2); background:rgba(0,0,0,0.3); }
     .op-skill input{ width:100%; text-align:center; background:transparent; border:none; border-bottom:1px solid transparent; color:inherit; font-family:inherit; font-size:12px; padding:2px 0; -moz-appearance:textfield; }
@@ -178,7 +180,104 @@ export const OrdemSheetStyles = () => (
       .op-sheet-grid{ grid-template-columns:1fr; }
       .op-sheet.op-fill{ height:auto; overflow:visible; }
       .op-col,.op-col-panel,.op-col-rows{ overflow:visible; max-height:none; }
-      .op-tab{ font-size:8.5px; padding:8px 8px 7px; } .op-dial{ width:84px; height:84px; }
+
+      /* Header */
+      .op-tab{ font-size:11px; padding:11px 12px; min-height:44px; -webkit-tap-highlight-color:transparent; }
+      .op-dial{ width:76px; height:76px; }
+      .op-photo-frame{ height:160px !important; }
+
+      /* VitalSign quick-damage panel wraps on narrow screens */
+      .op-vital{ padding:6px 8px; }
+      .op-vital-quick{ flex-wrap:wrap; gap:4px !important; }
+
+      /* Skills grid: tighter columns */
+      .op-col-panel{ --skill-cols:20px minmax(0,1fr) 24px 32px 34px 34px 28px; }
+      .op-skill{ padding:5px 6px; font-size:11px; gap:0 3px; }
+      .op-skill-head{ padding:4px 6px; font-size:9px; gap:0 3px; }
+      .op-skill input{ font-size:11px; }
+
+      /* Arsenal / combat rows */
+      .op-arsenal-row{ padding:7px 8px; }
+      .op-arsenal-badges{ flex-wrap:wrap; gap:3px; }
+      .op-arsenal-expand{ grid-template-columns:1fr 1fr !important; }
+
+      /* Ritual cards */
+      .op-ritual-header{ flex-wrap:wrap; gap:4px; }
+      .op-ritual-expand{ grid-template-columns:1fr 1fr !important; }
+
+      /* Inventory search + item rows */
+      .op-inv-search-row{ flex-wrap:wrap; gap:6px; }
+      .op-inv-item-row{ flex-wrap:wrap; gap:4px 8px; }
+
+      /* Attr cards tap targets */
+      .op-attr-card{ min-height:44px; }
+      .op-attr-val{ font-size:16px; }
+
+      /* Buttons & controls */
+      .op-emrg{ padding:10px 4px; min-height:44px; font-size:10px; }
+      .op-rolar{ padding:12px 14px; min-height:44px; }
+      .op-add-row{ padding:10px 12px; }
+      .op-roll-btn{ min-width:44px; min-height:44px; display:flex; align-items:center; justify-content:center; }
+
+      /* Roll overlay cards */
+      .op-corner{ bottom:80px; right:12px; width:calc(100vw - 24px); }
+      .op-roll-drawer{ width:100vw; border-left:none; border-top:1px solid var(--border2); height:85vh; top:auto; bottom:0; border-radius:16px 16px 0 0; animation:op-drawer-up 0.3s cubic-bezier(.2,.7,.2,1); }
+      @keyframes op-drawer-up{ from{transform:translateY(100%)} to{transform:translateY(0)} }
+
+      /* Habilidades cards */
+      .op-hab-header{ flex-wrap:wrap; gap:4px; }
     }
+    @media(max-width:480px){
+      .op-tab{ font-size:10px; padding:10px 8px; letter-spacing:0.05em; }
+      .op-dial{ width:66px; height:66px; }
+      .op-photo-frame{ height:130px !important; }
+      /* Even tighter skill columns; hide "outros" bonus col */
+      .op-col-panel{ --skill-cols:18px minmax(0,1fr) 22px 28px 0px 30px 26px; }
+      .op-skill{ padding:4px 4px; font-size:10px; }
+      .op-skill-head{ padding:3px 4px; font-size:8px; }
+      .op-skill>*:nth-child(5),.op-skill-head>*:nth-child(5){ display:none; }
+    }
+
+    /* ── COMBATE: histórico btn, cards de atributo, arsenal ── */
+    .op-hist-btn{ display:inline-flex; align-items:center; gap:6px; font-family:var(--font-title,'Cinzel',serif); font-size:10px; font-weight:600; letter-spacing:0.1em; text-transform:uppercase;
+      color:var(--el-accent); background:rgba(255,255,255,0.03); border:1px solid var(--el-border); border-radius:4px; padding:4px 10px; cursor:pointer; transition:all 0.18s; }
+    .op-hist-btn:hover{ background:var(--el-accent); color:#0a0a0f; box-shadow:0 0 14px var(--el-glow); }
+    .op-attr-card{ display:flex; flex-direction:column; align-items:center; gap:3px; padding:9px 4px 8px; cursor:pointer;
+      background:rgba(255,255,255,0.025); border:1px solid rgba(255,255,255,0.08); border-radius:5px; transition:all 0.18s; }
+    .op-attr-card:hover{ border-color:var(--el-border); background:rgba(255,255,255,0.05); box-shadow:0 0 16px -2px var(--el-glow); transform:translateY(-2px); }
+    .op-attr-name{ font-family:var(--font-title,'Cinzel',serif); font-size:11px; font-weight:600; letter-spacing:0.12em; text-transform:uppercase; color:var(--muted2); }
+    .op-attr-card:hover .op-attr-name{ color:var(--el-accent); }
+    .op-attr-val{ font-family:var(--font-data,'Share Tech Mono',monospace); font-size:18px; color:var(--el-accent); line-height:1; }
+    .op-arsenal-row{ padding:9px 11px; background:rgba(255,255,255,0.02); border:1px solid rgba(255,255,255,0.08); border-radius:5px; transition:border-color 0.18s; }
+    .op-arsenal-row:hover{ border-color:var(--el-border); }
+
+    /* ── CAMPAIGN ROLL DRAWER (histórico de rolagens) ── */
+    .op-drawer-overlay{ position:fixed; inset:0; z-index:300; background:rgba(2,2,6,0.62); backdrop-filter:blur(2px); animation:op-fade-in 0.25s ease; }
+    @keyframes op-fade-in{ from{ opacity:0; } to{ opacity:1; } }
+    .op-roll-drawer{ position:fixed; top:0; right:0; height:100vh; width:min(380px,92vw); z-index:301; background:#0a0a0f; border-left:1px solid var(--el-border);
+      box-shadow:-12px 0 40px rgba(0,0,0,0.6); display:flex; flex-direction:column; animation:op-drawer-in 0.3s cubic-bezier(.2,.7,.2,1); }
+    @keyframes op-drawer-in{ from{ transform:translateX(100%); } to{ transform:translateX(0); } }
+    .op-roll-drawer-head{ flex-shrink:0; padding:16px 18px 12px; border-bottom:1px solid var(--border2); display:flex; align-items:center; justify-content:space-between; }
+    .op-roll-drawer-body{ flex:1; min-height:0; overflow-y:auto; padding:14px; display:flex; flex-direction:column; gap:14px; }
+    .op-roll-drawer-body::-webkit-scrollbar{ width:5px; } .op-roll-drawer-body::-webkit-scrollbar-thumb{ background:var(--gold3); border-radius:2px; }
+    .op-rollcard{ animation:op-rollcard-in 0.32s ease; }
+    @keyframes op-rollcard-in{ from{ opacity:0; transform:translateY(-8px); } to{ opacity:1; transform:translateY(0); } }
+
+    /* ── ADICIONAR modal (rituais/itens): banner, rows, +, search ── */
+    .op-banner-link:hover{ text-decoration:underline; }
+    .op-add-row{ background:rgba(255,255,255,0.02); border-bottom:1px solid rgba(255,255,255,0.04); border-left:2px solid transparent; transition:background 0.15s ease, border-left-color 0.15s ease; }
+    .op-add-row:hover{ background:rgba(255,255,255,0.05); border-left-color:var(--el-accent); }
+    .op-add-plus{ transition:filter 0.15s ease; } .op-add-plus:hover{ filter:brightness(1.2); }
+    .op-add-search::placeholder{ color:rgba(232,228,217,0.3); }
+    .op-add-search:focus{ border-color:var(--el-border); }
+
+    /* ── RICH TEXT (editor + rendered output) ── */
+    /* bold renders in element accent; underline gets element color; italic off-white */
+    .rte-area:empty:before{ content:attr(data-placeholder); color:var(--muted); font-style:italic; pointer-events:none; }
+    .rte-area b, .rte-area strong, .op-rich-render b, .op-rich-render strong{ color:var(--el-accent); font-weight:700; }
+    .rte-area u, .op-rich-render u{ text-decoration-color:var(--el-accent); }
+    .rte-area i, .rte-area em, .op-rich-render i, .op-rich-render em{ color:#e8e4d9; font-style:italic; }
+    .op-rich-render p{ margin:0 0 6px; } .op-rich-render p:last-child{ margin-bottom:0; }
+    .op-rich-render a{ color:var(--el-accent); }
   `}</style>
 );
