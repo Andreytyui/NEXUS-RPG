@@ -156,6 +156,12 @@ export default function OrdemParanormalSheet({ character, charId, onBack, onUpda
   const isPublic = !!character.public;
   const editToken = character.editToken || null;
 
+  // Auto-load pending edits when sheet opens (if public)
+  useEffect(() => {
+    if (isPublic && onLoadPendingEdits) onLoadPendingEdits();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [charId, isPublic]);
+
   const portraitInput = useRef(null);
   const diceRef = useRef(null);
   const charName = form.personagem || character.form?.personagem || character.name || "Agente";
@@ -489,21 +495,18 @@ export default function OrdemParanormalSheet({ character, charId, onBack, onUpda
                   { key:"pe", label:"PE atual" }, { key:"peMax", label:"PE máx" },
                   { key:"nex", label:"NEX %" },
                 ];
-                const attrKeys = ["agi","for","int","pre","vig"];
-                const diffs = [];
-                fields.forEach(({key,label}) => {
-                  const oldV = cur[key]; const newV = edit.proposedData[key];
-                  if (String(oldV) !== String(newV) && newV !== undefined) diffs.push({ label, old:oldV, next:newV });
-                });
-                attrKeys.forEach(k => {
-                  const oldV = cur.atributos?.[k]; const newV = edit.proposedData.atributos?.[k];
-                  if (String(oldV) !== String(newV) && newV !== undefined) diffs.push({ label:k.toUpperCase(), old:oldV, next:newV });
-                });
-                const formDiffs = ["personagem","jogador"].map(k => {
-                  const oldV = cur.form?.[k]; const newV = edit.proposedData.form?.[k];
-                  return String(oldV) !== String(newV) && newV !== undefined ? { label:k, old:oldV, next:newV } : null;
-                }).filter(Boolean);
-                const allDiffs = [...diffs, ...formDiffs];
+                const allDiffs = [];
+                const pushDiff = (label, oldV, newV) => {
+                  if (newV !== undefined && String(oldV ?? "") !== String(newV ?? "")) allDiffs.push({ label, old:oldV, next:newV });
+                };
+                // Vitais
+                [["PV atual","pv"],["PV máx","pvMax"],["SAN atual","san"],["SAN máx","sanMax"],["PE atual","pe"],["PE máx","peMax"],["NEX %","nex"]].forEach(([label,k]) => pushDiff(label, cur[k], edit.proposedData[k]));
+                // Atributos (snapshot usa `attrs`)
+                ["AGI","FOR","INT","PRE","VIG"].forEach(k => pushDiff(k, cur.attrs?.[k], edit.proposedData.attrs?.[k]));
+                // Form (nome, jogador)
+                ["personagem","jogador"].forEach(k => pushDiff(k, cur.form?.[k], edit.proposedData.form?.[k]));
+                // Perícias extras e outros bônus
+                pushDiff("PD bônus", cur.pdBonus, edit.proposedData.pdBonus);
                 return (
                   <div style={{ position:"absolute", top:"calc(100% + 6px)", right:0, zIndex:50, width:320,
                     background:"var(--card,#111)", border:"1px solid rgba(251,191,36,0.25)", borderRadius:8,
