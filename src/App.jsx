@@ -66,11 +66,33 @@ const fsLoadCharacters = async (uid, systemId) => {
   } catch (_) { return null; }
 };
 
-const fsSavePublicSheet = async (charId, data) => {
-  try { await setDoc(doc(db, "publicSheets", String(charId)), { ...data, public: true, _updatedAt: Date.now() }); } catch (_) {}
+const fsSavePublicSheet = async (charId, data, ownerUid) => {
+  try {
+    const payload = { ...data, public: true, _updatedAt: Date.now() };
+    if (ownerUid) payload.ownerUid = ownerUid;
+    await setDoc(doc(db, "publicSheets", String(charId)), payload);
+  } catch (_) {}
 };
 const fsRemovePublicSheet = async (charId) => {
   try { await deleteDoc(doc(db, "publicSheets", String(charId))); } catch (_) {}
+};
+const fsSavePendingEdit = async (charId, proposedData, editorName) => {
+  try {
+    const id = String(Date.now());
+    await setDoc(doc(db, "publicSheets", String(charId), "pendingEdits", id), {
+      id, proposedData, editorName: editorName || "Anônimo",
+      timestamp: Date.now(), status: "pending",
+    });
+  } catch (_) {}
+};
+const fsGetPendingEdits = async (charId) => {
+  try {
+    const snap = await getDocs(collection(db, "publicSheets", String(charId), "pendingEdits"));
+    return snap.docs.map(d => d.data()).filter(e => e.status === "pending").sort((a,b) => b.timestamp - a.timestamp);
+  } catch (_) { return []; }
+};
+const fsResolvePendingEdit = async (charId, editId, status) => {
+  try { await setDoc(doc(db, "publicSheets", String(charId), "pendingEdits", String(editId)), { status }, { merge: true }); } catch (_) {}
 };
 
 /* ── Firestore: plano do usuário (fail-silent) ── */
@@ -11481,14 +11503,36 @@ function RoadmapScreen() {
 function PublicSheetView({ charId }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [editorName, setEditorName] = useState("");
+  const [editedChar, setEditedChar] = useState(null);
+  const [submitState, setSubmitState] = useState("idle"); // idle | submitting | done
+
+  const urlParams = new URLSearchParams(window.location.search);
+  const editorToken = urlParams.get("editor");
+
   useEffect(() => {
     getDoc(doc(db, "publicSheets", charId))
-      .then(snap => { setData(snap.exists() ? snap.data() : null); setLoading(false); })
+      .then(snap => {
+        const d = snap.exists() ? snap.data() : null;
+        setData(d);
+        if (d) setEditedChar(d);
+        setLoading(false);
+      })
       .catch(() => setLoading(false));
   }, [charId]);
 
+  const isEditorMode = !!(editorToken && data && editorToken === data.editToken);
+
+  const handleSubmitSuggestion = async () => {
+    if (!editorName.trim()) { alert("Digite seu nome antes de enviar."); return; }
+    setSubmitState("submitting");
+    await fsSavePendingEdit(charId, editedChar, editorName.trim());
+    setSubmitState("done");
+  };
+
   const bg = "var(--bg,#0a0a0f)";
   const gold = "var(--gold,#c9a84c)";
+  const green = "#4ade80";
 
   if (loading) return (
     <div style={{ minHeight:"100vh", background:bg, display:"flex", alignItems:"center", justifyContent:"center" }}>
@@ -11499,33 +11543,59 @@ function PublicSheetView({ charId }) {
   if (!data || !data.public) return (
     <div style={{ minHeight:"100vh", background:bg, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", gap:16, padding:24 }}>
       <G/>
-      <div style={{ fontFamily:"Cinzel,serif", fontSize:28, color:gold, letterSpacing:"0.1em" }}>◈</div>
+      <div style={{ fontFamily:"Cinzel,serif", fontSize:28, color:gold }}>◈</div>
       <div style={{ fontFamily:"Cinzel,serif", fontSize:16, color:"#eee", textAlign:"center" }}>Ficha não disponível publicamente</div>
       <div style={{ fontFamily:"Cinzel,serif", fontSize:11, color:"rgba(255,255,255,0.4)", textAlign:"center" }}>Este dossiê não foi compartilhado ou foi removido.</div>
       <a href="/" style={{ fontFamily:"Cinzel,serif", fontSize:11, color:gold, textDecoration:"none", padding:"8px 20px", border:`1px solid ${gold}50`, borderRadius:6, marginTop:8 }}>← Voltar ao Nexus RPG</a>
     </div>
   );
 
+  if (submitState === "done") return (
+    <div style={{ minHeight:"100vh", background:bg, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", gap:16, padding:24 }}>
+      <G/>
+      <div style={{ fontFamily:"Cinzel,serif", fontSize:32, color:green }}>✓</div>
+      <div style={{ fontFamily:"Cinzel,serif", fontSize:16, color:"#eee", textAlign:"center" }}>Sugestão enviada!</div>
+      <div style={{ fontFamily:"Cinzel,serif", fontSize:11, color:"rgba(255,255,255,0.45)", textAlign:"center", maxWidth:320 }}>
+        O dono da ficha vai revisar suas alterações e aprovar o que quiser.
+      </div>
+      <a href="/" style={{ fontFamily:"Cinzel,serif", fontSize:11, color:gold, textDecoration:"none", padding:"8px 20px", border:`1px solid ${gold}50`, borderRadius:6, marginTop:8 }}>Criar minha própria ficha →</a>
+    </div>
+  );
+
   return (
     <div style={{ minHeight:"100vh", background:bg }}>
       <G/>
-      {/* Banner público */}
-      <div style={{ background:"rgba(201,168,76,0.08)", borderBottom:"1px solid rgba(201,168,76,0.2)", padding:"8px 20px", display:"flex", alignItems:"center", justifyContent:"space-between", gap:12 }}>
+      {/* Banner */}
+      <div style={{ background: isEditorMode ? "rgba(74,222,128,0.07)" : "rgba(201,168,76,0.07)", borderBottom:`1px solid ${isEditorMode ? "rgba(74,222,128,0.2)" : "rgba(201,168,76,0.18)"}`, padding:"8px 16px", display:"flex", alignItems:"center", justifyContent:"space-between", gap:12, flexWrap:"wrap" }}>
         <div style={{ display:"flex", alignItems:"center", gap:8 }}>
           <NexusLogo size={16}/>
-          <span style={{ fontFamily:"Cinzel,serif", fontSize:9, letterSpacing:"0.12em", color:gold, textTransform:"uppercase" }}>Nexus RPG · Ficha Pública</span>
+          <span style={{ fontFamily:"Cinzel,serif", fontSize:9, letterSpacing:"0.12em", color: isEditorMode ? green : gold, textTransform:"uppercase" }}>
+            Nexus RPG · {isEditorMode ? "Modo Editor" : "Ficha Pública"}
+          </span>
+          {isEditorMode && <span style={{ fontFamily:"Cinzel,serif", fontSize:8, color:green, padding:"2px 8px", borderRadius:20, background:"rgba(74,222,128,0.1)", border:"1px solid rgba(74,222,128,0.25)" }}>✏ você pode editar</span>}
         </div>
-        <a href="/" style={{ fontFamily:"Cinzel,serif", fontSize:9, letterSpacing:"0.1em", color:gold, textDecoration:"none", padding:"5px 14px", border:`1px solid ${gold}50`, borderRadius:4, textTransform:"uppercase" }}>Criar minha ficha →</a>
+        {isEditorMode ? (
+          <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+            <input value={editorName} onChange={e=>setEditorName(e.target.value)} placeholder="Seu nome"
+              style={{ background:"rgba(0,0,0,0.4)", border:"1px solid rgba(255,255,255,0.15)", borderRadius:4, color:"#eee", padding:"5px 10px", fontSize:11, fontFamily:"Cinzel,serif", width:140 }}/>
+            <button onClick={handleSubmitSuggestion} disabled={submitState==="submitting"}
+              style={{ fontFamily:"Cinzel,serif", fontSize:10, letterSpacing:"0.08em", textTransform:"uppercase", cursor:"pointer", padding:"5px 14px", borderRadius:4, border:`1px solid ${green}60`, background:`rgba(74,222,128,0.1)`, color:green }}>
+              {submitState==="submitting" ? "Enviando…" : "Enviar Sugestão"}
+            </button>
+          </div>
+        ) : (
+          <a href="/" style={{ fontFamily:"Cinzel,serif", fontSize:9, letterSpacing:"0.1em", color:gold, textDecoration:"none", padding:"5px 14px", border:`1px solid ${gold}50`, borderRadius:4, textTransform:"uppercase" }}>Criar minha ficha →</a>
+        )}
       </div>
-      {/* Sheet em modo leitura */}
+      {/* Sheet */}
       <div style={{ padding:"12px 14px", display:"flex", flexDirection:"column", flex:1 }}>
         <Suspense fallback={<div style={{display:"flex",alignItems:"center",justifyContent:"center",padding:60}}><div style={{width:28,height:28,border:"2px solid rgba(201,168,76,0.3)",borderTopColor:gold,borderRadius:"50%",animation:"spin 0.8s linear infinite"}}/></div>}>
           <OrdemParanormalSheet
-            character={data}
-            readOnly={true}
-            onBack={() => { window.location.href = "/"; }}
+            character={editedChar || data}
+            readOnly={!isEditorMode}
+            onBack={isEditorMode ? null : () => { window.location.href = "/"; }}
             onRoll={null}
-            onUpdate={null}
+            onUpdate={isEditorMode ? (updated) => setEditedChar(updated) : null}
           />
         </Suspense>
       </div>
@@ -11764,6 +11834,30 @@ export default function App() {
     fsSaveCharacter(currentUser?.uid, charWithDate);
   };
 
+  const [pendingEdits, setPendingEdits] = useState([]);
+  const handleLoadPendingEdits = () => {
+    if (!createdChar?.public) return;
+    const cId = String(createdChar.id || createdChar.createdAt);
+    fsGetPendingEdits(cId).then(setPendingEdits);
+  };
+  const handleApprovePendingEdit = async (edit) => {
+    if (!createdChar) return;
+    const cId = String(createdChar.id || createdChar.createdAt);
+    const merged = { ...createdChar, ...edit.proposedData, id: createdChar.id, createdAt: createdChar.createdAt, systemId: createdChar.systemId, public: createdChar.public, editToken: createdChar.editToken, ownerUid: currentUser?.uid };
+    setCreatedChar(merged);
+    setCharacters(prev => prev.map(c => (c.id && c.id === merged.id) || (!c.id && c.createdAt === merged.createdAt) ? merged : c));
+    fsSaveCharacter(currentUser?.uid, merged);
+    fsSavePublicSheet(cId, merged, currentUser?.uid);
+    await fsResolvePendingEdit(cId, edit.id, "approved");
+    setPendingEdits(prev => prev.filter(e => e.id !== edit.id));
+  };
+  const handleRejectPendingEdit = async (edit) => {
+    if (!createdChar) return;
+    const cId = String(createdChar.id || createdChar.createdAt);
+    await fsResolvePendingEdit(cId, edit.id, "rejected");
+    setPendingEdits(prev => prev.filter(e => e.id !== edit.id));
+  };
+
   const renderScreen = () => {
     const sysName = activeSystem?.name || "Sistema";
     if (creatingChar) return null;
@@ -11791,7 +11885,7 @@ export default function App() {
         setCharacters(prev => prev.map(c => (c.id && c.id === updated.id) || (!c.id && c.createdAt === updated.createdAt) ? updated : c));
         fsSaveCharacter(currentUser?.uid, updated);
         const cId = String(updated.id || updated.createdAt);
-        if (updated.public) fsSavePublicSheet(cId, updated);
+        if (updated.public) fsSavePublicSheet(cId, updated, currentUser?.uid);
         else fsRemovePublicSheet(cId);
       };
       const sheetFallback = (
@@ -11806,7 +11900,7 @@ export default function App() {
             {activeSystem?.id === "op" ? (
               <>
                 <Suspense fallback={sheetFallback}>
-                  <OrdemParanormalSheet character={createdChar} charId={String(createdChar.id || createdChar.createdAt)} onBack={()=>{ setCreatedChar(null); setHistoryOpen(false); }} onRoll={handleRoll} onUpdate={handleSheetUpdate}
+                  <OrdemParanormalSheet character={createdChar} charId={String(createdChar.id || createdChar.createdAt)} onBack={()=>{ setCreatedChar(null); setHistoryOpen(false); }} onRoll={handleRoll} onUpdate={handleSheetUpdate} pendingEdits={pendingEdits} onLoadPendingEdits={handleLoadPendingEdits} onApprovePendingEdit={handleApprovePendingEdit} onRejectPendingEdit={handleRejectPendingEdit}
                     rollCampaign={activeRollCampaign} onOpenHistory={()=>setHistoryOpen(true)}/>
                 </Suspense>
                 {historyOpen && activeRollCampaign && <CampaignRollDrawer campaign={activeRollCampaign} onClose={()=>setHistoryOpen(false)}/>}

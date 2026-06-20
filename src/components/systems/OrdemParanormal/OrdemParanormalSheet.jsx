@@ -66,7 +66,7 @@ function startWhisper() {
 }
 function stopWhisper(w) { if (!w) return; try { w.src.stop(); w.ctx.close(); } catch {} }
 
-export default function OrdemParanormalSheet({ character, charId, onBack, onUpdate, onRoll, rollCampaign, onOpenHistory, readOnly }) {
+export default function OrdemParanormalSheet({ character, charId, onBack, onUpdate, onRoll, rollCampaign, onOpenHistory, readOnly, pendingEdits, onLoadPendingEdits, onApprovePendingEdit, onRejectPendingEdit }) {
   /* ── mobile section switcher (Ficha | Perícias | Ações) ── */
   const [mobileSec, setMobileSec] = useState("ficha");
 
@@ -149,8 +149,12 @@ export default function OrdemParanormalSheet({ character, charId, onBack, onUpda
   const [dirty, setDirty] = useState(false);
   const [savedAt, setSavedAt] = useState(null);
   const [showShare, setShowShare] = useState(false);
-  const [copied, setCopied] = useState(false);
+  const [copiedReader, setCopiedReader] = useState(false);
+  const [copiedEditor, setCopiedEditor] = useState(false);
+  const [showPendingPanel, setShowPendingPanel] = useState(false);
+  const [reviewIdx, setReviewIdx] = useState(0);
   const isPublic = !!character.public;
+  const editToken = character.editToken || null;
 
   const portraitInput = useRef(null);
   const diceRef = useRef(null);
@@ -406,43 +410,67 @@ export default function OrdemParanormalSheet({ character, charId, onBack, onUpda
             {editMode ? "🔓 Editando" : "🔒 Travado"}
           </button>
           {!readOnly && charId && (
-            <div style={{ position: "relative" }}>
-              <button className="btn-ghost" onClick={() => setShowShare(v => !v)}
-                style={isPublic ? { borderColor: "rgba(74,222,128,0.5)", color: "#4ade80" } : undefined}
-                title="Compartilhar ficha">
+            <div style={{ position: "relative", display:"flex", gap:6 }}>
+              {/* Pending edits badge */}
+              {isPublic && pendingEdits?.length > 0 && (
+                <button className="btn-ghost" onClick={() => { setShowPendingPanel(v=>!v); setShowShare(false); setReviewIdx(0); }}
+                  style={{ borderColor:"rgba(251,191,36,0.5)", color:"#fbbf24", position:"relative" }}>
+                  ✎ Revisões
+                  <span style={{ position:"absolute", top:-6, right:-6, width:16, height:16, borderRadius:"50%", background:"#fbbf24", color:"#000", fontFamily:"Cinzel,serif", fontSize:9, display:"flex", alignItems:"center", justifyContent:"center", fontWeight:700 }}>{pendingEdits.length}</span>
+                </button>
+              )}
+              {isPublic && !pendingEdits && onLoadPendingEdits && (
+                <button className="btn-ghost" onClick={onLoadPendingEdits} title="Verificar sugestões pendentes" style={{ fontSize:10 }}>↻</button>
+              )}
+              <button className="btn-ghost" onClick={() => { setShowShare(v => !v); setShowPendingPanel(false); if (!showShare && isPublic && onLoadPendingEdits) onLoadPendingEdits(); }}
+                style={isPublic ? { borderColor:"rgba(74,222,128,0.5)", color:"#4ade80" } : undefined}>
                 {isPublic ? "🔗 Pública" : "🔗 Compartilhar"}
               </button>
+
+              {/* Share popover */}
               {showShare && (
-                <div style={{ position:"absolute", top:"calc(100% + 6px)", right:0, zIndex:50, width:280,
+                <div style={{ position:"absolute", top:"calc(100% + 6px)", right:0, zIndex:50, width:300,
                   background:"var(--card,#111)", border:"1px solid rgba(255,255,255,0.12)", borderRadius:8,
-                  padding:"14px 14px", boxShadow:"0 8px 32px rgba(0,0,0,0.6)" }}>
-                  <div style={{ fontFamily:"Cinzel,serif", fontSize:10, letterSpacing:"0.1em", color:"rgba(255,255,255,0.5)", textTransform:"uppercase", marginBottom:10 }}>
-                    Compartilhar Dossiê
-                  </div>
-                  <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:12 }}>
-                    <div style={{ width:10, height:10, borderRadius:"50%", background: isPublic ? "#4ade80" : "rgba(255,255,255,0.2)", flexShrink:0 }}/>
-                    <span style={{ fontFamily:"Cinzel,serif", fontSize:10, color: isPublic ? "#4ade80" : "rgba(255,255,255,0.5)" }}>
-                      {isPublic ? "Ficha pública ativa" : "Ficha privada"}
-                    </span>
-                  </div>
+                  padding:"14px", boxShadow:"0 8px 32px rgba(0,0,0,0.6)" }}>
+                  <div style={{ fontFamily:"Cinzel,serif", fontSize:10, letterSpacing:"0.1em", color:"rgba(255,255,255,0.45)", textTransform:"uppercase", marginBottom:10 }}>Compartilhar Dossiê</div>
                   {isPublic && (
-                    <div style={{ display:"flex", gap:6, marginBottom:12 }}>
-                      <input readOnly value={`${window.location.origin}/p/${charId}`}
-                        style={{ flex:1, background:"rgba(0,0,0,0.4)", border:"1px solid rgba(255,255,255,0.12)", borderRadius:4,
-                          color:"#eee", padding:"6px 8px", fontSize:10, fontFamily:"monospace", minWidth:0 }}/>
-                      <button className="btn-ghost" style={{ flexShrink:0, fontSize:10 }}
-                        onClick={() => { navigator.clipboard.writeText(`${window.location.origin}/p/${charId}`); setCopied(true); setTimeout(()=>setCopied(false),2000); }}>
-                        {copied ? "✓" : "Copiar"}
-                      </button>
-                    </div>
+                    <>
+                      {/* Link Leitor */}
+                      <div style={{ marginBottom:10 }}>
+                        <div style={{ fontFamily:"Cinzel,serif", fontSize:9, color:"rgba(255,255,255,0.4)", marginBottom:4, letterSpacing:"0.08em", textTransform:"uppercase" }}>👁 Link de Leitor</div>
+                        <div style={{ display:"flex", gap:6 }}>
+                          <input readOnly value={`${window.location.origin}/p/${charId}`}
+                            style={{ flex:1, background:"rgba(0,0,0,0.4)", border:"1px solid rgba(255,255,255,0.1)", borderRadius:4, color:"#eee", padding:"5px 8px", fontSize:10, fontFamily:"monospace", minWidth:0 }}/>
+                          <button className="btn-ghost" style={{ flexShrink:0, fontSize:10 }}
+                            onClick={() => { navigator.clipboard.writeText(`${window.location.origin}/p/${charId}`); setCopiedReader(true); setTimeout(()=>setCopiedReader(false),2000); }}>
+                            {copiedReader ? "✓" : "Copiar"}
+                          </button>
+                        </div>
+                      </div>
+                      {/* Link Editor */}
+                      {editToken && (
+                        <div style={{ marginBottom:12 }}>
+                          <div style={{ fontFamily:"Cinzel,serif", fontSize:9, color:"rgba(74,222,128,0.7)", marginBottom:4, letterSpacing:"0.08em", textTransform:"uppercase" }}>✏ Link de Editor</div>
+                          <div style={{ display:"flex", gap:6 }}>
+                            <input readOnly value={`${window.location.origin}/p/${charId}?editor=${editToken}`}
+                              style={{ flex:1, background:"rgba(0,0,0,0.4)", border:"1px solid rgba(74,222,128,0.2)", borderRadius:4, color:"#eee", padding:"5px 8px", fontSize:10, fontFamily:"monospace", minWidth:0 }}/>
+                            <button className="btn-ghost" style={{ flexShrink:0, fontSize:10, borderColor:"rgba(74,222,128,0.3)", color:"#4ade80" }}
+                              onClick={() => { navigator.clipboard.writeText(`${window.location.origin}/p/${charId}?editor=${editToken}`); setCopiedEditor(true); setTimeout(()=>setCopiedEditor(false),2000); }}>
+                              {copiedEditor ? "✓" : "Copiar"}
+                            </button>
+                          </div>
+                          <div style={{ fontFamily:"Cinzel,serif", fontSize:9, color:"rgba(255,255,255,0.3)", marginTop:4 }}>Editores podem sugerir alterações para você aprovar.</div>
+                        </div>
+                      )}
+                    </>
                   )}
-                  <button style={{ width:"100%", padding:"8px", fontFamily:"Cinzel,serif", fontSize:10,
-                    letterSpacing:"0.08em", textTransform:"uppercase", cursor:"pointer", borderRadius:6,
+                  <button style={{ width:"100%", padding:"8px", fontFamily:"Cinzel,serif", fontSize:10, letterSpacing:"0.08em", textTransform:"uppercase", cursor:"pointer", borderRadius:6,
                     border: isPublic ? "1px solid rgba(239,68,68,0.4)" : "1px solid rgba(74,222,128,0.4)",
                     background: isPublic ? "rgba(239,68,68,0.08)" : "rgba(74,222,128,0.08)",
                     color: isPublic ? "#f87171" : "#4ade80" }}
                     onClick={() => {
-                      const updated = { ...character, ...form, public: !isPublic };
+                      const newToken = isPublic ? (editToken || null) : (Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2));
+                      const updated = { ...character, ...form, public: !isPublic, editToken: newToken };
                       onUpdate?.(updated);
                       setShowShare(false);
                     }}>
@@ -450,6 +478,71 @@ export default function OrdemParanormalSheet({ character, charId, onBack, onUpda
                   </button>
                 </div>
               )}
+
+              {/* Pending edits panel */}
+              {showPendingPanel && pendingEdits?.length > 0 && (() => {
+                const edit = pendingEdits[reviewIdx];
+                const cur = { ...character, ...form };
+                const fields = [
+                  { key:"pv", label:"PV atual" }, { key:"pvMax", label:"PV máx" },
+                  { key:"san", label:"SAN atual" }, { key:"sanMax", label:"SAN máx" },
+                  { key:"pe", label:"PE atual" }, { key:"peMax", label:"PE máx" },
+                  { key:"nex", label:"NEX %" },
+                ];
+                const attrKeys = ["agi","for","int","pre","vig"];
+                const diffs = [];
+                fields.forEach(({key,label}) => {
+                  const oldV = cur[key]; const newV = edit.proposedData[key];
+                  if (String(oldV) !== String(newV) && newV !== undefined) diffs.push({ label, old:oldV, next:newV });
+                });
+                attrKeys.forEach(k => {
+                  const oldV = cur.atributos?.[k]; const newV = edit.proposedData.atributos?.[k];
+                  if (String(oldV) !== String(newV) && newV !== undefined) diffs.push({ label:k.toUpperCase(), old:oldV, next:newV });
+                });
+                const formDiffs = ["personagem","jogador"].map(k => {
+                  const oldV = cur.form?.[k]; const newV = edit.proposedData.form?.[k];
+                  return String(oldV) !== String(newV) && newV !== undefined ? { label:k, old:oldV, next:newV } : null;
+                }).filter(Boolean);
+                const allDiffs = [...diffs, ...formDiffs];
+                return (
+                  <div style={{ position:"absolute", top:"calc(100% + 6px)", right:0, zIndex:50, width:320,
+                    background:"var(--card,#111)", border:"1px solid rgba(251,191,36,0.25)", borderRadius:8,
+                    padding:"14px", boxShadow:"0 8px 32px rgba(0,0,0,0.6)" }}>
+                    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10 }}>
+                      <span style={{ fontFamily:"Cinzel,serif", fontSize:10, letterSpacing:"0.1em", color:"#fbbf24", textTransform:"uppercase" }}>Sugestão {reviewIdx+1}/{pendingEdits.length}</span>
+                      <div style={{ display:"flex", gap:4 }}>
+                        {pendingEdits.length > 1 && <button className="btn-ghost" style={{ fontSize:10, padding:"2px 8px" }} onClick={() => setReviewIdx(i => Math.max(0,i-1))}>‹</button>}
+                        {pendingEdits.length > 1 && <button className="btn-ghost" style={{ fontSize:10, padding:"2px 8px" }} onClick={() => setReviewIdx(i => Math.min(pendingEdits.length-1,i+1))}>›</button>}
+                      </div>
+                    </div>
+                    <div style={{ fontFamily:"Cinzel,serif", fontSize:10, color:"rgba(255,255,255,0.6)", marginBottom:8 }}>
+                      ✎ <b style={{ color:"#eee" }}>{edit.editorName}</b> · {new Date(edit.timestamp).toLocaleString("pt-BR")}
+                    </div>
+                    {allDiffs.length === 0 ? (
+                      <div style={{ fontFamily:"Cinzel,serif", fontSize:10, color:"rgba(255,255,255,0.35)", marginBottom:10 }}>Nenhuma alteração nos campos principais.</div>
+                    ) : (
+                      <div style={{ display:"flex", flexDirection:"column", gap:4, marginBottom:10, maxHeight:180, overflowY:"auto" }}>
+                        {allDiffs.map(({label, old:o, next:n}) => (
+                          <div key={label} style={{ display:"flex", justifyContent:"space-between", fontFamily:"'Share Tech Mono',monospace", fontSize:10, padding:"3px 8px", background:"rgba(255,255,255,0.04)", borderRadius:4 }}>
+                            <span style={{ color:"rgba(255,255,255,0.45)" }}>{label}</span>
+                            <span><span style={{ color:"#f87171", textDecoration:"line-through" }}>{String(o??"-")}</span> <span style={{ color:"rgba(255,255,255,0.3)" }}>→</span> <span style={{ color:"#4ade80" }}>{String(n??"-")}</span></span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    <div style={{ display:"flex", gap:6 }}>
+                      <button style={{ flex:1, padding:"7px", fontFamily:"Cinzel,serif", fontSize:10, letterSpacing:"0.06em", textTransform:"uppercase", cursor:"pointer", borderRadius:6, border:"1px solid rgba(74,222,128,0.4)", background:"rgba(74,222,128,0.08)", color:"#4ade80" }}
+                        onClick={() => { onApprovePendingEdit?.(edit); if (reviewIdx >= pendingEdits.length - 1) setReviewIdx(Math.max(0, reviewIdx-1)); }}>
+                        ✓ Aprovar
+                      </button>
+                      <button style={{ flex:1, padding:"7px", fontFamily:"Cinzel,serif", fontSize:10, letterSpacing:"0.06em", textTransform:"uppercase", cursor:"pointer", borderRadius:6, border:"1px solid rgba(239,68,68,0.35)", background:"rgba(239,68,68,0.07)", color:"#f87171" }}
+                        onClick={() => { onRejectPendingEdit?.(edit); if (reviewIdx >= pendingEdits.length - 1) setReviewIdx(Math.max(0, reviewIdx-1)); }}>
+                        ✗ Rejeitar
+                      </button>
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
           )}
         </div>
