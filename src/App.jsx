@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, lazy, Suspense } from "react";
 import { createPortal } from "react-dom";
 import { ThemeStyles } from "./themes/ThemeProvider";
-import { ELEMENTOS } from "./components/systems/OrdemParanormal/elementos";
+import { ELEMENTOS, getElementTheme } from "./components/systems/OrdemParanormal/elementos";
 import ElementoSymbol from "./components/systems/OrdemParanormal/ElementoSymbol";
 import DossierCard from "./components/systems/OrdemParanormal/DossierCard";
 import { initializeApp } from "firebase/app";
@@ -3894,8 +3894,72 @@ function MestrePanel({ campaign, uid, userName, userPhoto }) {
   const card = { background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 10, padding: 14 };
   const inp = { background: "rgba(0,0,0,0.4)", border: "1px solid rgba(255,255,255,0.14)", borderRadius: 6, color: "#eee", padding: "8px 10px", fontFamily: "'Share Tech Mono',monospace", width: "100%" };
 
+  const liveSheets = sheets.filter(s => s.isLive);
+
   return (
     <div className="fade" style={{ overflowY: "auto", paddingRight: 4, display: "flex", flexDirection: "column", gap: 16 }}>
+
+      {/* ── MESA AO VIVO ── */}
+      {liveSheets.length > 0 && (
+        <div style={{ ...card, borderColor: "rgba(74,222,128,0.25)", background: "rgba(0,20,10,0.5)" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+            <span style={{ ...lbl, color: "#4ade80", fontSize: 11 }}>Mesa ao Vivo</span>
+            <span style={{ fontFamily:"Cinzel,serif", fontSize:8, letterSpacing:"0.12em", color:"#4ade80",
+              padding:"2px 8px", borderRadius:20, background:"rgba(74,222,128,0.1)", border:"1px solid rgba(74,222,128,0.3)",
+              animation:"op-flat-blink 1.5s ease-in-out infinite" }}>● AO VIVO</span>
+            <span style={{ ...lbl, marginLeft:"auto" }}>{liveSheets.length} agente{liveSheets.length!==1?"s":""}</span>
+          </div>
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(210px,1fr))", gap:10 }}>
+            {liveSheets.map(s => {
+              const cd = s.characterData || {};
+              const pv = Number(cd.pv ?? cd.pvMax ?? 0), pvMax = Number(cd.pvMax ?? 1);
+              const san = Number(cd.san ?? cd.sanMax ?? 0), sanMax = Number(cd.sanMax ?? 1);
+              const pe = Number(cd.pe ?? cd.peMax ?? 0), peMax = Number(cd.peMax ?? 1);
+              const pvPct = pvMax > 0 ? pv/pvMax : 1;
+              const el = cd.elementoAfinidade;
+              const elT = getElementTheme(el);
+              const accent = el ? elT.accent : "var(--gold)";
+              const pvCol = pvPct > 0.6 ? "#43a047" : pvPct > 0.3 ? "#fbc02d" : "#e53935";
+              const status = pv<=0 ? {l:"INCONSCIENTE",c:"#888"} : pvPct<0.3 ? {l:"CRÍTICO",c:"#e08030"} : {l:"ESTÁVEL",c:"#4caf7d"};
+              const name = cd.form?.personagem || s.characterName || "Agente";
+              return (
+                <div key={s.id} style={{ background:"rgba(0,0,0,0.4)", border:`1px solid ${accent}30`, borderRadius:8, padding:"10px 12px", display:"flex", flexDirection:"column", gap:7 }}>
+                  <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+                    <div style={{ width:34, height:34, borderRadius:6, border:`1.5px solid ${accent}60`, overflow:"hidden", flexShrink:0,
+                      background:`${accent}12`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:16 }}>
+                      {cd.form?.avatar ? <img src={cd.form.avatar} alt="" style={{ width:"100%", height:"100%", objectFit:"cover" }}/> : "🕵️"}
+                    </div>
+                    <div style={{ flex:1, minWidth:0 }}>
+                      <div style={{ fontFamily:"Cinzel,serif", fontSize:11, color:"#eee", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{name}</div>
+                      <div style={{ fontFamily:"Cinzel,serif", fontSize:8, color:"rgba(255,255,255,0.4)", letterSpacing:"0.06em" }}>{s.ownerName}</div>
+                    </div>
+                    <span style={{ fontFamily:"Cinzel,serif", fontSize:7, letterSpacing:"0.1em", padding:"2px 6px", borderRadius:20,
+                      border:`1px solid ${status.c}60`, color:status.c, background:`${status.c}15`, whiteSpace:"nowrap" }}>{status.l}</span>
+                  </div>
+                  {[
+                    {lbl:"PV", val:pv, max:pvMax, pct:pvPct, col:pvCol},
+                    {lbl:"SAN", val:san, max:sanMax, pct:sanMax>0?san/sanMax:1, col:el?elT.accent:"#7b1fa2"},
+                    {lbl:"PE", val:pe, max:peMax, pct:peMax>0?pe/peMax:1, col:"#00acc1"},
+                  ].map(({lbl:bl,val,max,pct,col})=>(
+                    <div key={bl}>
+                      <div style={{ display:"flex", justifyContent:"space-between", marginBottom:2 }}>
+                        <span style={{ fontFamily:"Cinzel,serif", fontSize:7, letterSpacing:"0.1em", color:"rgba(255,255,255,0.35)", textTransform:"uppercase" }}>{bl}</span>
+                        <span style={{ fontFamily:"'Share Tech Mono',monospace", fontSize:9, color:col }}>{val}/{max}</span>
+                      </div>
+                      <div style={{ height:4, background:"rgba(255,255,255,0.06)", borderRadius:2, overflow:"hidden" }}>
+                        <div style={{ height:"100%", width:`${Math.max(0,Math.min(100,pct*100))}%`,
+                          background:`linear-gradient(90deg,${col}88,${col})`, boxShadow:`0 0 5px ${col}50`,
+                          transition:"width 0.5s ease", borderRadius:2 }}/>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {/* AGENTES */}
       <div>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
