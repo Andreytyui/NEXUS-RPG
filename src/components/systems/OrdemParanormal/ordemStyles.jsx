@@ -8,6 +8,11 @@
 
 export const OrdemSheetStyles = () => (
   <style>{`
+    /* Default element-theme vars at :root so portaled modals (rendered into
+       document.body, outside .op-sheet's DOM subtree) still resolve --el-*
+       colors instead of falling back to invalid/transparent values. */
+    :root{ --el-primary:#c9a84c; --el-accent:#e8c96d; --el-glow:#e8c96d; --el-rune:#c9a84c; --el-vital:#e8c96d;
+      --el-deep:#07070d; --el-bg:#07070d; --el-border:rgba(201,168,76,0.34); }
     .op-sheet{ position:relative; color:var(--text); font-family:var(--font-body,'IM Fell English',serif);
       --el-accent:#c9a84c; --el-glow:#e8c96d; --el-rune:#c9a84c; --el-vital:#c9a84c; }
     .op-grain::before{ content:""; position:absolute; inset:0; pointer-events:none; z-index:0; opacity:0.05; mix-blend-mode:overlay;
@@ -53,10 +58,10 @@ export const OrdemSheetStyles = () => (
     .op-static::after{ content:""; position:absolute; inset:0; pointer-events:none; opacity:0.06; mix-blend-mode:screen;
       background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='80' height='80'%3E%3Cfilter id='s'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23s)'/%3E%3C/svg%3E"); animation:op-static-shift 0.2s steps(2) infinite; }
     @keyframes op-static-shift{ 0%{ transform:translate(0,0); } 100%{ transform:translate(2px,-1px); } }
-    .op-outrolado{ position:fixed; inset:0; pointer-events:none; z-index:39; opacity:0; transition:opacity 1s ease;
+    .op-outrolado{ position:fixed; inset:0; pointer-events:none; z-index:-1; opacity:0; transition:opacity 1s ease;
       background:radial-gradient(circle at 50% 38%, rgba(123,31,162,0.22), transparent 62%); }
     .op-outrolado.on{ opacity:1; animation:op-flicker 5s ease-in-out infinite; }
-    .op-outrolado-glyphs{ position:fixed; inset:0; pointer-events:none; z-index:38; opacity:0; transition:opacity 1.2s ease;
+    .op-outrolado-glyphs{ position:fixed; inset:0; pointer-events:none; z-index:-2; opacity:0; transition:opacity 1.2s ease;
       font-family:var(--font-data,'Share Tech Mono',monospace); color:rgba(155,89,182,0.10); font-size:34px; overflow:hidden; word-break:break-all; line-height:1.4; user-select:none; }
     .op-outrolado-glyphs.on{ opacity:1; animation:op-flicker 6s steps(2) infinite; }
     @keyframes op-flicker{ 0%,100%{ opacity:0.7; } 50%{ opacity:1; } 88%{ opacity:0.5; } }

@@ -110,7 +110,7 @@ export default function OrdemParanormalSheet({ character, onBack, onUpdate, onRo
   const [inventario, setInventario] = useState(() => {
     if (character.inventario !== undefined) return character.inventario;
     const itensMig = (character.itens || []).map((it) => ({ id: it.id || Date.now() + Math.random(), nome: it.name || "Item", tipo: "geral", categoria: "I", espacos: Number(it.peso) || 0, descricao: it.desc || "", melhorias: [], is_equipado: false }));
-    return { itens: itensMig, pontos_prestigio: 0, patente: "Recruta", limite_itens: [2, 0, 0, 0], no_inventario: [itensMig.length, 0, 0, 0], limite_credito: "Baixo", carga_maxima: 20 };
+    return { itens: itensMig, pontos_prestigio: 0 };
   });
   const [descricao, setDescricao] = useState(character.descricao ?? {});
   const [dtRituais, setDtRituais] = useState(character.dtRituais ?? 16);
@@ -583,7 +583,7 @@ export default function OrdemParanormalSheet({ character, onBack, onUpdate, onRo
             )}
 
             {activeTab === "inventario" && (
-              <InventarioTab inventario={inventario} setInventario={setInventario} onRollDados={rollDados} />
+              <InventarioTab inventario={inventario} setInventario={setInventario} onRollDados={rollDados} attrs={attrs} nex={nex} />
             )}
 
             {activeTab === "descricao" && (

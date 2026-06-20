@@ -1,4 +1,5 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
 import RichTextEditor from "./shared/RichTextEditor";
 import ElementoBadge from "./shared/ElementoBadge";
 import {
@@ -12,6 +13,61 @@ const CIRCULOS = [1, 2, 3, 4];
 const EXECUCOES = ["Padrão", "Movimento", "Livre", "Completa", "Reação"];
 const ALCANCES = ["Pessoal", "Toque", "Curto", "Médio", "Longo", "Ilimitado"];
 const HOMEBREW_LIMIT = 50;
+
+/* ═══ Dropdown estilizado (substitui <select> nativo, cujo menu aberto
+   não pode ser tematizado — é renderizado pelo SO/navegador) ═══ */
+function ThemedSelect({ value, onChange, options }) {
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDocPointer = (e) => { if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false); };
+    const onKey = (e) => { if (e.key === "Escape") { e.stopPropagation(); setOpen(false); } };
+    document.addEventListener("mousedown", onDocPointer);
+    document.addEventListener("keydown", onKey, true);
+    return () => {
+      document.removeEventListener("mousedown", onDocPointer);
+      document.removeEventListener("keydown", onKey, true);
+    };
+  }, [open]);
+
+  const norm = options.map((o) => (typeof o === "object" ? o : { value: o, label: String(o) }));
+  const current = norm.find((o) => String(o.value) === String(value));
+
+  return (
+    <div ref={wrapRef} style={{ position: "relative" }}>
+      <button type="button" onClick={() => setOpen((o) => !o)}
+        style={{ ...inputS, display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer", textAlign: "left", textTransform: "capitalize" }}>
+        <span>{current?.label ?? value}</span>
+        <span style={{ fontSize: 9, color: "var(--el-accent)", marginLeft: 8, flexShrink: 0, transition: "transform 0.15s", transform: open ? "rotate(180deg)" : "none" }}>▼</span>
+      </button>
+      {open && (
+        <div style={{
+          position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0, zIndex: 30,
+          background: "#13131a", border: "1px solid var(--el-border)", borderRadius: 6,
+          boxShadow: "0 10px 28px rgba(0,0,0,0.6)", maxHeight: 220, overflowY: "auto", padding: 4,
+        }}>
+          {norm.map((o) => {
+            const active = String(o.value) === String(value);
+            return (
+              <div key={o.value} onClick={() => { onChange(o.value); setOpen(false); }}
+                style={{
+                  padding: "7px 10px", borderRadius: 4, cursor: "pointer", fontSize: 14, textTransform: "capitalize",
+                  fontFamily: "Inter,system-ui,sans-serif",
+                  color: active ? "#000" : "rgba(232,228,217,0.85)",
+                  background: active ? "var(--el-accent)" : "transparent",
+                }}
+                onMouseEnter={(e) => { if (!active) e.currentTarget.style.background = "rgba(255,255,255,0.07)"; }}
+                onMouseLeave={(e) => { if (!active) e.currentTarget.style.background = "transparent"; }}
+              >{o.label}</div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
 
 /* ═══ Modal: novo/editar ritual ═══ */
 function RitualFormModal({ ritual, onClose, onSave }) {
@@ -34,7 +90,6 @@ function RitualFormModal({ ritual, onClose, onSave }) {
     onClose();
   };
 
-  const sel = (opts) => ({ ...inputS, appearance: "auto" });
   const grid2 = { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 };
 
   return (
@@ -45,27 +100,19 @@ function RitualFormModal({ ritual, onClose, onSave }) {
       <div style={grid2}>
         <div>
           <label style={fieldLabel}>Elemento</label>
-          <select value={r.elemento} onChange={(e) => set("elemento", e.target.value)} style={sel()}>
-            {ELEMENTOS.map((el) => <option key={el} value={el}>{el}</option>)}
-          </select>
+          <ThemedSelect value={r.elemento} onChange={(v) => set("elemento", v)} options={ELEMENTOS} />
         </div>
         <div>
           <label style={fieldLabel}>Círculo</label>
-          <select value={r.circulo} onChange={(e) => set("circulo", e.target.value)} style={sel()}>
-            {CIRCULOS.map((c) => <option key={c} value={c}>{c}º Círculo</option>)}
-          </select>
+          <ThemedSelect value={r.circulo} onChange={(v) => set("circulo", v)} options={CIRCULOS.map((c) => ({ value: c, label: `${c}º Círculo` }))} />
         </div>
         <div>
           <label style={fieldLabel}>Execução</label>
-          <select value={r.execucao} onChange={(e) => set("execucao", e.target.value)} style={sel()}>
-            {EXECUCOES.map((x) => <option key={x} value={x}>{x}</option>)}
-          </select>
+          <ThemedSelect value={r.execucao} onChange={(v) => set("execucao", v)} options={EXECUCOES} />
         </div>
         <div>
           <label style={fieldLabel}>Alcance</label>
-          <select value={r.alcance} onChange={(e) => set("alcance", e.target.value)} style={sel()}>
-            {ALCANCES.map((x) => <option key={x} value={x}>{x}</option>)}
-          </select>
+          <ThemedSelect value={r.alcance} onChange={(v) => set("alcance", v)} options={ALCANCES} />
         </div>
         <div>
           <label style={fieldLabel}>Área</label>
@@ -139,18 +186,24 @@ const addPill = (active, small) => ({
   border: active ? "1px solid var(--el-accent)" : "1px solid rgba(255,255,255,0.1)",
 });
 
-function AdicionarRituaisModal({ onClose, onAdd, homebrew }) {
+function AdicionarRituaisModal({ onClose, onAdd, homebrew, onCreateHomebrew, onDeleteHomebrew }) {
   const [tab, setTab] = useState("oficial");
   const [fEl, setFEl] = useState("todos");
   const [fCirc, setFCirc] = useState("todos");
   const [busca, setBusca] = useState("");
   const [openId, setOpenId] = useState(null);
+  const [showNewRitual, setShowNewRitual] = useState(false);
+  const rowRefs = useRef({});
 
   useEffect(() => {
     const esc = (e) => e.key === "Escape" && onClose();
     document.addEventListener("keydown", esc);
     return () => document.removeEventListener("keydown", esc);
   }, [onClose]);
+
+  useEffect(() => {
+    if (openId != null) rowRefs.current[openId]?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [openId]);
 
   const source = tab === "oficial" ? RITUAIS_OFICIAIS : homebrew;
   const list = source.filter((r) =>
@@ -166,7 +219,7 @@ function AdicionarRituaisModal({ onClose, onAdd, homebrew }) {
     </span>
   );
 
-  return (
+  return createPortal(
     <div onClick={onClose} style={overlayS}>
       <div onClick={(e) => e.stopPropagation()} style={{
         width: "min(680px,100%)", maxHeight: "85vh", background: "#0a0a0f",
@@ -201,23 +254,37 @@ function AdicionarRituaisModal({ onClose, onAdd, homebrew }) {
             style={{ fontFamily: FONT_MONO, fontSize: 13, background: "rgba(0,0,0,0.4)", border: "1px solid rgba(255,255,255,0.1)", color: "#e8e4d9", borderRadius: 6, padding: "8px 12px", outline: "none" }} />
 
           {tab === "homebrew" && (
-            <div style={{ fontFamily: FONT_MONO, fontSize: 11, color: "rgba(232,228,217,0.4)" }}>Homebrew {homebrew.length}/{HOMEBREW_LIMIT}</div>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
+              <div style={{ fontFamily: FONT_MONO, fontSize: 11, color: "rgba(232,228,217,0.4)" }}>Homebrew {homebrew.length}/{HOMEBREW_LIMIT}</div>
+              <button onClick={() => setShowNewRitual(true)} disabled={homebrew.length >= HOMEBREW_LIMIT} style={{ ...addTabBtn(false), opacity: homebrew.length >= HOMEBREW_LIMIT ? 0.4 : 1, cursor: homebrew.length >= HOMEBREW_LIMIT ? "default" : "pointer" }}>+ Criar Ritual</button>
+            </div>
           )}
         </div>
 
         {/* ── SCROLLING LIST ── */}
         <div style={{ flex: 1, minHeight: 0, overflowY: "auto" }}>
           {list.length === 0 ? (
-            <div style={{ fontFamily: FONT_FELL, fontStyle: "italic", fontSize: 14, color: "rgba(232,228,217,0.4)", padding: "32px 0", textAlign: "center" }}>Nenhum ritual encontrado.</div>
+            <div style={{ padding: "32px 0", textAlign: "center" }}>
+              <div style={{ fontFamily: FONT_FELL, fontStyle: "italic", fontSize: 14, color: "rgba(232,228,217,0.4)", marginBottom: tab === "homebrew" ? 14 : 0 }}>
+                {tab === "homebrew" ? "Nenhum ritual homebrew ainda. Crie um ritual exclusivo do seu personagem." : "Nenhum ritual encontrado."}
+              </div>
+              {tab === "homebrew" && homebrew.length < HOMEBREW_LIMIT && (
+                <button onClick={() => setShowNewRitual(true)} style={addTabBtn(false)}>+ Criar Ritual</button>
+              )}
+            </div>
           ) : list.map((r) => {
             const open = openId === r.id;
             return (
-              <div key={r.id} className="op-add-row">
+              <div key={r.id} className="op-add-row" ref={(el) => { rowRefs.current[r.id] = el; }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 0, minHeight: 44, padding: "0 16px" }}>
                   <span onClick={() => setOpenId(open ? null : r.id)} style={{ cursor: "pointer", fontSize: 10, color: "rgba(232,228,217,0.3)", marginRight: 12 }}>{open ? "▼" : "▶"}</span>
                   <span onClick={() => setOpenId(open ? null : r.id)} style={{ fontFamily: FONT_CINZEL, fontSize: 13, fontWeight: 500, color: "#e8e4d9", letterSpacing: "0.04em", flex: 1, cursor: "pointer", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.nome}</span>
                   <RowBadge el={r.elemento} />
                   <span style={{ fontFamily: FONT_MONO, fontSize: 12, color: "rgba(232,228,217,0.4)", width: 24, textAlign: "center", margin: "0 6px" }}>{r.circulo}º</span>
+                  {tab === "homebrew" && (
+                    <button onClick={() => onDeleteHomebrew(r.id)} title="Excluir ritual" aria-label="Excluir ritual"
+                      style={{ fontFamily: FONT_CINZEL, fontSize: 14, fontWeight: 700, width: 32, height: 32, borderRadius: 6, background: "none", color: "var(--danger-text,#d85a5a)", border: "1px solid var(--danger-text,#d85a5a)", cursor: "pointer", flexShrink: 0, marginRight: 6 }}>×</button>
+                  )}
                   <button onClick={() => onAdd(r)} title="Adicionar à ficha" className="op-add-plus"
                     style={{ fontFamily: FONT_CINZEL, fontSize: 14, fontWeight: 700, width: 32, height: 32, borderRadius: 6, background: "var(--el-accent)", color: "#000", border: "none", cursor: "pointer", flexShrink: 0 }}>+</button>
                 </div>
@@ -241,7 +308,14 @@ function AdicionarRituaisModal({ onClose, onAdd, homebrew }) {
           })}
         </div>
       </div>
-    </div>
+      {showNewRitual && (
+        <RitualFormModal
+          onClose={() => setShowNewRitual(false)}
+          onSave={(r) => { onCreateHomebrew(r); setShowNewRitual(false); setTab("homebrew"); }}
+        />
+      )}
+    </div>,
+    document.body
   );
 }
 
@@ -254,6 +328,11 @@ function RitualCard({ r, onEdit, onRemove, onRoll }) {
   const b = BADGE[r.elemento] || BADGE.varia;
   const circ = ROMAN[r.circulo] || String(r.circulo);
   const execIcon = EXEC_ICON[r.execucao] || "◈";
+  const cardRef = useRef(null);
+
+  useEffect(() => {
+    if (open) cardRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [open]);
 
   const pill = (label, val, color = "var(--muted2)") => val ? (
     <span style={{ fontFamily: FONT_MONO, fontSize: 10, padding: "2px 8px", borderRadius: 12,
@@ -264,7 +343,7 @@ function RitualCard({ r, onEdit, onRemove, onRoll }) {
   ) : null;
 
   return (
-    <div className="op-ink" style={{ background: "rgba(255,255,255,0.02)", border: `1px solid ${b.b}25`, borderRadius: 6, overflow: "hidden", transition: "border-color 0.2s" }}
+    <div ref={cardRef} className="op-ink" style={{ background: "rgba(255,255,255,0.02)", border: `1px solid ${b.b}25`, borderRadius: 6, overflow: "hidden", transition: "border-color 0.2s" }}
       onMouseEnter={(e) => e.currentTarget.style.borderColor = `${b.b}60`}
       onMouseLeave={(e) => e.currentTarget.style.borderColor = `${b.b}25`}>
 
@@ -396,7 +475,7 @@ export default function RituaisTab({ rituais, setRituais, dtRituais, setDtRituai
       )}
 
       {showForm && <RitualFormModal ritual={editing} onClose={() => setShowForm(false)} onSave={saveRitual} />}
-      {showAdd && <AdicionarRituaisModal onClose={() => setShowAdd(false)} onAdd={addRitual} homebrew={homebrew} />}
+      {showAdd && <AdicionarRituaisModal onClose={() => setShowAdd(false)} onAdd={addRitual} homebrew={homebrew} onCreateHomebrew={saveRitual} onDeleteHomebrew={removeRitual} />}
     </div>
   );
 }

@@ -1,3 +1,5 @@
+import { createPortal } from "react-dom";
+
 /* ════════════════════════════════════════════════════════════════════════
  *  NEXUS TYPOGRAPHY SYSTEM — shared tokens for all OP tab components.
  *  Fonts come from CSS vars set by ThemeProvider:
@@ -127,7 +129,7 @@ export function BannerHeader({ description }) {
 }
 
 export function ModalShell({ title, onClose, children, width }) {
-  return (
+  return createPortal(
     <div onClick={onClose} style={overlayS}>
       <div onClick={(e) => e.stopPropagation()} style={{ ...modalS, ...(width ? { width } : {}) }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
@@ -136,6 +138,7 @@ export function ModalShell({ title, onClose, children, width }) {
         </div>
         {children}
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

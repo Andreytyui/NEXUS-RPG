@@ -4,6 +4,7 @@ import {
   fieldLabel, inputS, btnGold, btnGhost, chip, ModalShell,
   tLabel, tCardTitle, tBody, tStat, tEmpty, tSubtext,
 } from "./shared/modalStyles";
+import { patenteForNex, cargaMaxima } from "../rules";
 import ITENS_OFICIAIS from "../../../../data/ordemParanormal/itens-oficiais.json";
 
 const TIPOS = [
@@ -302,13 +303,19 @@ function InlineNum({ value, onChange, w = 44 }) {
   return <input type="number" value={value} onChange={(e) => onChange(parseInt(e.target.value, 10) || 0)}
     style={{ width: w, padding: "3px 5px", textAlign: "center", background: "rgba(0,0,0,0.4)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 4, color: "#e8e4d9", fontFamily: "var(--font-data,'Share Tech Mono',monospace)", fontSize: 13 }} />;
 }
-function InlineText({ value, onChange, w = 90 }) {
-  return <input value={value} onChange={(e) => onChange(e.target.value)}
-    style={{ width: w, padding: "3px 6px", background: "rgba(0,0,0,0.4)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 4, color: "#e8e4d9", fontFamily: "var(--font-data,'Share Tech Mono',monospace)", fontSize: 13 }} />;
+/* read-only stat pill — used for values derived from Patente/NEX/Força, not hand-edited */
+function StatPill({ value, over }) {
+  return <span style={{
+    minWidth: 36, padding: "3px 8px", textAlign: "center", display: "inline-block",
+    background: over ? "rgba(229,57,53,0.12)" : "rgba(0,0,0,0.4)",
+    border: `1px solid ${over ? "#e53935" : "rgba(255,255,255,0.1)"}`,
+    borderRadius: 4, color: over ? "#ff6b6b" : "#e8e4d9",
+    fontFamily: "var(--font-data,'Share Tech Mono',monospace)", fontSize: 13,
+  }}>{value}</span>;
 }
 
 /* ═══ Tab principal ═══ */
-export default function InventarioTab({ inventario, setInventario, onRollDados }) {
+export default function InventarioTab({ inventario, setInventario, onRollDados, attrs, nex }) {
   const inv = inventario || {};
   const itens = inv.itens || [];
   const [busca, setBusca] = useState("");
@@ -327,9 +334,15 @@ export default function InventarioTab({ inventario, setInventario, onRollDados }
   const removeItem = (id) => setItens((arr) => arr.filter((x) => x.id !== id));
   const toggleEquip = (id) => setItens((arr) => arr.map((x) => x.id === id ? { ...x, is_equipado: !x.is_equipado } : x));
 
+  /* Patente, limites e carga são calculados — não editados manualmente. */
+  const patente = patenteForNex(nex ?? 5);
+  const limites = patente.limiteItens; // [Cat.0, I, II, III, IV] — null = ilimitado
+  const itemCategoria = (it) => CATEGORIAS.includes(it.categoria) ? it.categoria : "I";
+  const noInv = CATEGORIAS.map((cat) => itens.filter((it) => itemCategoria(it) === cat).length);
+  const categoriaOver = limites.some((lim, i) => lim != null && noInv[i] > lim);
+
   const cargaAtual = itens.reduce((s, it) => s + (Number(it.espacos) || 0), 0);
-  const limites = inv.limite_itens || [2, 0, 0, 0];
-  const noInv = inv.no_inventario || [itens.length, 0, 0, 0];
+  const max = cargaMaxima(attrs);
 
   const statRow = { ...tLabel, display: "flex", alignItems: "center", gap: 8 };
 
@@ -345,20 +358,22 @@ export default function InventarioTab({ inventario, setInventario, onRollDados }
       <div className="op-ink" style={{ padding: "12px 14px", background: "rgba(0,0,0,0.25)", display: "flex", flexDirection: "column", gap: 10 }}>
         <div style={{ display: "flex", gap: 18, flexWrap: "wrap" }}>
           <div style={statRow}>Pontos de Prestígio <InlineNum value={inv.pontos_prestigio || 0} onChange={(v) => setInv({ pontos_prestigio: v })} /></div>
-          <div style={statRow}>Patente <InlineText value={inv.patente || "Recruta"} onChange={(v) => setInv({ patente: v })} w={110} /></div>
+          <div style={statRow}>Patente <StatPill value={patente.nome} /> <span style={{ ...tSubtext, fontSize: 10 }}>NEX {nex ?? 5}%</span></div>
         </div>
         <div style={{ display: "flex", gap: 18, flexWrap: "wrap", alignItems: "center" }}>
-          <div style={statRow}>Limite de Itens {limites.map((v, i) => <InlineNum key={i} value={v} onChange={(nv) => setInv({ limite_itens: limites.map((x, idx) => idx === i ? nv : x) })} w={36} />)}</div>
+          <div style={statRow}>
+            Limite de Itens {limites.map((v, i) => <StatPill key={i} value={v == null ? "∞" : v} />)}
+            {categoriaOver && <span style={{ fontSize: 9, color: "#e53935", fontFamily: "var(--font-title,'Cinzel',serif)", letterSpacing: "0.06em" }}>LIMITE EXCEDIDO</span>}
+          </div>
         </div>
         <div style={{ display: "flex", gap: 18, flexWrap: "wrap", alignItems: "center" }}>
-          <div style={statRow}>No Inventário {noInv.map((v, i) => <InlineNum key={i} value={v} onChange={(nv) => setInv({ no_inventario: noInv.map((x, idx) => idx === i ? nv : x) })} w={36} />)}</div>
+          <div style={statRow}>No Inventário {noInv.map((v, i) => <StatPill key={i} value={v} over={limites[i] != null && v > limites[i]} />)}</div>
         </div>
         <div style={{ display: "flex", gap: 18, flexWrap: "wrap", alignItems: "center" }}>
-          <div style={statRow}>Limite de Crédito <InlineText value={inv.limite_credito || "Baixo"} onChange={(v) => setInv({ limite_credito: v })} w={90} /></div>
+          <div style={statRow}>Limite de Crédito <StatPill value={patente.limiteCredito} /></div>
         </div>
         {/* Carga — visual bar */}
         {(() => {
-          const max = inv.carga_maxima || 20;
           const pct = Math.min(100, Math.round((cargaAtual / max) * 100));
           const over = cargaAtual > max;
           const barColor = over ? "#e53935" : pct > 75 ? "#fbc02d" : "#4caf50";
@@ -367,7 +382,7 @@ export default function InventarioTab({ inventario, setInventario, onRollDados }
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                 <span style={{ ...tLabel, fontSize: 9 }}>CARGA</span>
                 <span style={{ fontFamily: "var(--font-data,'Share Tech Mono',monospace)", fontSize: 12, color: barColor, display: "flex", alignItems: "center", gap: 4 }}>
-                  {cargaAtual} / <InlineNum value={max} onChange={(v) => setInv({ carga_maxima: v })} /> espaços
+                  {cargaAtual} / {max} espaços
                   {over && <span style={{ fontSize: 9, color: "#e53935", fontFamily: "var(--font-title,'Cinzel',serif)", letterSpacing: "0.06em" }}>SOBRECARREGADO</span>}
                 </span>
               </div>

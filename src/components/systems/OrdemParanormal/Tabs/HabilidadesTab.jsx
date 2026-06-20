@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from "react";
+import { createPortal } from "react-dom";
 import RichTextEditor from "./shared/RichTextEditor";
 import {
   overlayS, modalTitle, fieldLabel, inputS, btnGold, btnGhost,
@@ -149,8 +150,14 @@ function BookBanner() {
 /* ═══ Ability expandable row ═══ */
 function AbilityRow({ name, cost, desc, onAdd, added }) {
   const [open, setOpen] = useState(false);
+  const rowRef = useRef(null);
+
+  useEffect(() => {
+    if (open) rowRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [open]);
+
   return (
-    <div>
+    <div ref={rowRef}>
       <div style={S.abilityRow} onClick={() => setOpen(o => !o)}>
         <span style={{ fontSize: 12, color: "rgba(255,255,255,0.25)", transition:"transform 0.15s", display:"inline-block", transform: open ? "rotate(90deg)" : "rotate(0)" }}>▶</span>
         <span style={S.abilityName}>{name}</span>
@@ -207,7 +214,7 @@ function AdicionarHabilidadesModal({ onClose, onAdd, habilidades, nex, classe })
 
   const isAdded = (name) => habilidades.some(h => h.nome === name);
 
-  return (
+  return createPortal(
     <div style={S.modal} onClick={onClose}>
       <div style={S.sheet} onClick={e => e.stopPropagation()}>
 
@@ -307,7 +314,8 @@ function AdicionarHabilidadesModal({ onClose, onAdd, habilidades, nex, classe })
           </div>
         )}
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
 
@@ -336,7 +344,7 @@ function NovaHabilidadeModal({ onClose, onAdd }) {
     onClose();
   };
 
-  return (
+  return createPortal(
     <div onClick={onClose} style={{ ...overlayS, zIndex: 250 }}>
       <div onClick={(e) => e.stopPropagation()} style={{ width:"min(560px,100%)", maxHeight:"88vh", overflow:"auto", padding: 22, background:"#0d0d14", border:"1px solid var(--el-border)", boxShadow:"0 0 40px var(--el-glow)", borderRadius: 10 }}>
         <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom: 12 }}>
@@ -359,7 +367,8 @@ function NovaHabilidadeModal({ onClose, onAdd }) {
           <button onClick={submit} style={{ ...btnGold, opacity: nome.trim() ? 1 : 0.5 }}>Adicionar</button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
 
@@ -369,9 +378,14 @@ function HabilidadeCard({ hab, onEdit, onRemove, onRoll }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState({ ...hab });
   const save = () => { onEdit(draft); setEditing(false); };
+  const cardRef = useRef(null);
+
+  useEffect(() => {
+    if (open) cardRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [open]);
 
   return (
-    <div style={{ background:"rgba(255,255,255,0.02)", border:"1px solid rgba(255,255,255,0.07)", borderRadius: 8, overflow:"hidden", transition:"border-color 0.2s", marginBottom: 6 }}
+    <div ref={cardRef} style={{ background:"rgba(255,255,255,0.02)", border:"1px solid rgba(255,255,255,0.07)", borderRadius: 8, overflow:"hidden", transition:"border-color 0.2s", marginBottom: 6 }}
       onMouseEnter={(e) => e.currentTarget.style.borderColor = "var(--el-border)"}
       onMouseLeave={(e) => e.currentTarget.style.borderColor = "rgba(255,255,255,0.07)"}>
       <div style={{ display:"flex", alignItems:"center", gap: 8, padding:"11px 14px", cursor:"pointer" }} onClick={() => !editing && setOpen(v => !v)}>

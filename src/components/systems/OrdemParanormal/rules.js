@@ -378,6 +378,35 @@ export const CLASS_BASE_ABILITIES = {
   ],
 };
 
+/*
+ * ── Patentes ──
+ * Progressão de patente por NEX, com limite de itens por categoria
+ * [Cat. 0, Cat. I, Cat. II, Cat. III, Cat. IV] (null = ilimitado) e o
+ * limite de crédito correspondente.
+ *
+ * NOTA: tabela reconstruída de memória das regras de Ordem Paranormal —
+ * confira contra a edição do seu livro e ajuste os valores abaixo se
+ * necessário (cada linha é independente, fácil de corrigir).
+ */
+export const PATENTES = [
+  { nome: "Recruta",         nexMin: 5,  nexMax: 5,  limiteItens: [null, 2,    0,    0,    0], limiteCredito: "Baixo" },
+  { nome: "Operador",        nexMin: 10, nexMax: 15, limiteItens: [null, 4,    1,    0,    0], limiteCredito: "Médio" },
+  { nome: "Agente Especial", nexMin: 20, nexMax: 35, limiteItens: [null, 6,    2,    1,    0], limiteCredito: "Alto" },
+  { nome: "Agente de Elite", nexMin: 40, nexMax: 55, limiteItens: [null, 8,    4,    2,    1], limiteCredito: "Altíssimo" },
+  { nome: "Veterano",        nexMin: 60, nexMax: 75, limiteItens: [null, 10,   6,    3,    2], limiteCredito: "Altíssimo" },
+  { nome: "Lenda Viva",      nexMin: 80, nexMax: 95, limiteItens: [null, null, 8,    5,    3], limiteCredito: "Altíssimo" },
+  { nome: "Agente Lendário", nexMin: 99, nexMax: 99, limiteItens: [null, null, null, 8,    5], limiteCredito: "Altíssimo" },
+];
+
+export function patenteForNex(nexVal) {
+  return PATENTES.find((p) => nexVal >= p.nexMin && nexVal <= p.nexMax) || PATENTES[0];
+}
+
+/* Capacidade de carga (em espaços) — baseada em Força. Mesma ressalva acima. */
+export function cargaMaxima(attrs) {
+  return 5 + (attrs?.FOR || 0) * 5;
+}
+
 /* Format a roll for the campaign feed / onRoll bridge (matches App handleRoll). */
 export function rollPayload(label, res, charName, elemento) {
   return {
