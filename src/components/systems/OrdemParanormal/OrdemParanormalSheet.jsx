@@ -66,7 +66,7 @@ function startWhisper() {
 }
 function stopWhisper(w) { if (!w) return; try { w.src.stop(); w.ctx.close(); } catch {} }
 
-export default function OrdemParanormalSheet({ character, onBack, onUpdate, onRoll, rollCampaign, onOpenHistory }) {
+export default function OrdemParanormalSheet({ character, charId, onBack, onUpdate, onRoll, rollCampaign, onOpenHistory, readOnly }) {
   /* ── mobile section switcher (Ficha | Perícias | Ações) ── */
   const [mobileSec, setMobileSec] = useState("ficha");
 
@@ -138,6 +138,8 @@ export default function OrdemParanormalSheet({ character, onBack, onUpdate, onRo
   const [showUpload, setShowUpload] = useState(false);
   const [showAI, setShowAI] = useState(false);
   const [aiPrompt, setAiPrompt] = useState("");
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiError, setAiError] = useState("");
   const [showElementModal, setShowElementModal] = useState(false);
   const [transEl, setTransEl] = useState(null);
   const [skillFilter, setSkillFilter] = useState("");
@@ -146,6 +148,9 @@ export default function OrdemParanormalSheet({ character, onBack, onUpdate, onRo
   const [showShortcuts, setShowShortcuts] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [savedAt, setSavedAt] = useState(null);
+  const [showShare, setShowShare] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const isPublic = !!character.public;
 
   const portraitInput = useRef(null);
   const diceRef = useRef(null);
@@ -293,6 +298,33 @@ export default function OrdemParanormalSheet({ character, onBack, onUpdate, onRo
     setShowUpload(false);
   };
 
+  const onGenerateAI = async () => {
+    if (!aiPrompt.trim()) return;
+    setAiLoading(true);
+    setAiError("");
+    try {
+      const elName = elementoAfinidade ? theme.name : "Ordem Paranormal";
+      const classeNome = classe?.name || "agente";
+      const basePrompt = `portrait photo of a ${classeNome} paranormal investigator, ${aiPrompt.trim()}, ${elName} element aesthetic, cinematic dramatic lighting, dark atmospheric, photorealistic, film grain, detailed face, upper body`;
+      const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(basePrompt)}?width=512&height=768&nologo=true&model=flux&seed=${Date.now()}`;
+      const resp = await fetch(url);
+      if (!resp.ok) throw new Error("Falha ao gerar");
+      const blob = await resp.blob();
+      const base64 = await new Promise((res) => {
+        const reader = new FileReader();
+        reader.onload = (ev) => res(ev.target.result);
+        reader.readAsDataURL(blob);
+      });
+      const downscaled = await downscale(new File([blob], "ai.jpg", { type: blob.type }));
+      setForm((f) => ({ ...f, avatar: downscaled }));
+      setShowAI(false);
+    } catch (e) {
+      setAiError("Erro ao gerar imagem. Tente novamente.");
+    } finally {
+      setAiLoading(false);
+    }
+  };
+
   /* ── array helpers ── */
   const upd = (setter) => (i, patch) => setter((arr) => arr.map((it, idx) => (idx === i ? { ...it, ...patch } : it)));
   const rm = (setter) => (i) => setter((arr) => arr.filter((_, idx) => idx !== i));
@@ -373,6 +405,53 @@ export default function OrdemParanormalSheet({ character, onBack, onUpdate, onRo
             style={editMode ? { background: "var(--gold-dim)", borderColor: "var(--gold)", color: "var(--gold2)" } : undefined}>
             {editMode ? "🔓 Editando" : "🔒 Travado"}
           </button>
+          {!readOnly && charId && (
+            <div style={{ position: "relative" }}>
+              <button className="btn-ghost" onClick={() => setShowShare(v => !v)}
+                style={isPublic ? { borderColor: "rgba(74,222,128,0.5)", color: "#4ade80" } : undefined}
+                title="Compartilhar ficha">
+                {isPublic ? "🔗 Pública" : "🔗 Compartilhar"}
+              </button>
+              {showShare && (
+                <div style={{ position:"absolute", top:"calc(100% + 6px)", right:0, zIndex:50, width:280,
+                  background:"var(--card,#111)", border:"1px solid rgba(255,255,255,0.12)", borderRadius:8,
+                  padding:"14px 14px", boxShadow:"0 8px 32px rgba(0,0,0,0.6)" }}>
+                  <div style={{ fontFamily:"Cinzel,serif", fontSize:10, letterSpacing:"0.1em", color:"rgba(255,255,255,0.5)", textTransform:"uppercase", marginBottom:10 }}>
+                    Compartilhar Dossiê
+                  </div>
+                  <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:12 }}>
+                    <div style={{ width:10, height:10, borderRadius:"50%", background: isPublic ? "#4ade80" : "rgba(255,255,255,0.2)", flexShrink:0 }}/>
+                    <span style={{ fontFamily:"Cinzel,serif", fontSize:10, color: isPublic ? "#4ade80" : "rgba(255,255,255,0.5)" }}>
+                      {isPublic ? "Ficha pública ativa" : "Ficha privada"}
+                    </span>
+                  </div>
+                  {isPublic && (
+                    <div style={{ display:"flex", gap:6, marginBottom:12 }}>
+                      <input readOnly value={`${window.location.origin}/p/${charId}`}
+                        style={{ flex:1, background:"rgba(0,0,0,0.4)", border:"1px solid rgba(255,255,255,0.12)", borderRadius:4,
+                          color:"#eee", padding:"6px 8px", fontSize:10, fontFamily:"monospace", minWidth:0 }}/>
+                      <button className="btn-ghost" style={{ flexShrink:0, fontSize:10 }}
+                        onClick={() => { navigator.clipboard.writeText(`${window.location.origin}/p/${charId}`); setCopied(true); setTimeout(()=>setCopied(false),2000); }}>
+                        {copied ? "✓" : "Copiar"}
+                      </button>
+                    </div>
+                  )}
+                  <button style={{ width:"100%", padding:"8px", fontFamily:"Cinzel,serif", fontSize:10,
+                    letterSpacing:"0.08em", textTransform:"uppercase", cursor:"pointer", borderRadius:6,
+                    border: isPublic ? "1px solid rgba(239,68,68,0.4)" : "1px solid rgba(74,222,128,0.4)",
+                    background: isPublic ? "rgba(239,68,68,0.08)" : "rgba(74,222,128,0.08)",
+                    color: isPublic ? "#f87171" : "#4ade80" }}
+                    onClick={() => {
+                      const updated = { ...character, ...form, public: !isPublic };
+                      onUpdate?.(updated);
+                      setShowShare(false);
+                    }}>
+                    {isPublic ? "Tornar privada" : "Tornar pública"}
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
         </div>
         {showShortcuts && (
           <div className="op-ink op-data" style={{ marginTop: 8, padding: "8px 12px", fontSize: 11, color: "var(--muted2)", display: "flex", gap: 16, flexWrap: "wrap" }}>
@@ -767,14 +846,25 @@ export default function OrdemParanormalSheet({ character, onBack, onUpdate, onRo
       )}
 
       {showAI && (
-        <Modal onClose={() => setShowAI(false)} title="Gerar Retrato com IA · Higgsfield">
+        <Modal onClose={() => { setShowAI(false); setAiError(""); }} title="✦ Gerar Retrato com IA">
           <div className="op-label" style={{ marginBottom: 6 }}>Descreva o agente</div>
-          <textarea value={aiPrompt} onChange={(e) => setAiPrompt(e.target.value)} placeholder="ex: mulher, 30 anos, cicatriz no rosto, casaco de investigadora, expressão séria…" style={{ minHeight: 90, fontSize: 14 }} />
-          <div className="op-data" style={{ fontSize: 10, color: "var(--muted)", margin: "10px 0" }}>
-            Prompt aplicado: investigador paranormal brasileiro, estilo Ordem Paranormal, iluminação cinematográfica sombria, retrato pintado…
+          <textarea value={aiPrompt} onChange={(e) => setAiPrompt(e.target.value)}
+            placeholder="ex: mulher, 30 anos, cicatriz no rosto, casaco de investigadora, expressão séria, cabelo curto…"
+            style={{ minHeight: 90, fontSize: 14, width: "100%", resize: "vertical" }}
+            onKeyDown={(e) => e.key === "Enter" && e.ctrlKey && onGenerateAI()} />
+          <div className="op-data" style={{ fontSize: 10, color: "var(--muted)", margin: "8px 0 12px",
+            padding: "6px 10px", background: "rgba(201,168,76,0.06)", borderRadius: 4, border: "1px solid var(--border2)" }}>
+            O sistema adiciona automaticamente: estilo cinematográfico, elemento <b style={{ color: "var(--el-glow)" }}>{elementoAfinidade ? theme.name : "Ordem Paranormal"}</b>, iluminação sombria e grain de filme.
           </div>
-          <button className="btn-gold" disabled style={{ opacity: 0.55, cursor: "not-allowed" }} title="Integração Higgsfield — Fase 4">Gerar (em breve)</button>
-          <div className="op-data" style={{ fontSize: 10, color: "var(--muted)", marginTop: 8 }}>A geração consome créditos e será ativada nas configurações na Fase 4.</div>
+          {aiError && <div style={{ color: "#e05555", fontSize: 12, marginBottom: 8 }}>{aiError}</div>}
+          <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+            <button className="btn-gold" onClick={onGenerateAI} disabled={aiLoading || !aiPrompt.trim()}
+              style={{ opacity: aiLoading || !aiPrompt.trim() ? 0.6 : 1 }}>
+              {aiLoading ? "⏳ Gerando…" : "✦ Gerar Retrato"}
+            </button>
+            {aiLoading && <span className="op-data" style={{ fontSize: 11, color: "var(--muted)" }}>~15–30 segundos…</span>}
+          </div>
+          <div className="op-data" style={{ fontSize: 10, color: "var(--muted)", marginTop: 10 }}>Ctrl+Enter para gerar · Gratuito · Powered by Flux AI</div>
         </Modal>
       )}
     </div>

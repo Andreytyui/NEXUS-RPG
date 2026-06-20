@@ -66,6 +66,13 @@ const fsLoadCharacters = async (uid, systemId) => {
   } catch (_) { return null; }
 };
 
+const fsSavePublicSheet = async (charId, data) => {
+  try { await setDoc(doc(db, "publicSheets", String(charId)), { ...data, public: true, _updatedAt: Date.now() }); } catch (_) {}
+};
+const fsRemovePublicSheet = async (charId) => {
+  try { await deleteDoc(doc(db, "publicSheets", String(charId))); } catch (_) {}
+};
+
 /* ── Firestore: plano do usuário (fail-silent) ── */
 const fsGetUserPlan = async (uid) => {
   if (!uid) return 'free';
@@ -11470,6 +11477,62 @@ function RoadmapScreen() {
   );
 }
 
+/* ── Ficha pública (rota /p/:charId, sem login) ─────────────────────── */
+function PublicSheetView({ charId }) {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  useEffect(() => {
+    getDoc(doc(db, "publicSheets", charId))
+      .then(snap => { setData(snap.exists() ? snap.data() : null); setLoading(false); })
+      .catch(() => setLoading(false));
+  }, [charId]);
+
+  const bg = "var(--bg,#0a0a0f)";
+  const gold = "var(--gold,#c9a84c)";
+
+  if (loading) return (
+    <div style={{ minHeight:"100vh", background:bg, display:"flex", alignItems:"center", justifyContent:"center" }}>
+      <div style={{ width:32, height:32, border:"2px solid rgba(201,168,76,0.3)", borderTopColor:gold, borderRadius:"50%", animation:"spin 0.8s linear infinite" }}/>
+    </div>
+  );
+
+  if (!data || !data.public) return (
+    <div style={{ minHeight:"100vh", background:bg, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", gap:16, padding:24 }}>
+      <G/>
+      <div style={{ fontFamily:"Cinzel,serif", fontSize:28, color:gold, letterSpacing:"0.1em" }}>◈</div>
+      <div style={{ fontFamily:"Cinzel,serif", fontSize:16, color:"#eee", textAlign:"center" }}>Ficha não disponível publicamente</div>
+      <div style={{ fontFamily:"Cinzel,serif", fontSize:11, color:"rgba(255,255,255,0.4)", textAlign:"center" }}>Este dossiê não foi compartilhado ou foi removido.</div>
+      <a href="/" style={{ fontFamily:"Cinzel,serif", fontSize:11, color:gold, textDecoration:"none", padding:"8px 20px", border:`1px solid ${gold}50`, borderRadius:6, marginTop:8 }}>← Voltar ao Nexus RPG</a>
+    </div>
+  );
+
+  return (
+    <div style={{ minHeight:"100vh", background:bg }}>
+      <G/>
+      {/* Banner público */}
+      <div style={{ background:"rgba(201,168,76,0.08)", borderBottom:"1px solid rgba(201,168,76,0.2)", padding:"8px 20px", display:"flex", alignItems:"center", justifyContent:"space-between", gap:12 }}>
+        <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+          <NexusLogo size={16}/>
+          <span style={{ fontFamily:"Cinzel,serif", fontSize:9, letterSpacing:"0.12em", color:gold, textTransform:"uppercase" }}>Nexus RPG · Ficha Pública</span>
+        </div>
+        <a href="/" style={{ fontFamily:"Cinzel,serif", fontSize:9, letterSpacing:"0.1em", color:gold, textDecoration:"none", padding:"5px 14px", border:`1px solid ${gold}50`, borderRadius:4, textTransform:"uppercase" }}>Criar minha ficha →</a>
+      </div>
+      {/* Sheet em modo leitura */}
+      <div style={{ padding:"12px 14px", display:"flex", flexDirection:"column", flex:1 }}>
+        <Suspense fallback={<div style={{display:"flex",alignItems:"center",justifyContent:"center",padding:60}}><div style={{width:28,height:28,border:"2px solid rgba(201,168,76,0.3)",borderTopColor:gold,borderRadius:"50%",animation:"spin 0.8s linear infinite"}}/></div>}>
+          <OrdemParanormalSheet
+            character={data}
+            readOnly={true}
+            onBack={() => { window.location.href = "/"; }}
+            onRoll={null}
+            onUpdate={null}
+          />
+        </Suspense>
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
   const [introPlayed, setIntroPlayed] = useState(() => sessionStorage.getItem("nx_intro") === "1");
   const [loggedIn, setLoggedIn] = useState(null); // null = carregando, false = deslogado, true = logado
@@ -11722,7 +11785,14 @@ export default function App() {
             dano: isAtk ? (roll.dano ?? null) : null,
           });
       };
-      const handleSheetUpdate = (updated) => { setCreatedChar(updated); setCharacters(prev => prev.map(c => (c.id && c.id === updated.id) || (!c.id && c.createdAt === updated.createdAt) ? updated : c)); fsSaveCharacter(currentUser?.uid, updated); };
+      const handleSheetUpdate = (updated) => {
+        setCreatedChar(updated);
+        setCharacters(prev => prev.map(c => (c.id && c.id === updated.id) || (!c.id && c.createdAt === updated.createdAt) ? updated : c));
+        fsSaveCharacter(currentUser?.uid, updated);
+        const cId = String(updated.id || updated.createdAt);
+        if (updated.public) fsSavePublicSheet(cId, updated);
+        else fsRemovePublicSheet(cId);
+      };
       const sheetFallback = (
         <div style={{minHeight:"50vh",display:"flex",alignItems:"center",justifyContent:"center"}}>
           <div style={{width:32,height:32,border:"2px solid rgba(201,168,76,0.3)",borderTopColor:"var(--gold)",borderRadius:"50%",animation:"spin 0.8s linear infinite"}}/>
@@ -11735,7 +11805,7 @@ export default function App() {
             {activeSystem?.id === "op" ? (
               <>
                 <Suspense fallback={sheetFallback}>
-                  <OrdemParanormalSheet character={createdChar} onBack={()=>{ setCreatedChar(null); setHistoryOpen(false); }} onRoll={handleRoll} onUpdate={handleSheetUpdate}
+                  <OrdemParanormalSheet character={createdChar} charId={String(createdChar.id || createdChar.createdAt)} onBack={()=>{ setCreatedChar(null); setHistoryOpen(false); }} onRoll={handleRoll} onUpdate={handleSheetUpdate}
                     rollCampaign={activeRollCampaign} onOpenHistory={()=>setHistoryOpen(true)}/>
                 </Suspense>
                 {historyOpen && activeRollCampaign && <CampaignRollDrawer campaign={activeRollCampaign} onClose={()=>setHistoryOpen(false)}/>}
@@ -11793,6 +11863,10 @@ export default function App() {
   if (!introPlayed) return (
     <IntroScreen onDone={() => { sessionStorage.setItem("nx_intro", "1"); setIntroPlayed(true); }} />
   );
+
+  // Rota pública — sem login necessário
+  const _pubM = window.location.pathname.match(/^\/p\/(.+)$/);
+  if (_pubM) return <PublicSheetView charId={_pubM[1]} />;
 
   if (loggedIn === null) return (<><G/><div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"var(--bg)"}}><div style={{width:32,height:32,border:"2px solid rgba(201,168,76,0.3)",borderTopColor:"var(--gold)",borderRadius:"50%",animation:"spin 0.8s linear infinite"}}/></div></>);
   if (!loggedIn) return (<><G/><Login onLogin={()=>setLoggedIn(true)}/></>);
