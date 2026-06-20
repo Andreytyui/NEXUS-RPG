@@ -11636,6 +11636,7 @@ export default function App() {
 
   // State → URL: push whenever navigation state changes
   useEffect(() => {
+    if (window.location.pathname.startsWith('/p/')) return; // rota pública — não redirecionar
     if (loggedIn === null) return; // still loading auth
     if (!loggedIn) { if (window.location.pathname !== '/login') window.history.replaceState({},'','/login'); return; }
     if (!activeSystem) { if (window.location.pathname !== '/sistema') window.history.replaceState({},'','/sistema'); return; }
