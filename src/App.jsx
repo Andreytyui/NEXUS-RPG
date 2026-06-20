@@ -11184,6 +11184,51 @@ function RoadmapItem({ item }) {
   );
 }
 
+function IntroScreen({ onDone }) {
+  const [fading, setFading] = useState(false);
+  const doneRef = useRef(onDone);
+  doneRef.current = onDone;
+
+  const finish = useRef(() => {
+    setFading(true);
+    setTimeout(() => doneRef.current(), 700);
+  }).current;
+
+  return (
+    <div style={{
+      position: "fixed", inset: 0, zIndex: 99999,
+      background: "#000",
+      opacity: fading ? 0 : 1,
+      transition: "opacity 0.7s ease",
+      pointerEvents: fading ? "none" : "auto",
+    }}>
+      <video
+        autoPlay
+        playsInline
+        preload="auto"
+        onEnded={finish}
+        style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }}
+      >
+        <source src="/intro.mp4" type="video/mp4" />
+      </video>
+      <span
+        onClick={finish}
+        style={{
+          position: "absolute", bottom: 28, right: 28, zIndex: 2,
+          fontFamily: "Cinzel, serif", fontSize: 11, letterSpacing: 2,
+          textTransform: "uppercase", color: "rgba(255,255,255,0.4)",
+          cursor: "pointer", userSelect: "none",
+          transition: "color 0.2s",
+        }}
+        onMouseEnter={e => e.currentTarget.style.color = "rgba(255,255,255,0.9)"}
+        onMouseLeave={e => e.currentTarget.style.color = "rgba(255,255,255,0.4)"}
+      >
+        Toque para pular
+      </span>
+    </div>
+  );
+}
+
 function RoadmapScreen() {
   const canvasRef = useRef(null);
 
@@ -11361,6 +11406,7 @@ function RoadmapScreen() {
 }
 
 export default function App() {
+  const [introPlayed, setIntroPlayed] = useState(() => sessionStorage.getItem("nx_intro") === "1");
   const [loggedIn, setLoggedIn] = useState(null); // null = carregando, false = deslogado, true = logado
   const [currentUser, setCurrentUser] = useState(null);
   const [campaigns, setCampaigns] = useState([]);
@@ -11408,8 +11454,29 @@ export default function App() {
       sp: spToken && now < spExp ? spToken : null,
     };
   });
-  const ytPlayerRef      = useRef(null);
-  const rollCampaignRef  = useRef(null);
+  const ytPlayerRef     = useRef(null);
+  const rollCampaignRef = useRef(null);
+  const bgAudioRef = useRef(null);
+  const [bgMuted, setBgMuted] = useState(() => localStorage.getItem("nx_bg_muted") === "1");
+
+  useEffect(() => {
+    const audio = new Audio("/musica2.mp3");
+    audio.loop = true;
+    audio.volume = 0.3;
+    audio.muted = localStorage.getItem("nx_bg_muted") === "1";
+    bgAudioRef.current = audio;
+    audio.play().catch(() => {});
+    const onInteract = () => { audio.play().catch(() => {}); };
+    document.addEventListener("click", onInteract, { once: true });
+    return () => { audio.pause(); document.removeEventListener("click", onInteract); };
+  }, []);
+
+  useEffect(() => {
+    if (!bgAudioRef.current) return;
+    bgAudioRef.current.muted = bgMuted;
+    localStorage.setItem("nx_bg_muted", bgMuted ? "1" : "0");
+    if (!bgMuted) bgAudioRef.current.play().catch(() => {});
+  }, [bgMuted]);
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, user => {
@@ -11679,12 +11746,35 @@ export default function App() {
     }
   };
 
-  if (loggedIn === null) return (<><G/><div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"var(--bg)"}}><div style={{width:32,height:32,border:"2px solid rgba(201,168,76,0.3)",borderTopColor:"var(--gold)",borderRadius:"50%",animation:"spin 0.8s linear infinite"}}/></div></>);
-  if (!loggedIn) return (<><G/><Login onLogin={()=>setLoggedIn(true)}/></>);
-  if (!activeSystem) return (<><G/><SystemSelect onSelect={sys => setActiveSystem(sys)} onLogout={handleLogout}/></>);
+  const bgMusicBtn = (
+    <button
+      onClick={e => { e.stopPropagation(); setBgMuted(m => !m); }}
+      style={{
+        position:"fixed", bottom:20, left:20, zIndex:9999,
+        width:38, height:38, borderRadius:"50%",
+        background:"rgba(12,12,16,0.85)", backdropFilter:"blur(8px)",
+        border:`1px solid ${bgMuted ? "rgba(201,168,76,0.15)" : "rgba(201,168,76,0.45)"}`,
+        color: bgMuted ? "rgba(180,180,180,0.4)" : "var(--gold)",
+        cursor:"pointer", display:"flex", alignItems:"center",
+        justifyContent:"center", fontSize:16, transition:"all 0.2s",
+        boxShadow: bgMuted ? "none" : "0 0 10px rgba(201,168,76,0.15)",
+      }}
+      title={bgMuted ? "Ativar música" : "Silenciar música"}
+    >
+      {bgMuted ? "🔇" : "🎵"}
+    </button>
+  );
+
+  if (!introPlayed) return (
+    <IntroScreen onDone={() => { sessionStorage.setItem("nx_intro", "1"); setIntroPlayed(true); }} />
+  );
+
+  if (loggedIn === null) return (<><G/>{bgMusicBtn}<div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"var(--bg)"}}><div style={{width:32,height:32,border:"2px solid rgba(201,168,76,0.3)",borderTopColor:"var(--gold)",borderRadius:"50%",animation:"spin 0.8s linear infinite"}}/></div></>);
+  if (!loggedIn) return (<><G/>{bgMusicBtn}<Login onLogin={()=>setLoggedIn(true)}/></>);
+  if (!activeSystem) return (<><G/>{bgMusicBtn}<SystemSelect onSelect={sys => setActiveSystem(sys)} onLogout={handleLogout}/></>);
 
   if (creatingChar) return (
-    <><G/><CharacterCreator onFinish={handleFinishChar} onCancel={()=>setCreatingChar(false)}/></>
+    <><G/>{bgMusicBtn}<CharacterCreator onFinish={handleFinishChar} onCancel={()=>setCreatingChar(false)}/></>
   );
 
   return (
@@ -11692,6 +11782,7 @@ export default function App() {
       <G/>
       <ThemeStyles/>
       <Deco/>
+      {bgMusicBtn}
       <div style={{display:"flex", minHeight:"100vh", background: screen === "roadmap" ? "transparent" : "var(--bg)", position:"relative", zIndex:1}}>
         <Sidebar active={screen} onNav={setScreen} collapsed={collapsed} setCollapsed={setCollapsed} system={activeSystem} onChangeSystem={()=>setActiveSystem(null)} onLogout={handleLogout} campaignCount={campaigns.filter(c=>c.isActive&&c.masterId===currentUser?.uid).length}/>
         <div style={{flex:1, display:"flex", flexDirection:"column", minWidth:0, overflow:"hidden"}}>
