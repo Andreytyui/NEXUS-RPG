@@ -11840,14 +11840,15 @@ export default function App() {
     const cId = String(createdChar.id || createdChar.createdAt);
     fsGetPendingEdits(cId).then(setPendingEdits);
   };
-  const handleApprovePendingEdit = async (edit) => {
+  const handleApprovePendingEdit = async (edit, mergedChar) => {
     if (!createdChar) return;
     const cId = String(createdChar.id || createdChar.createdAt);
-    const merged = { ...createdChar, ...edit.proposedData, id: createdChar.id, createdAt: createdChar.createdAt, systemId: createdChar.systemId, public: createdChar.public, editToken: createdChar.editToken, ownerUid: currentUser?.uid };
-    setCreatedChar(merged);
-    setCharacters(prev => prev.map(c => (c.id && c.id === merged.id) || (!c.id && c.createdAt === merged.createdAt) ? merged : c));
-    fsSaveCharacter(currentUser?.uid, merged);
-    fsSavePublicSheet(cId, merged, currentUser?.uid);
+    const keep = { id: createdChar.id, createdAt: createdChar.createdAt, systemId: createdChar.systemId, public: createdChar.public, editToken: createdChar.editToken, ownerUid: currentUser?.uid };
+    const final = mergedChar ? { ...mergedChar, ...keep } : { ...createdChar, ...edit.proposedData, ...keep };
+    setCreatedChar(final);
+    setCharacters(prev => prev.map(c => (c.id && c.id === final.id) || (!c.id && c.createdAt === final.createdAt) ? final : c));
+    fsSaveCharacter(currentUser?.uid, final);
+    fsSavePublicSheet(cId, final, currentUser?.uid);
     await fsResolvePendingEdit(cId, edit.id, "approved");
     setPendingEdits(prev => prev.filter(e => e.id !== edit.id));
   };

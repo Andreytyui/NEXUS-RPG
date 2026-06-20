@@ -66,6 +66,99 @@ function startWhisper() {
 }
 function stopWhisper(w) { if (!w) return; try { w.src.stop(); w.ctx.close(); } catch {} }
 
+/* ── Diff helpers ──────────────────────────────────────────────────────── */
+function buildDiff(base, proposed) {
+  const items = []; let seq = 0;
+  const add = (cat, label, type, old, next, applyFn) =>
+    items.push({ id: String(seq++), cat, label, type, old, next, apply: applyFn });
+
+  // Scalars
+  [["Vitais","PV","pv"],["Vitais","PV máx","pvMax"],["Vitais","SAN","san"],["Vitais","SAN máx","sanMax"],
+   ["Vitais","PE","pe"],["Vitais","PE máx","peMax"],["Progressão","NEX %","nex"],
+   ["Progressão","PD bônus","pdBonus"],["Progressão","Créditos","creditos"],
+   ["Defesa","Defesa bônus","defesaBonus"],["Defesa","Esquiva","esquivaBonus"],
+   ["Defesa","Bloqueio","bloqueio"],["Defesa","Proteção","protecao"],
+  ].forEach(([cat, label, k]) => {
+    const o = base[k], n = proposed[k];
+    if (n !== undefined && String(o ?? "") !== String(n ?? ""))
+      add(cat, label, "changed", o, n, c => ({ ...c, [k]: n }));
+  });
+
+  // Form
+  [["Nome","personagem"],["Jogador","jogador"],["Descrição","descricao"]].forEach(([label, k]) => {
+    const o = k === "descricao" ? base[k] : base.form?.[k];
+    const n = k === "descricao" ? proposed[k] : proposed.form?.[k];
+    if (n !== undefined && o !== n)
+      add("Identidade", label, "changed", o, n,
+        k === "descricao" ? c => ({ ...c, descricao: n }) : c => ({ ...c, form: { ...(c.form || {}), [k]: n } }));
+  });
+
+  // Atributos
+  ["AGI","FOR","INT","PRE","VIG"].forEach(k => {
+    const o = base.attrs?.[k], n = proposed.attrs?.[k];
+    if (n !== undefined && String(o ?? "") !== String(n ?? ""))
+      add("Atributos", k, "changed", o, n, c => ({ ...c, attrs: { ...(c.attrs || {}), [k]: n } }));
+  });
+
+  // Resistências
+  const resKeys = new Set([...Object.keys(base.resistencias || {}), ...Object.keys(proposed.resistencias || {})]);
+  resKeys.forEach(k => {
+    const o = base.resistencias?.[k], n = proposed.resistencias?.[k];
+    if (n !== undefined && String(o ?? "") !== String(n ?? ""))
+      add("Resistências", k, "changed", o, n, c => ({ ...c, resistencias: { ...(c.resistencias || {}), [k]: n } }));
+  });
+
+  // Arrays (add/remove/modify)
+  [["Rituais","rituais","nome"],["Itens","itens","nome"],["Habilidades","habilidades","nome"],
+   ["Arsenal","attacks","name"],["Poderes","poderes","nome"],["Inventário","inventario","nome"],
+  ].forEach(([cat, field, nk]) => {
+    const bArr = base[field] || [], pArr = proposed[field] || [];
+    const bMap = new Map(bArr.map(x => [x?.[nk], x]));
+    const pMap = new Map(pArr.map(x => [x?.[nk], x]));
+    pArr.forEach(item => {
+      const name = item?.[nk]; if (!name) return;
+      if (!bMap.has(name))
+        add(cat, name, "added", null, item, c => ({ ...c, [field]: [...(c[field] || []), item] }));
+      else { const old = bMap.get(name); if (JSON.stringify(old) !== JSON.stringify(item))
+        add(cat, name, "changed", old, item, c => ({ ...c, [field]: (c[field] || []).map(x => x?.[nk] === name ? item : x) })); }
+    });
+    bArr.forEach(item => {
+      const name = item?.[nk];
+      if (name && !pMap.has(name))
+        add(cat, name, "removed", item, null, c => ({ ...c, [field]: (c[field] || []).filter(x => x?.[nk] !== name) }));
+    });
+  });
+
+  // Perícias treino
+  const tLabel = v => v === 0 || v === false ? "Destreinado" : v === 1 || v === true ? "Treinado" : v === 2 ? "Veterano" : v === 3 ? "Expert" : String(v ?? "—");
+  const allTreino = new Set([...Object.keys(base.skillTreino || {}), ...Object.keys(proposed.skillTreino || {})]);
+  allTreino.forEach(sid => {
+    const o = base.skillTreino?.[sid], n = proposed.skillTreino?.[sid];
+    if (n !== undefined && String(o ?? "") !== String(n ?? ""))
+      add("Perícias", `${sid} (treino)`, "changed", tLabel(o), tLabel(n), c => ({ ...c, skillTreino: { ...(c.skillTreino || {}), [sid]: n } }));
+  });
+
+  // Perícias bônus extra
+  const allExtra = new Set([...Object.keys(base.skillOutros || {}), ...Object.keys(proposed.skillOutros || {})]);
+  allExtra.forEach(sid => {
+    const o = base.skillOutros?.[sid] ?? 0, n = proposed.skillOutros?.[sid] ?? 0;
+    if (String(o) !== String(n) && (o || n))
+      add("Perícias", `${sid} (bônus)`, "changed", o, n, c => ({ ...c, skillOutros: { ...(c.skillOutros || {}), [sid]: n } }));
+  });
+
+  return items;
+}
+
+function groupByCategory(diffs) {
+  return diffs.reduce((acc, d) => { (acc[d.cat] = acc[d.cat] || []).push(d); return acc; }, {});
+}
+
+function fmtVal(v) {
+  if (v === null || v === undefined) return "—";
+  if (typeof v === "object") return v.nome || v.name || "[objeto]";
+  const s = String(v); return s.length > 28 ? s.slice(0, 25) + "…" : s;
+}
+
 export default function OrdemParanormalSheet({ character, charId, onBack, onUpdate, onRoll, rollCampaign, onOpenHistory, readOnly, pendingEdits, onLoadPendingEdits, onApprovePendingEdit, onRejectPendingEdit }) {
   /* ── mobile section switcher (Ficha | Perícias | Ações) ── */
   const [mobileSec, setMobileSec] = useState("ficha");
@@ -153,6 +246,7 @@ export default function OrdemParanormalSheet({ character, charId, onBack, onUpda
   const [copiedEditor, setCopiedEditor] = useState(false);
   const [showPendingPanel, setShowPendingPanel] = useState(false);
   const [reviewIdx, setReviewIdx] = useState(0);
+  const [selectedDiffs, setSelectedDiffs] = useState({});
   const isPublic = !!character.public;
   const editToken = character.editToken || null;
 
@@ -161,6 +255,20 @@ export default function OrdemParanormalSheet({ character, charId, onBack, onUpda
     if (isPublic && onLoadPendingEdits) onLoadPendingEdits();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [charId, isPublic]);
+
+  // Initialize selectedDiffs (all checked) when modal opens or edit changes
+  useEffect(() => {
+    if (!showPendingPanel || !pendingEdits?.length) return;
+    const edit = pendingEdits[Math.min(reviewIdx, pendingEdits.length - 1)];
+    if (!edit) return;
+    const base = { ...character, attrs, form, pv: hp, san, pe, pvMax, sanMax, peMax,
+      skillTreino, skillOutros, nex, pdBonus, creditos, defesaBonus, esquivaBonus,
+      bloqueio, protecao, resistencias, rituais, itens, habilidades, attacks, poderes, inventario, descricao, diario };
+    const diffs = buildDiff(base, edit.proposedData);
+    const init = {}; diffs.forEach(d => { init[d.id] = true; });
+    setSelectedDiffs(init);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showPendingPanel, reviewIdx, pendingEdits?.length]);
 
   const portraitInput = useRef(null);
   const diceRef = useRef(null);
@@ -485,67 +593,7 @@ export default function OrdemParanormalSheet({ character, charId, onBack, onUpda
                 </div>
               )}
 
-              {/* Pending edits panel */}
-              {showPendingPanel && pendingEdits?.length > 0 && (() => {
-                const edit = pendingEdits[reviewIdx];
-                const cur = { ...character, ...form };
-                const fields = [
-                  { key:"pv", label:"PV atual" }, { key:"pvMax", label:"PV máx" },
-                  { key:"san", label:"SAN atual" }, { key:"sanMax", label:"SAN máx" },
-                  { key:"pe", label:"PE atual" }, { key:"peMax", label:"PE máx" },
-                  { key:"nex", label:"NEX %" },
-                ];
-                const allDiffs = [];
-                const pushDiff = (label, oldV, newV) => {
-                  if (newV !== undefined && String(oldV ?? "") !== String(newV ?? "")) allDiffs.push({ label, old:oldV, next:newV });
-                };
-                // Vitais
-                [["PV atual","pv"],["PV máx","pvMax"],["SAN atual","san"],["SAN máx","sanMax"],["PE atual","pe"],["PE máx","peMax"],["NEX %","nex"]].forEach(([label,k]) => pushDiff(label, cur[k], edit.proposedData[k]));
-                // Atributos (snapshot usa `attrs`)
-                ["AGI","FOR","INT","PRE","VIG"].forEach(k => pushDiff(k, cur.attrs?.[k], edit.proposedData.attrs?.[k]));
-                // Form (nome, jogador)
-                ["personagem","jogador"].forEach(k => pushDiff(k, cur.form?.[k], edit.proposedData.form?.[k]));
-                // Perícias extras e outros bônus
-                pushDiff("PD bônus", cur.pdBonus, edit.proposedData.pdBonus);
-                return (
-                  <div style={{ position:"absolute", top:"calc(100% + 6px)", right:0, zIndex:50, width:320,
-                    background:"var(--card,#111)", border:"1px solid rgba(251,191,36,0.25)", borderRadius:8,
-                    padding:"14px", boxShadow:"0 8px 32px rgba(0,0,0,0.6)" }}>
-                    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10 }}>
-                      <span style={{ fontFamily:"Cinzel,serif", fontSize:10, letterSpacing:"0.1em", color:"#fbbf24", textTransform:"uppercase" }}>Sugestão {reviewIdx+1}/{pendingEdits.length}</span>
-                      <div style={{ display:"flex", gap:4 }}>
-                        {pendingEdits.length > 1 && <button className="btn-ghost" style={{ fontSize:10, padding:"2px 8px" }} onClick={() => setReviewIdx(i => Math.max(0,i-1))}>‹</button>}
-                        {pendingEdits.length > 1 && <button className="btn-ghost" style={{ fontSize:10, padding:"2px 8px" }} onClick={() => setReviewIdx(i => Math.min(pendingEdits.length-1,i+1))}>›</button>}
-                      </div>
-                    </div>
-                    <div style={{ fontFamily:"Cinzel,serif", fontSize:10, color:"rgba(255,255,255,0.6)", marginBottom:8 }}>
-                      ✎ <b style={{ color:"#eee" }}>{edit.editorName}</b> · {new Date(edit.timestamp).toLocaleString("pt-BR")}
-                    </div>
-                    {allDiffs.length === 0 ? (
-                      <div style={{ fontFamily:"Cinzel,serif", fontSize:10, color:"rgba(255,255,255,0.35)", marginBottom:10 }}>Nenhuma alteração nos campos principais.</div>
-                    ) : (
-                      <div style={{ display:"flex", flexDirection:"column", gap:4, marginBottom:10, maxHeight:180, overflowY:"auto" }}>
-                        {allDiffs.map(({label, old:o, next:n}) => (
-                          <div key={label} style={{ display:"flex", justifyContent:"space-between", fontFamily:"'Share Tech Mono',monospace", fontSize:10, padding:"3px 8px", background:"rgba(255,255,255,0.04)", borderRadius:4 }}>
-                            <span style={{ color:"rgba(255,255,255,0.45)" }}>{label}</span>
-                            <span><span style={{ color:"#f87171", textDecoration:"line-through" }}>{String(o??"-")}</span> <span style={{ color:"rgba(255,255,255,0.3)" }}>→</span> <span style={{ color:"#4ade80" }}>{String(n??"-")}</span></span>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                    <div style={{ display:"flex", gap:6 }}>
-                      <button style={{ flex:1, padding:"7px", fontFamily:"Cinzel,serif", fontSize:10, letterSpacing:"0.06em", textTransform:"uppercase", cursor:"pointer", borderRadius:6, border:"1px solid rgba(74,222,128,0.4)", background:"rgba(74,222,128,0.08)", color:"#4ade80" }}
-                        onClick={() => { onApprovePendingEdit?.(edit); if (reviewIdx >= pendingEdits.length - 1) setReviewIdx(Math.max(0, reviewIdx-1)); }}>
-                        ✓ Aprovar
-                      </button>
-                      <button style={{ flex:1, padding:"7px", fontFamily:"Cinzel,serif", fontSize:10, letterSpacing:"0.06em", textTransform:"uppercase", cursor:"pointer", borderRadius:6, border:"1px solid rgba(239,68,68,0.35)", background:"rgba(239,68,68,0.07)", color:"#f87171" }}
-                        onClick={() => { onRejectPendingEdit?.(edit); if (reviewIdx >= pendingEdits.length - 1) setReviewIdx(Math.max(0, reviewIdx-1)); }}>
-                        ✗ Rejeitar
-                      </button>
-                    </div>
-                  </div>
-                );
-              })()}
+              {/* Pending modal → via portal at end of return */}
             </div>
           )}
         </div>
@@ -940,6 +988,113 @@ export default function OrdemParanormalSheet({ character, charId, onBack, onUpda
           <div className="op-data" style={{ fontSize: 10, color: "var(--muted)", marginTop: 12 }}>O retrato recebe tratamento de fotografia desgastada automaticamente.</div>
         </Modal>
       )}
+
+      {/* ── Pending Edits Drawer (portal) ─────────────────────────────── */}
+      {showPendingPanel && pendingEdits?.length > 0 && (() => {
+        const safeIdx = Math.min(reviewIdx, pendingEdits.length - 1);
+        const edit = pendingEdits[safeIdx];
+        if (!edit) return null;
+        const base = { ...character, attrs, form, pv: hp, san, pe, pvMax, sanMax, peMax,
+          skillTreino, skillOutros, nex, pdBonus, creditos, defesaBonus, esquivaBonus,
+          bloqueio, protecao, resistencias, rituais, itens, habilidades, attacks, poderes, inventario, descricao, diario };
+        const diffs = buildDiff(base, edit.proposedData);
+        const grouped = groupByCategory(diffs);
+        const selCount = Object.values(selectedDiffs).filter(Boolean).length;
+        const typeColor = t => t==="added"?"#4ade80":t==="removed"?"#f87171":"#fbbf24";
+        const typeIcon  = t => t==="added"?"✚":t==="removed"?"✘":"↻";
+        return createPortal(
+          <div style={{ position:"fixed", inset:0, zIndex:300, display:"flex" }}>
+            <div style={{ flex:1, background:"rgba(0,0,0,0.65)" }} onClick={() => setShowPendingPanel(false)}/>
+            <div style={{ width:"min(500px,100vw)", background:"var(--bg,#0a0a0f)", borderLeft:"1px solid rgba(255,255,255,0.1)", display:"flex", flexDirection:"column", overflow:"hidden" }}>
+              {/* Header */}
+              <div style={{ padding:"16px 20px", borderBottom:"1px solid rgba(255,255,255,0.08)", display:"flex", justifyContent:"space-between", alignItems:"flex-start" }}>
+                <div>
+                  <div style={{ fontFamily:"Cinzel,serif", fontSize:10, letterSpacing:"0.12em", color:"#fbbf24", textTransform:"uppercase", marginBottom:4 }}>
+                    Sugestão {safeIdx+1}/{pendingEdits.length}
+                    {pendingEdits.length > 1 && <span style={{ marginLeft:10 }}>
+                      <button className="btn-ghost" style={{ fontSize:10, padding:"1px 7px", marginRight:2 }} onClick={() => setReviewIdx(i => Math.max(0,i-1))} disabled={safeIdx===0}>‹</button>
+                      <button className="btn-ghost" style={{ fontSize:10, padding:"1px 7px" }} onClick={() => setReviewIdx(i => Math.min(pendingEdits.length-1,i+1))} disabled={safeIdx===pendingEdits.length-1}>›</button>
+                    </span>}
+                  </div>
+                  <div style={{ fontFamily:"Cinzel,serif", fontSize:10, color:"rgba(255,255,255,0.5)" }}>
+                    ✎ <b style={{ color:"#eee" }}>{edit.editorName}</b> · {new Date(edit.timestamp).toLocaleString("pt-BR")}
+                  </div>
+                </div>
+                <button className="btn-ghost" style={{ fontSize:14, lineHeight:1 }} onClick={() => setShowPendingPanel(false)}>✕</button>
+              </div>
+              {/* Select all / none */}
+              <div style={{ padding:"10px 20px", borderBottom:"1px solid rgba(255,255,255,0.05)", display:"flex", gap:8, alignItems:"center" }}>
+                <button className="btn-ghost" style={{ fontSize:9, padding:"2px 10px" }} onClick={() => { const a={}; diffs.forEach(d=>{a[d.id]=true;}); setSelectedDiffs(a); }}>Selecionar tudo</button>
+                <button className="btn-ghost" style={{ fontSize:9, padding:"2px 10px" }} onClick={() => setSelectedDiffs({})}>Desmarcar tudo</button>
+                <span style={{ marginLeft:"auto", fontFamily:"Cinzel,serif", fontSize:9, color:"rgba(255,255,255,0.35)" }}>{selCount}/{diffs.length} selecionadas</span>
+              </div>
+              {/* Diff list */}
+              <div style={{ flex:1, overflowY:"auto", padding:"12px 20px" }}>
+                {diffs.length === 0 && (
+                  <div style={{ fontFamily:"Cinzel,serif", fontSize:11, color:"rgba(255,255,255,0.3)", textAlign:"center", padding:"40px 0" }}>Nenhuma alteração detectada.</div>
+                )}
+                {Object.entries(grouped).map(([cat, catDiffs]) => (
+                  <div key={cat} style={{ marginBottom:14 }}>
+                    <div style={{ fontFamily:"Cinzel,serif", fontSize:8, letterSpacing:"0.14em", textTransform:"uppercase", color:"rgba(255,255,255,0.28)", marginBottom:5, paddingBottom:3, borderBottom:"1px solid rgba(255,255,255,0.06)" }}>{cat}</div>
+                    {catDiffs.map(diff => {
+                      const sel = !!selectedDiffs[diff.id];
+                      const tc = typeColor(diff.type);
+                      return (
+                        <div key={diff.id} onClick={() => setSelectedDiffs(s => ({...s, [diff.id]: !s[diff.id]}))}
+                          style={{ display:"flex", alignItems:"center", gap:10, padding:"7px 10px", borderRadius:6, marginBottom:3, cursor:"pointer",
+                            background: sel ? `${tc}09` : "rgba(255,255,255,0.02)",
+                            border:`1px solid ${sel ? tc+"33" : "rgba(255,255,255,0.05)"}` }}>
+                          {/* Checkbox */}
+                          <div style={{ width:15, height:15, borderRadius:3, flexShrink:0, display:"flex", alignItems:"center", justifyContent:"center", fontSize:9,
+                            border:`1.5px solid ${sel?"rgba(255,255,255,0.4)":"rgba(255,255,255,0.15)"}`, background:sel?"rgba(255,255,255,0.12)":"transparent" }}>
+                            {sel && "✓"}
+                          </div>
+                          {/* Icon */}
+                          <span style={{ fontSize:10, flexShrink:0, color:tc, width:12, textAlign:"center" }}>{typeIcon(diff.type)}</span>
+                          {/* Label */}
+                          <span style={{ fontFamily:"Cinzel,serif", fontSize:10, color:"rgba(255,255,255,0.75)", flex:1, minWidth:0, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{diff.label}</span>
+                          {/* Values */}
+                          {diff.type === "changed" && (
+                            <span style={{ fontFamily:"'Share Tech Mono',monospace", fontSize:10, flexShrink:0, whiteSpace:"nowrap" }}>
+                              <span style={{ color:"#f87171" }}>{fmtVal(diff.old)}</span>
+                              <span style={{ color:"rgba(255,255,255,0.25)" }}> → </span>
+                              <span style={{ color:"#4ade80" }}>{fmtVal(diff.next)}</span>
+                            </span>
+                          )}
+                          {diff.type !== "changed" && (
+                            <span style={{ fontFamily:"Cinzel,serif", fontSize:8, color:tc, border:`1px solid ${tc}40`, padding:"1px 7px", borderRadius:10, flexShrink:0 }}>
+                              {diff.type === "added" ? "novo" : "remover"}
+                            </span>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                ))}
+              </div>
+              {/* Footer */}
+              <div style={{ padding:"14px 20px", borderTop:"1px solid rgba(255,255,255,0.08)", display:"flex", gap:8 }}>
+                <button disabled={selCount === 0}
+                  style={{ flex:2, padding:"10px", fontFamily:"Cinzel,serif", fontSize:10, letterSpacing:"0.07em", textTransform:"uppercase", cursor:selCount===0?"not-allowed":"pointer", borderRadius:6, border:"1px solid rgba(74,222,128,0.4)", background:"rgba(74,222,128,0.08)", color:"#4ade80", opacity:selCount===0?0.4:1 }}
+                  onClick={() => {
+                    let merged = { ...base };
+                    diffs.forEach(d => { if (selectedDiffs[d.id]) merged = d.apply(merged); });
+                    onApprovePendingEdit?.(edit, merged);
+                    if (safeIdx >= pendingEdits.length - 1) setReviewIdx(Math.max(0, safeIdx-1));
+                    setShowPendingPanel(false);
+                  }}>
+                  ✓ Aplicar selecionadas ({selCount})
+                </button>
+                <button style={{ flex:1, padding:"10px", fontFamily:"Cinzel,serif", fontSize:10, letterSpacing:"0.07em", textTransform:"uppercase", cursor:"pointer", borderRadius:6, border:"1px solid rgba(239,68,68,0.35)", background:"rgba(239,68,68,0.07)", color:"#f87171" }}
+                  onClick={() => { onRejectPendingEdit?.(edit); if (safeIdx >= pendingEdits.length - 1) setReviewIdx(Math.max(0, safeIdx-1)); setShowPendingPanel(false); }}>
+                  ✗ Rejeitar
+                </button>
+              </div>
+            </div>
+          </div>,
+          document.body
+        );
+      })()}
 
       {showAI && (
         <Modal onClose={() => { setShowAI(false); setAiError(""); }} title="✦ Gerar Retrato com IA">
