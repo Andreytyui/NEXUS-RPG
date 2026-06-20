@@ -1,6 +1,7 @@
 {
   "builds": [
-    { "src": "api/*.js", "use": "@vercel/node" }
+    { "src": "api/*.js", "use": "@vercel/node" },
+    { "src": "package.json", "use": "@vercel/static-build", "config": { "distDir": "build" } }
   ],
   "routes": [
     {
@@ -13,6 +14,7 @@
       }
     },
     { "src": "/intro.mp4", "dest": "/intro.mp4" },
+    { "handle": "filesystem" },
     { "src": "/(.*)", "dest": "/index.html" }
   ]
 }
