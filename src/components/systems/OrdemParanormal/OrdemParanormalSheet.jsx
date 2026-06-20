@@ -1004,32 +1004,32 @@ export default function OrdemParanormalSheet({ character, charId, onBack, onUpda
         const typeIcon  = t => t==="added"?"✚":t==="removed"?"✘":"↻";
         return createPortal(
           <div style={{ position:"fixed", inset:0, zIndex:300, display:"flex" }}>
-            <div style={{ flex:1, background:"rgba(0,0,0,0.65)" }} onClick={() => setShowPendingPanel(false)}/>
-            <div style={{ width:"min(500px,100vw)", background:"var(--bg,#0a0a0f)", borderLeft:"1px solid rgba(255,255,255,0.1)", display:"flex", flexDirection:"column", overflow:"hidden" }}>
+            <div style={{ flex:1, background:"rgba(0,0,0,0.72)" }} onClick={() => setShowPendingPanel(false)}/>
+            <div style={{ width:"min(500px,100vw)", background:"#1a1a24", borderLeft:"2px solid #fbbf2440", display:"flex", flexDirection:"column", overflow:"hidden" }}>
               {/* Header */}
-              <div style={{ padding:"16px 20px", borderBottom:"1px solid rgba(255,255,255,0.08)", display:"flex", justifyContent:"space-between", alignItems:"flex-start" }}>
+              <div style={{ padding:"16px 20px", borderBottom:"1px solid #ffffff14", background:"#22222e", display:"flex", justifyContent:"space-between", alignItems:"flex-start" }}>
                 <div>
                   <div style={{ fontFamily:"Cinzel,serif", fontSize:10, letterSpacing:"0.12em", color:"#fbbf24", textTransform:"uppercase", marginBottom:4 }}>
                     Sugestão {safeIdx+1}/{pendingEdits.length}
                     {pendingEdits.length > 1 && <span style={{ marginLeft:10 }}>
-                      <button className="btn-ghost" style={{ fontSize:10, padding:"1px 7px", marginRight:2 }} onClick={() => setReviewIdx(i => Math.max(0,i-1))} disabled={safeIdx===0}>‹</button>
-                      <button className="btn-ghost" style={{ fontSize:10, padding:"1px 7px" }} onClick={() => setReviewIdx(i => Math.min(pendingEdits.length-1,i+1))} disabled={safeIdx===pendingEdits.length-1}>›</button>
+                      <button onClick={() => setReviewIdx(i => Math.max(0,i-1))} disabled={safeIdx===0} style={{ background:"none", border:"1px solid #ffffff25", borderRadius:3, color:"#ccc", fontSize:11, padding:"1px 7px", cursor:"pointer", marginRight:2 }}>‹</button>
+                      <button onClick={() => setReviewIdx(i => Math.min(pendingEdits.length-1,i+1))} disabled={safeIdx===pendingEdits.length-1} style={{ background:"none", border:"1px solid #ffffff25", borderRadius:3, color:"#ccc", fontSize:11, padding:"1px 7px", cursor:"pointer" }}>›</button>
                     </span>}
                   </div>
                   <div style={{ fontFamily:"Cinzel,serif", fontSize:10, color:"rgba(255,255,255,0.5)" }}>
                     ✎ <b style={{ color:"#eee" }}>{edit.editorName}</b> · {new Date(edit.timestamp).toLocaleString("pt-BR")}
                   </div>
                 </div>
-                <button className="btn-ghost" style={{ fontSize:14, lineHeight:1 }} onClick={() => setShowPendingPanel(false)}>✕</button>
+                <button onClick={() => setShowPendingPanel(false)} style={{ background:"none", border:"1px solid #ffffff30", borderRadius:4, color:"#fff", fontSize:14, lineHeight:1, padding:"3px 8px", cursor:"pointer" }}>✕</button>
               </div>
               {/* Select all / none */}
-              <div style={{ padding:"10px 20px", borderBottom:"1px solid rgba(255,255,255,0.05)", display:"flex", gap:8, alignItems:"center" }}>
-                <button className="btn-ghost" style={{ fontSize:9, padding:"2px 10px" }} onClick={() => { const a={}; diffs.forEach(d=>{a[d.id]=true;}); setSelectedDiffs(a); }}>Selecionar tudo</button>
-                <button className="btn-ghost" style={{ fontSize:9, padding:"2px 10px" }} onClick={() => setSelectedDiffs({})}>Desmarcar tudo</button>
+              <div style={{ padding:"10px 20px", borderBottom:"1px solid #ffffff0a", background:"#1e1e28", display:"flex", gap:8, alignItems:"center" }}>
+                <button onClick={() => { const a={}; diffs.forEach(d=>{a[d.id]=true;}); setSelectedDiffs(a); }} style={{ background:"none", border:"1px solid #ffffff25", borderRadius:4, color:"#ccc", fontSize:9, padding:"3px 10px", cursor:"pointer" }}>Selecionar tudo</button>
+                <button onClick={() => setSelectedDiffs({})} style={{ background:"none", border:"1px solid #ffffff25", borderRadius:4, color:"#ccc", fontSize:9, padding:"3px 10px", cursor:"pointer" }}>Desmarcar tudo</button>
                 <span style={{ marginLeft:"auto", fontFamily:"Cinzel,serif", fontSize:9, color:"rgba(255,255,255,0.35)" }}>{selCount}/{diffs.length} selecionadas</span>
               </div>
               {/* Diff list */}
-              <div style={{ flex:1, overflowY:"auto", padding:"12px 20px" }}>
+              <div style={{ flex:1, overflowY:"auto", padding:"12px 20px", background:"#1a1a24" }}>
                 {diffs.length === 0 && (
                   <div style={{ fontFamily:"Cinzel,serif", fontSize:11, color:"rgba(255,255,255,0.3)", textAlign:"center", padding:"40px 0" }}>Nenhuma alteração detectada.</div>
                 )}
@@ -1073,7 +1073,7 @@ export default function OrdemParanormalSheet({ character, charId, onBack, onUpda
                 ))}
               </div>
               {/* Footer */}
-              <div style={{ padding:"14px 20px", borderTop:"1px solid rgba(255,255,255,0.08)", display:"flex", gap:8 }}>
+              <div style={{ padding:"14px 20px", borderTop:"1px solid #ffffff14", background:"#22222e", display:"flex", gap:8 }}>
                 <button disabled={selCount === 0}
                   style={{ flex:2, padding:"10px", fontFamily:"Cinzel,serif", fontSize:10, letterSpacing:"0.07em", textTransform:"uppercase", cursor:selCount===0?"not-allowed":"pointer", borderRadius:6, border:"1px solid rgba(74,222,128,0.4)", background:"rgba(74,222,128,0.08)", color:"#4ade80", opacity:selCount===0?0.4:1 }}
                   onClick={() => {
