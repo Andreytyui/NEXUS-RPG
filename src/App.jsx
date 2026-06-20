@@ -11204,6 +11204,7 @@ function IntroScreen({ onDone }) {
     }}>
       <video
         autoPlay
+        muted
         playsInline
         preload="auto"
         onEnded={finish}
