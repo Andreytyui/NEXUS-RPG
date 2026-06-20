@@ -1,5 +1,6 @@
 {
   "builds": [
+    { "src": "package.json", "use": "@vercel/static-build", "config": { "distDir": "build" } },
     { "src": "api/*.js", "use": "@vercel/node" }
   ],
   "routes": [
@@ -11,6 +12,10 @@
         "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
         "Access-Control-Allow-Headers": "Content-Type,Authorization"
       }
-    }
+    },
+    { "src": "/static/(.*)", "dest": "/static/$1" },
+    { "src": "/intro.mp4", "dest": "/intro.mp4" },
+    { "src": "/musica2.mp3", "dest": "/musica2.mp3" },
+    { "src": "/(.*)", "dest": "/index.html" }
   ]
 }
