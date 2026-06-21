@@ -788,6 +788,9 @@ export default function OrdemParanormalSheet({ character, charId, onBack, onUpda
                   <div style={{ fontFamily:"'Share Tech Mono',monospace", fontSize:8, color:"rgba(255,255,255,0.3)", marginTop:3, whiteSpace:"nowrap" }}>
                     AGI{reflexosTreino > 0 ? `+R${reflexosTreino}` : ""}{reflexosExtra > 0 ? `+${reflexosExtra}` : ""}{esquivaBonus > 0 ? `+${esquivaBonus}` : ""}
                   </div>
+                  <div style={{ fontFamily:"monospace", fontSize:7, color:"#f87171", marginTop:2 }}>
+                    dbg: sk={JSON.stringify(skillTreino["Reflexos"])} tr={reflexosTreino} cls={classe?.id}
+                  </div>
                   {editMode && (
                     <input type="number" value={esquivaBonus} onChange={e => setEsquivaBonus(parseInt(e.target.value)||0)}
                       style={{ ...inputMini, width:42, textAlign:"center", fontSize:10, padding:"2px 4px", marginTop:3 }} placeholder="+bônus"/>
