@@ -75,6 +75,20 @@ function stableStr(v) {
   return '{' + Object.keys(rest).sort().map(k => k + ':' + stableStr(rest[k])).join(',') + '}';
 }
 
+// Compara apenas campos escalares — ignora objetos aninhados (rich text, etc.)
+function shallowChanged(a, b) {
+  if (!a || !b || typeof a !== 'object' || typeof b !== 'object') return String(a ?? '') !== String(b ?? '');
+  const SKIP = new Set(['id', '_id', 'createdAt', 'updatedAt']);
+  const all = new Set([...Object.keys(a), ...Object.keys(b)]);
+  for (const k of all) {
+    if (SKIP.has(k)) continue;
+    const av = a[k], bv = b[k];
+    if (av && typeof av === 'object' && !Array.isArray(av) && bv && typeof bv === 'object' && !Array.isArray(bv)) continue;
+    if (String(av ?? '') !== String(bv ?? '')) return true;
+  }
+  return false;
+}
+
 function buildDiff(base, proposed) {
   const items = []; let seq = 0;
   const add = (cat, label, type, old, next, applyFn) =>
@@ -128,7 +142,7 @@ function buildDiff(base, proposed) {
       const name = item?.[nk]; if (!name) return;
       if (!bMap.has(name))
         add(cat, name, "added", null, item, c => ({ ...c, [field]: [...(c[field] || []), item] }));
-      else { const old = bMap.get(name); if (stableStr(old) !== stableStr(item))
+      else { const old = bMap.get(name); if (shallowChanged(old, item))
         add(cat, name, "changed", old, item, c => ({ ...c, [field]: (c[field] || []).map(x => x?.[nk] === name ? item : x) })); }
     });
     bArr.forEach(item => {
