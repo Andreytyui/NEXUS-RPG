@@ -67,6 +67,14 @@ function startWhisper() {
 function stopWhisper(w) { if (!w) return; try { w.src.stop(); w.ctx.close(); } catch {} }
 
 /* ── Diff helpers ──────────────────────────────────────────────────────── */
+function stableStr(v) {
+  if (v === null || v === undefined) return '';
+  if (typeof v !== 'object') return String(v);
+  if (Array.isArray(v)) return '[' + v.map(stableStr).join(',') + ']';
+  const { id: _id, _id: __id, createdAt: _c, updatedAt: _u, ...rest } = v;
+  return '{' + Object.keys(rest).sort().map(k => k + ':' + stableStr(rest[k])).join(',') + '}';
+}
+
 function buildDiff(base, proposed) {
   const items = []; let seq = 0;
   const add = (cat, label, type, old, next, applyFn) =>
@@ -88,7 +96,7 @@ function buildDiff(base, proposed) {
   [["Nome","personagem"],["Jogador","jogador"],["Descrição","descricao"]].forEach(([label, k]) => {
     const o = k === "descricao" ? base[k] : base.form?.[k];
     const n = k === "descricao" ? proposed[k] : proposed.form?.[k];
-    if (n !== undefined && o !== n)
+    if (n !== undefined && stableStr(o) !== stableStr(n))
       add("Identidade", label, "changed", o, n,
         k === "descricao" ? c => ({ ...c, descricao: n }) : c => ({ ...c, form: { ...(c.form || {}), [k]: n } }));
   });
@@ -112,14 +120,15 @@ function buildDiff(base, proposed) {
   [["Rituais","rituais","nome"],["Itens","itens","nome"],["Habilidades","habilidades","nome"],
    ["Arsenal","attacks","name"],["Poderes","poderes","nome"],["Inventário","inventario","nome"],
   ].forEach(([cat, field, nk]) => {
-    const bArr = base[field] || [], pArr = proposed[field] || [];
+    const bArr = Array.isArray(base[field]) ? base[field] : [];
+    const pArr = Array.isArray(proposed[field]) ? proposed[field] : [];
     const bMap = new Map(bArr.map(x => [x?.[nk], x]));
     const pMap = new Map(pArr.map(x => [x?.[nk], x]));
     pArr.forEach(item => {
       const name = item?.[nk]; if (!name) return;
       if (!bMap.has(name))
         add(cat, name, "added", null, item, c => ({ ...c, [field]: [...(c[field] || []), item] }));
-      else { const old = bMap.get(name); if (JSON.stringify(old) !== JSON.stringify(item))
+      else { const old = bMap.get(name); if (stableStr(old) !== stableStr(item))
         add(cat, name, "changed", old, item, c => ({ ...c, [field]: (c[field] || []).map(x => x?.[nk] === name ? item : x) })); }
     });
     bArr.forEach(item => {
@@ -155,8 +164,12 @@ function groupByCategory(diffs) {
 
 function fmtVal(v) {
   if (v === null || v === undefined) return "—";
-  if (typeof v === "object") return v.nome || v.name || "[objeto]";
-  const s = String(v); return s.length > 28 ? s.slice(0, 25) + "…" : s;
+  if (Array.isArray(v)) return `[${v.length} itens]`;
+  if (typeof v === "object") {
+    if (v.type === 'doc' || Array.isArray(v.content)) return "(texto formatado)";
+    return v.nome || v.name || "(modificado)";
+  }
+  const s = String(v); return s.length > 32 ? s.slice(0, 29) + "…" : s;
 }
 
 export default function OrdemParanormalSheet({ character, charId, onBack, onUpdate, onRoll, rollCampaign, onOpenHistory, readOnly, pendingEdits, onLoadPendingEdits, onApprovePendingEdit, onRejectPendingEdit, flushSaveRef, defaultEditMode }) {
@@ -1000,8 +1013,8 @@ export default function OrdemParanormalSheet({ character, charId, onBack, onUpda
         const base = { ...character, attrs, form, pv: hp, san, pe, pvMax, sanMax, peMax,
           skillTreino, skillOutros, nex, pdBonus, creditos, defesaBonus, esquivaBonus,
           bloqueio, protecao, resistencias, rituais, itens, habilidades, attacks, poderes, inventario, descricao, diario };
-        let diffs = [];
-        try { diffs = buildDiff(base, proposed); } catch(e) { console.error("buildDiff error", e); }
+        let diffs = []; let _diffErr = null;
+        try { diffs = buildDiff(base, proposed); } catch(e) { _diffErr = String(e); }
         const grouped = groupByCategory(diffs);
         const selCount = Object.values(selectedDiffs).filter(Boolean).length;
         const typeColor = t => t==="added"?"#4ade80":t==="removed"?"#f87171":"#fbbf24";
@@ -1013,63 +1026,62 @@ export default function OrdemParanormalSheet({ character, charId, onBack, onUpda
               {/* Header */}
               <div style={{ padding:"16px 20px", borderBottom:"1px solid #ffffff14", background:"#22222e", display:"flex", justifyContent:"space-between", alignItems:"flex-start" }}>
                 <div>
-                  <div style={{ fontFamily:"Cinzel,serif", fontSize:10, letterSpacing:"0.12em", color:"#fbbf24", textTransform:"uppercase", marginBottom:4 }}>
+                  <div style={{ fontFamily:"Cinzel,serif", fontSize:12, letterSpacing:"0.1em", color:"#fbbf24", textTransform:"uppercase", marginBottom:5 }}>
                     Sugestão {safeIdx+1}/{pendingEdits.length}
                     {pendingEdits.length > 1 && <span style={{ marginLeft:10 }}>
-                      <button onClick={() => setReviewIdx(i => Math.max(0,i-1))} disabled={safeIdx===0} style={{ background:"none", border:"1px solid #ffffff25", borderRadius:3, color:"#ccc", fontSize:11, padding:"1px 7px", cursor:"pointer", marginRight:2 }}>‹</button>
-                      <button onClick={() => setReviewIdx(i => Math.min(pendingEdits.length-1,i+1))} disabled={safeIdx===pendingEdits.length-1} style={{ background:"none", border:"1px solid #ffffff25", borderRadius:3, color:"#ccc", fontSize:11, padding:"1px 7px", cursor:"pointer" }}>›</button>
+                      <button onClick={() => setReviewIdx(i => Math.max(0,i-1))} disabled={safeIdx===0} style={{ background:"none", border:"1px solid #ffffff25", borderRadius:3, color:"#ccc", fontSize:13, padding:"1px 8px", cursor:"pointer", marginRight:2 }}>‹</button>
+                      <button onClick={() => setReviewIdx(i => Math.min(pendingEdits.length-1,i+1))} disabled={safeIdx===pendingEdits.length-1} style={{ background:"none", border:"1px solid #ffffff25", borderRadius:3, color:"#ccc", fontSize:13, padding:"1px 8px", cursor:"pointer" }}>›</button>
                     </span>}
                   </div>
-                  <div style={{ fontFamily:"Cinzel,serif", fontSize:10, color:"rgba(255,255,255,0.5)" }}>
-                    ✎ <b style={{ color:"#eee" }}>{edit.editorName}</b> · {new Date(edit.timestamp).toLocaleString("pt-BR")}
+                  <div style={{ fontFamily:"'Share Tech Mono',monospace", fontSize:12, color:"rgba(255,255,255,0.55)" }}>
+                    ✎ <b style={{ color:"#eee", fontFamily:"Cinzel,serif" }}>{edit.editorName}</b> · {new Date(edit.timestamp).toLocaleString("pt-BR")}
                   </div>
                 </div>
                 <button onClick={() => setShowPendingPanel(false)} style={{ background:"none", border:"1px solid #ffffff30", borderRadius:4, color:"#fff", fontSize:14, lineHeight:1, padding:"3px 8px", cursor:"pointer" }}>✕</button>
               </div>
               {/* Select all / none */}
               <div style={{ padding:"10px 20px", borderBottom:"1px solid #ffffff0a", background:"#1e1e28", display:"flex", gap:8, alignItems:"center" }}>
-                <button onClick={() => { const a={}; diffs.forEach(d=>{a[d.id]=true;}); setSelectedDiffs(a); }} style={{ background:"none", border:"1px solid #ffffff25", borderRadius:4, color:"#ccc", fontSize:9, padding:"3px 10px", cursor:"pointer" }}>Selecionar tudo</button>
-                <button onClick={() => setSelectedDiffs({})} style={{ background:"none", border:"1px solid #ffffff25", borderRadius:4, color:"#ccc", fontSize:9, padding:"3px 10px", cursor:"pointer" }}>Desmarcar tudo</button>
-                <span style={{ marginLeft:"auto", fontFamily:"Cinzel,serif", fontSize:9, color:"rgba(255,255,255,0.35)" }}>{selCount}/{diffs.length} selecionadas</span>
+                <button onClick={() => { const a={}; diffs.forEach(d=>{a[d.id]=true;}); setSelectedDiffs(a); }} style={{ background:"none", border:"1px solid #ffffff30", borderRadius:4, color:"#ccc", fontSize:11, padding:"4px 12px", cursor:"pointer" }}>Selecionar tudo</button>
+                <button onClick={() => setSelectedDiffs({})} style={{ background:"none", border:"1px solid #ffffff30", borderRadius:4, color:"#ccc", fontSize:11, padding:"4px 12px", cursor:"pointer" }}>Desmarcar tudo</button>
+                <span style={{ marginLeft:"auto", fontFamily:"'Share Tech Mono',monospace", fontSize:11, color:"rgba(255,255,255,0.45)" }}>{selCount}/{diffs.length} selecionadas</span>
               </div>
               {/* Diff list */}
               <div style={{ flex:1, overflowY:"auto", padding:"12px 20px", background:"#1a1a24" }}>
                 {diffs.length === 0 && (
-                  <div style={{ textAlign:"center", padding:"40px 20px" }}>
-                    <div style={{ fontFamily:"Cinzel,serif", fontSize:13, color:"rgba(255,255,255,0.4)", marginBottom:8 }}>Nenhuma alteração detectada.</div>
-                    <div style={{ fontFamily:"Cinzel,serif", fontSize:10, color:"rgba(255,255,255,0.2)", lineHeight:1.6 }}>Esta sugestão foi enviada sem modificações<br/>ou os dados são idênticos à ficha atual.<br/>Você pode rejeitá-la abaixo.</div>
+                  <div style={{ textAlign:"center", padding:"32px 20px" }}>
+                    <div style={{ fontFamily:"Cinzel,serif", fontSize:14, color:"rgba(255,255,255,0.4)" }}>Nenhuma alteração detectada.</div>
                   </div>
                 )}
                 {Object.entries(grouped).map(([cat, catDiffs]) => (
                   <div key={cat} style={{ marginBottom:14 }}>
-                    <div style={{ fontFamily:"Cinzel,serif", fontSize:8, letterSpacing:"0.14em", textTransform:"uppercase", color:"rgba(255,255,255,0.28)", marginBottom:5, paddingBottom:3, borderBottom:"1px solid rgba(255,255,255,0.06)" }}>{cat}</div>
+                    <div style={{ fontFamily:"Cinzel,serif", fontSize:10, letterSpacing:"0.12em", textTransform:"uppercase", color:"rgba(255,255,255,0.4)", marginBottom:6, paddingBottom:4, borderBottom:"1px solid rgba(255,255,255,0.08)" }}>{cat}</div>
                     {catDiffs.map(diff => {
                       const sel = !!selectedDiffs[diff.id];
                       const tc = typeColor(diff.type);
                       return (
                         <div key={diff.id} onClick={() => setSelectedDiffs(s => ({...s, [diff.id]: !s[diff.id]}))}
-                          style={{ display:"flex", alignItems:"center", gap:10, padding:"7px 10px", borderRadius:6, marginBottom:3, cursor:"pointer",
-                            background: sel ? `${tc}09` : "rgba(255,255,255,0.02)",
-                            border:`1px solid ${sel ? tc+"33" : "rgba(255,255,255,0.05)"}` }}>
+                          style={{ display:"flex", alignItems:"center", gap:10, padding:"9px 12px", borderRadius:6, marginBottom:4, cursor:"pointer",
+                            background: sel ? `${tc}10` : "rgba(255,255,255,0.025)",
+                            border:`1px solid ${sel ? tc+"44" : "rgba(255,255,255,0.07)"}` }}>
                           {/* Checkbox */}
-                          <div style={{ width:15, height:15, borderRadius:3, flexShrink:0, display:"flex", alignItems:"center", justifyContent:"center", fontSize:9,
-                            border:`1.5px solid ${sel?"rgba(255,255,255,0.4)":"rgba(255,255,255,0.15)"}`, background:sel?"rgba(255,255,255,0.12)":"transparent" }}>
+                          <div style={{ width:17, height:17, borderRadius:3, flexShrink:0, display:"flex", alignItems:"center", justifyContent:"center", fontSize:11,
+                            border:`1.5px solid ${sel?"rgba(255,255,255,0.5)":"rgba(255,255,255,0.2)"}`, background:sel?"rgba(255,255,255,0.15)":"transparent" }}>
                             {sel && "✓"}
                           </div>
                           {/* Icon */}
-                          <span style={{ fontSize:10, flexShrink:0, color:tc, width:12, textAlign:"center" }}>{typeIcon(diff.type)}</span>
+                          <span style={{ fontSize:13, flexShrink:0, color:tc, width:14, textAlign:"center" }}>{typeIcon(diff.type)}</span>
                           {/* Label */}
-                          <span style={{ fontFamily:"Cinzel,serif", fontSize:10, color:"rgba(255,255,255,0.75)", flex:1, minWidth:0, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{diff.label}</span>
+                          <span style={{ fontFamily:"Cinzel,serif", fontSize:12, color:"rgba(255,255,255,0.85)", flex:1, minWidth:0, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{diff.label}</span>
                           {/* Values */}
                           {diff.type === "changed" && (
-                            <span style={{ fontFamily:"'Share Tech Mono',monospace", fontSize:10, flexShrink:0, whiteSpace:"nowrap" }}>
+                            <span style={{ fontFamily:"'Share Tech Mono',monospace", fontSize:11, flexShrink:0, whiteSpace:"nowrap" }}>
                               <span style={{ color:"#f87171" }}>{fmtVal(diff.old)}</span>
-                              <span style={{ color:"rgba(255,255,255,0.25)" }}> → </span>
+                              <span style={{ color:"rgba(255,255,255,0.3)" }}> → </span>
                               <span style={{ color:"#4ade80" }}>{fmtVal(diff.next)}</span>
                             </span>
                           )}
                           {diff.type !== "changed" && (
-                            <span style={{ fontFamily:"Cinzel,serif", fontSize:8, color:tc, border:`1px solid ${tc}40`, padding:"1px 7px", borderRadius:10, flexShrink:0 }}>
+                            <span style={{ fontFamily:"Cinzel,serif", fontSize:10, color:tc, border:`1px solid ${tc}50`, padding:"2px 9px", borderRadius:10, flexShrink:0 }}>
                               {diff.type === "added" ? "novo" : "remover"}
                             </span>
                           )}
@@ -1082,7 +1094,7 @@ export default function OrdemParanormalSheet({ character, charId, onBack, onUpda
               {/* Footer */}
               <div style={{ padding:"14px 20px", borderTop:"1px solid #ffffff14", background:"#22222e", display:"flex", gap:8 }}>
                 <button disabled={selCount === 0}
-                  style={{ flex:2, padding:"10px", fontFamily:"Cinzel,serif", fontSize:10, letterSpacing:"0.07em", textTransform:"uppercase", cursor:selCount===0?"not-allowed":"pointer", borderRadius:6, border:"1px solid rgba(74,222,128,0.4)", background:"rgba(74,222,128,0.08)", color:"#4ade80", opacity:selCount===0?0.4:1 }}
+                  style={{ flex:2, padding:"11px", fontFamily:"Cinzel,serif", fontSize:12, letterSpacing:"0.07em", textTransform:"uppercase", cursor:selCount===0?"not-allowed":"pointer", borderRadius:6, border:"1px solid rgba(74,222,128,0.4)", background:"rgba(74,222,128,0.08)", color:"#4ade80", opacity:selCount===0?0.4:1 }}
                   onClick={() => {
                     let merged = { ...base };
                     diffs.forEach(d => { if (selectedDiffs[d.id]) merged = d.apply(merged); });
@@ -1092,7 +1104,7 @@ export default function OrdemParanormalSheet({ character, charId, onBack, onUpda
                   }}>
                   ✓ Aplicar selecionadas ({selCount})
                 </button>
-                <button style={{ flex:1, padding:"10px", fontFamily:"Cinzel,serif", fontSize:10, letterSpacing:"0.07em", textTransform:"uppercase", cursor:"pointer", borderRadius:6, border:"1px solid rgba(239,68,68,0.35)", background:"rgba(239,68,68,0.07)", color:"#f87171" }}
+                <button style={{ flex:1, padding:"11px", fontFamily:"Cinzel,serif", fontSize:12, letterSpacing:"0.07em", textTransform:"uppercase", cursor:"pointer", borderRadius:6, border:"1px solid rgba(239,68,68,0.35)", background:"rgba(239,68,68,0.07)", color:"#f87171" }}
                   onClick={() => { onRejectPendingEdit?.(edit); if (safeIdx >= pendingEdits.length - 1) setReviewIdx(Math.max(0, safeIdx-1)); setShowPendingPanel(false); }}>
                   ✗ Rejeitar
                 </button>
