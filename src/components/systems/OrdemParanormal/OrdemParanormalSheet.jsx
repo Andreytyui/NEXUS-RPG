@@ -358,7 +358,7 @@ export default function OrdemParanormalSheet({ character, charId, onBack, onUpda
   /* ── derived ── */
   const { peTurno, deslocamento } = deriveStats(attrs, nex);
   const defesa = 10 + (attrs.AGI || 0) + defesaBonus + defesaOutros;
-  const reflexosTreino = skillTreino["Reflexos"] || 0;
+  const reflexosTreino = skillTreino["Reflexos"] ?? (trained.has("Reflexos") ? 5 : 0);
   const reflexosExtra  = skillOutros["Reflexos"] || 0;
   const esquiva = (attrs.AGI || 0) + reflexosTreino + reflexosExtra + esquivaBonus;
   const pvPct = pvMax > 0 ? hp / pvMax : 0;
