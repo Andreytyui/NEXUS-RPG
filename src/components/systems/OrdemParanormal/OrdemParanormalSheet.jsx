@@ -159,7 +159,7 @@ function fmtVal(v) {
   const s = String(v); return s.length > 28 ? s.slice(0, 25) + "…" : s;
 }
 
-export default function OrdemParanormalSheet({ character, charId, onBack, onUpdate, onRoll, rollCampaign, onOpenHistory, readOnly, pendingEdits, onLoadPendingEdits, onApprovePendingEdit, onRejectPendingEdit }) {
+export default function OrdemParanormalSheet({ character, charId, onBack, onUpdate, onRoll, rollCampaign, onOpenHistory, readOnly, pendingEdits, onLoadPendingEdits, onApprovePendingEdit, onRejectPendingEdit, flushSaveRef, defaultEditMode }) {
   /* ── mobile section switcher (Ficha | Perícias | Ações) ── */
   const [mobileSec, setMobileSec] = useState("ficha");
 
@@ -223,7 +223,7 @@ export default function OrdemParanormalSheet({ character, charId, onBack, onUpda
   const [elementoNotas, setElementoNotas] = useState(character.elementoNotas ?? []);
 
   /* ── UI state ── */
-  const [editMode, setEditMode] = useState(false);
+  const [editMode, setEditMode] = useState(!!defaultEditMode);
   const [activeTab, setActiveTab] = useState("combate");
   const [diceInput, setDiceInput] = useState("");
   const [roll, setRoll] = useState(null);
@@ -264,7 +264,8 @@ export default function OrdemParanormalSheet({ character, charId, onBack, onUpda
     const base = { ...character, attrs, form, pv: hp, san, pe, pvMax, sanMax, peMax,
       skillTreino, skillOutros, nex, pdBonus, creditos, defesaBonus, esquivaBonus,
       bloqueio, protecao, resistencias, rituais, itens, habilidades, attacks, poderes, inventario, descricao, diario };
-    const diffs = buildDiff(base, edit.proposedData);
+    let diffs = [];
+    try { diffs = buildDiff(base, edit.proposedData || {}); } catch(e) { console.error("buildDiff useEffect error", e); }
     const init = {}; diffs.forEach(d => { init[d.id] = true; });
     setSelectedDiffs(init);
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -303,6 +304,7 @@ export default function OrdemParanormalSheet({ character, charId, onBack, onUpda
   };
   const latest = useRef(snapshot);
   latest.current = snapshot;
+  if (flushSaveRef) flushSaveRef.current = () => onUpdate?.(latest.current);
   const dirtyRef = useRef(false);
   const saveTimer = useRef(null);
   const flushSave = () => {
@@ -990,22 +992,24 @@ export default function OrdemParanormalSheet({ character, charId, onBack, onUpda
       )}
 
       {/* ── Pending Edits Drawer (portal) ─────────────────────────────── */}
-      {showPendingPanel && pendingEdits?.length > 0 && (() => {
+      {showPendingPanel && pendingEdits?.length > 0 && (() => { try {
         const safeIdx = Math.min(reviewIdx, pendingEdits.length - 1);
         const edit = pendingEdits[safeIdx];
         if (!edit) return null;
+        const proposed = edit.proposedData || {};
         const base = { ...character, attrs, form, pv: hp, san, pe, pvMax, sanMax, peMax,
           skillTreino, skillOutros, nex, pdBonus, creditos, defesaBonus, esquivaBonus,
           bloqueio, protecao, resistencias, rituais, itens, habilidades, attacks, poderes, inventario, descricao, diario };
-        const diffs = buildDiff(base, edit.proposedData);
+        let diffs = [];
+        try { diffs = buildDiff(base, proposed); } catch(e) { console.error("buildDiff error", e); }
         const grouped = groupByCategory(diffs);
         const selCount = Object.values(selectedDiffs).filter(Boolean).length;
         const typeColor = t => t==="added"?"#4ade80":t==="removed"?"#f87171":"#fbbf24";
         const typeIcon  = t => t==="added"?"✚":t==="removed"?"✘":"↻";
         return createPortal(
-          <div style={{ position:"fixed", inset:0, zIndex:300, display:"flex" }}>
+          <div style={{ position:"fixed", inset:0, zIndex:100000, display:"flex" }}>
             <div style={{ flex:1, background:"rgba(0,0,0,0.72)" }} onClick={() => setShowPendingPanel(false)}/>
-            <div style={{ width:"min(500px,100vw)", background:"#1a1a24", borderLeft:"2px solid #fbbf2440", display:"flex", flexDirection:"column", overflow:"hidden" }}>
+            <div style={{ width:"min(500px,100vw)", background:"#1a1a24", borderLeft:"2px solid #fbbf24", display:"flex", flexDirection:"column", overflow:"hidden", color:"#fff" }}>
               {/* Header */}
               <div style={{ padding:"16px 20px", borderBottom:"1px solid #ffffff14", background:"#22222e", display:"flex", justifyContent:"space-between", alignItems:"flex-start" }}>
                 <div>
@@ -1031,7 +1035,10 @@ export default function OrdemParanormalSheet({ character, charId, onBack, onUpda
               {/* Diff list */}
               <div style={{ flex:1, overflowY:"auto", padding:"12px 20px", background:"#1a1a24" }}>
                 {diffs.length === 0 && (
-                  <div style={{ fontFamily:"Cinzel,serif", fontSize:11, color:"rgba(255,255,255,0.3)", textAlign:"center", padding:"40px 0" }}>Nenhuma alteração detectada.</div>
+                  <div style={{ textAlign:"center", padding:"40px 20px" }}>
+                    <div style={{ fontFamily:"Cinzel,serif", fontSize:13, color:"rgba(255,255,255,0.4)", marginBottom:8 }}>Nenhuma alteração detectada.</div>
+                    <div style={{ fontFamily:"Cinzel,serif", fontSize:10, color:"rgba(255,255,255,0.2)", lineHeight:1.6 }}>Esta sugestão foi enviada sem modificações<br/>ou os dados são idênticos à ficha atual.<br/>Você pode rejeitá-la abaixo.</div>
+                  </div>
                 )}
                 {Object.entries(grouped).map(([cat, catDiffs]) => (
                   <div key={cat} style={{ marginBottom:14 }}>
@@ -1094,7 +1101,7 @@ export default function OrdemParanormalSheet({ character, charId, onBack, onUpda
           </div>,
           document.body
         );
-      })()}
+      } catch(e) { console.error("PendingPanel render error:", e); return null; } })()}
 
       {showAI && (
         <Modal onClose={() => { setShowAI(false); setAiError(""); }} title="✦ Gerar Retrato com IA">

@@ -11506,6 +11506,8 @@ function PublicSheetView({ charId }) {
   const [editorName, setEditorName] = useState("");
   const [editedChar, setEditedChar] = useState(null);
   const [submitState, setSubmitState] = useState("idle"); // idle | submitting | done
+  const editedCharRef = useRef(null); // always current (sync), independent of debounce
+  const flushSaveRef = useRef(null);  // assigned by OrdemParanormalSheet to flush debounce
 
   const urlParams = new URLSearchParams(window.location.search);
   const editorToken = urlParams.get("editor");
@@ -11515,7 +11517,7 @@ function PublicSheetView({ charId }) {
       .then(snap => {
         const d = snap.exists() ? snap.data() : null;
         setData(d);
-        if (d) setEditedChar(d);
+        if (d) { setEditedChar(d); editedCharRef.current = d; }
         setLoading(false);
       })
       .catch(() => setLoading(false));
@@ -11526,7 +11528,9 @@ function PublicSheetView({ charId }) {
   const handleSubmitSuggestion = async () => {
     if (!editorName.trim()) { alert("Digite seu nome antes de enviar."); return; }
     setSubmitState("submitting");
-    await fsSavePendingEdit(charId, editedChar, editorName.trim());
+    // flush debounce: forces onUpdate(latest.current) synchronously → updates editedCharRef
+    flushSaveRef.current?.();
+    await fsSavePendingEdit(charId, editedCharRef.current || data, editorName.trim());
     setSubmitState("done");
   };
 
@@ -11595,7 +11599,9 @@ function PublicSheetView({ charId }) {
             readOnly={!isEditorMode}
             onBack={isEditorMode ? null : () => { window.location.href = "/"; }}
             onRoll={null}
-            onUpdate={isEditorMode ? (updated) => setEditedChar(updated) : null}
+            defaultEditMode={isEditorMode}
+            flushSaveRef={isEditorMode ? flushSaveRef : undefined}
+            onUpdate={isEditorMode ? (updated) => { editedCharRef.current = updated; setEditedChar(updated); } : null}
           />
         </Suspense>
       </div>
