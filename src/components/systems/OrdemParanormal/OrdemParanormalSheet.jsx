@@ -358,10 +358,10 @@ export default function OrdemParanormalSheet({ character, charId, onBack, onUpda
   /* ── derived ── */
   const { peTurno, deslocamento } = deriveStats(attrs, nex);
   const defesa = 10 + (attrs.AGI || 0) + defesaBonus + defesaOutros;
-  const reflexosTreino = skillTreino["Reflexos"] ?? (trained.has("Reflexos") ? 5 : 0);
-  const reflexosExtra  = skillOutros["Reflexos"] || 0;
-  const reflexosBônus  = reflexosTreino + reflexosExtra;
-  const esquiva = defesa + reflexosBônus + esquivaBonus;
+  const reflexosTreino = Number(skillTreino["Reflexos"]) || 0;
+  const reflexosExtra  = Number(skillOutros["Reflexos"]) || 0;
+  const esquiva        = defesa + reflexosTreino + reflexosExtra;
+  const profBonus = nex >= 95 ? 6 : nex >= 75 ? 5 : nex >= 55 ? 4 : nex >= 35 ? 3 : nex >= 15 ? 2 : 1;
   const pvPct = pvMax > 0 ? hp / pvMax : 0;
   const sanPct = sanMax > 0 ? san / sanMax : 0;
   const pePct = peMax > 0 ? pe / peMax : 0;
@@ -391,7 +391,7 @@ export default function OrdemParanormalSheet({ character, charId, onBack, onUpda
   const rollSkill = (p) => {
     const ak = skillAttr[p.base] || p.attr;
     const base = rollOP(attrs[ak]);
-    const tBonus = skillTreino[p.base] ?? (trained.has(p.base) ? 5 : 0);
+    const tBonus = Number(skillTreino[p.base]) || 0;
     const other = Number(skillOutros[p.base] || 0);
     fireRoll(`${p.base} (${ak})`, { ...base, result: base.result + tBonus + other, rollType: "skill" });
   };
@@ -494,7 +494,7 @@ export default function OrdemParanormalSheet({ character, charId, onBack, onUpda
   const inputMini = { padding: "4px 7px", fontSize: 13, width: "100%" };
 
   const renderSkillRow = (p) => {
-    const t = skillTreino[p.base] ?? (trained.has(p.base) ? 5 : 0);
+    const t = Number(skillTreino[p.base]) || 0;
     const isTrained = t > 0;
     const ak = skillAttr[p.base] || p.attr;
     const outros = Number(skillOutros[p.base] || 0);
@@ -502,8 +502,8 @@ export default function OrdemParanormalSheet({ character, charId, onBack, onUpda
     return (
       <div key={p.base} className="op-skill">
         <span role="button" tabIndex={0} title="Alternar grau de treino" aria-label={`Treino de ${p.base}`}
-          onClick={() => setSkillTreino((s) => ({ ...s, [p.base]: ((s[p.base] ?? (trained.has(p.base) ? 5 : 0)) + 5) % 20 }))}
-          onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && setSkillTreino((s) => ({ ...s, [p.base]: ((s[p.base] ?? (trained.has(p.base) ? 5 : 0)) + 5) % 20 }))}
+          onClick={() => setSkillTreino((s) => { const cur = Number(s[p.base]) || 0; const next = cur >= 15 ? 0 : cur >= 10 ? 15 : cur >= 5 ? 10 : 5; return { ...s, [p.base]: next }; })}
+          onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && setSkillTreino((s) => { const cur = Number(s[p.base]) || 0; const next = cur >= 15 ? 0 : cur >= 10 ? 15 : cur >= 5 ? 10 : 5; return { ...s, [p.base]: next }; })}
           style={{ color: treinoColor(t), fontSize: 13, textAlign: "center", cursor: "pointer" }}>{isTrained ? "⬢" : "⬡"}</span>
         <span onClick={() => rollSkill(p)} title={`Rolar ${p.base}`}
           style={{ color: isTrained ? treinoColor(t) : "var(--muted2)", cursor: "pointer", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
@@ -787,12 +787,8 @@ export default function OrdemParanormalSheet({ character, charId, onBack, onUpda
                   <div className="op-label" style={{ marginBottom:4, fontSize:9 }}>Esquiva</div>
                   <div style={{ fontFamily:"Cinzel,serif", fontSize:22, fontWeight:700, color:"#fff", lineHeight:1 }}>{esquiva}</div>
                   <div style={{ fontFamily:"'Share Tech Mono',monospace", fontSize:8, color:"rgba(255,255,255,0.3)", marginTop:3, whiteSpace:"nowrap" }}>
-                    DEF{reflexosBônus > 0 ? `+Ref${reflexosBônus}` : ""}{esquivaBonus > 0 ? `+${esquivaBonus}` : ""}
+                    DEF{reflexosTreino > 0 ? `+Ref${reflexosTreino}` : ""}{reflexosExtra > 0 ? `+${reflexosExtra}` : ""}
                   </div>
-                  {editMode && (
-                    <input type="number" value={esquivaBonus} onChange={e => setEsquivaBonus(parseInt(e.target.value)||0)}
-                      style={{ ...inputMini, width:42, textAlign:"center", fontSize:10, padding:"2px 4px", marginTop:3 }} placeholder="+bônus"/>
-                  )}
                 </div>
               </div>
             </div>
@@ -825,10 +821,10 @@ export default function OrdemParanormalSheet({ character, charId, onBack, onUpda
             <div>
               <div className="op-label" style={{ marginBottom:4 }}>Proficiências</div>
               <div style={{ display:"flex", alignItems:"center", gap:8 }}>
-                <span style={{ fontFamily:"Cinzel,serif", fontSize:18, fontWeight:700, color:"var(--gold)" }}>+{proeficiencia}</span>
+                <span style={{ fontFamily:"Cinzel,serif", fontSize:18, fontWeight:700, color:"var(--gold)" }}>+{proeficiencia > 0 ? proeficiencia : profBonus}</span>
                 {editMode && (
                   <input type="number" value={proeficiencia} onChange={e => setProeficiencia(parseInt(e.target.value)||0)}
-                    style={{ ...inputMini, width:50, fontSize:12, padding:"2px 6px" }}/>
+                    style={{ ...inputMini, width:50, fontSize:12, padding:"2px 6px" }} placeholder={`auto (${profBonus})`}/>
                 )}
               </div>
             </div>
