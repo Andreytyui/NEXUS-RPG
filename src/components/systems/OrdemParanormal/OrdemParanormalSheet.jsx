@@ -98,7 +98,7 @@ function buildDiff(base, proposed) {
   [["Vitais","PV","pv"],["Vitais","PV máx","pvMax"],["Vitais","SAN","san"],["Vitais","SAN máx","sanMax"],
    ["Vitais","PE","pe"],["Vitais","PE máx","peMax"],["Progressão","NEX %","nex"],
    ["Progressão","PD bônus","pdBonus"],["Progressão","Créditos","creditos"],
-   ["Defesa","Defesa bônus","defesaBonus"],["Defesa","Esquiva","esquivaBonus"],
+   ["Defesa","Defesa equip.","defesaBonus"],["Defesa","Defesa outros","defesaOutros"],["Defesa","Esquiva bônus","esquivaBonus"],
    ["Defesa","Bloqueio","bloqueio"],["Defesa","Proteção","protecao"],
   ].forEach(([cat, label, k]) => {
     const o = base[k], n = proposed[k];
@@ -238,6 +238,7 @@ export default function OrdemParanormalSheet({ character, charId, onBack, onUpda
   const [trilha] = useState(character.trilha ?? null);
 
   const [defesaBonus, setDefesaBonus] = useState(character.defesaBonus ?? 0);
+  const [defesaOutros, setDefesaOutros] = useState(character.defesaOutros ?? 0);
   const [esquivaBonus, setEsquivaBonus] = useState(character.esquivaBonus ?? 0);
   const [bloqueio, setBloqueio] = useState(character.bloqueio ?? 0);
   const [protecao, setProtecao] = useState(character.protecao ?? "");
@@ -325,7 +326,7 @@ export default function OrdemParanormalSheet({ character, charId, onBack, onUpda
   const snapshot = {
     ...character, attrs, form, origem, classe, skillTreino, skillOutros, skillAttr, pdBonus, nex,
     pv: hp, san, pe, pvMax, sanMax, peMax, attacks, ataques: attacks, skills, poderes, rituais, itens,
-    diario, creditos, rollHistory, trilha, defesaBonus, esquivaBonus, bloqueio, protecao, resistencias,
+    diario, creditos, rollHistory, trilha, defesaBonus, defesaOutros, esquivaBonus, bloqueio, protecao, resistencias,
     proeficiencia, elementoAfinidade, elementoEscolhidoEm, elementoGmOverride, elementoNotas,
     habilidades, inventario, descricao, dtRituais,
   };
@@ -349,14 +350,14 @@ export default function OrdemParanormalSheet({ character, charId, onBack, onUpda
     return () => clearTimeout(saveTimer.current);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [attrs, form, skillTreino, skillOutros, pdBonus, nex, hp, san, pe, pvMax, sanMax, peMax, attacks, skills, poderes,
-      rituais, itens, diario, creditos, defesaBonus, esquivaBonus, bloqueio, protecao, resistencias,
+      rituais, itens, diario, creditos, defesaBonus, defesaOutros, esquivaBonus, bloqueio, protecao, resistencias,
       proeficiencia, elementoAfinidade, elementoNotas, habilidades, inventario, descricao, dtRituais]);
   useEffect(() => () => flushSave(), []); // flush on unmount
   const handleBack = () => { flushSave(); onBack?.(); };
 
   /* ── derived ── */
   const { peTurno, deslocamento } = deriveStats(attrs, nex);
-  const defesa = 10 + (attrs.AGI || 0) + defesaBonus;
+  const defesa = 10 + (attrs.AGI || 0) + defesaBonus + defesaOutros;
   const esquiva = (attrs.AGI || 0) + esquivaBonus;
   const pvPct = pvMax > 0 ? hp / pvMax : 0;
   const sanPct = sanMax > 0 ? san / sanMax : 0;
@@ -728,36 +729,101 @@ export default function OrdemParanormalSheet({ character, charId, onBack, onUpda
             state={pe <= 0 ? "flat" : vitalState(pePct, false)} onVal={setPe} onMax={setPeMax} edit={editMode} badge={pe <= 0 ? "EXAUSTO" : null} />
 
           {/* DEFESAS */}
-          <div className="op-ink" style={{ padding: "10px 12px", background: "rgba(0,0,0,0.25)" }}>
-            <div className="op-label" style={{ marginBottom: 8 }}>Defesas</div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-              <Stat label="Defesa" value={defesa} />
-              <Stat label="Esquiva" value={esquiva} />
-              <Stat label="Bloqueio" value={bloqueio} edit={editMode} onChange={setBloqueio} />
-              <Stat label="Proeficiência" value={proeficiencia} edit={editMode} onChange={setProeficiencia} />
-            </div>
-            {editMode && (
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: 8 }}>
-                <LabeledMini label="Defesa +bônus" value={defesaBonus} onChange={(v) => setDefesaBonus(parseInt(v, 10) || 0)} />
-                <LabeledMini label="Esquiva +bônus" value={esquivaBonus} onChange={(v) => setEsquivaBonus(parseInt(v, 10) || 0)} />
+          <div className="op-ink" style={{ padding: "12px 14px", background: "rgba(0,0,0,0.25)" }}>
+
+            {/* Linha principal: escudo + fórmula + BLOQUEIO/ESQUIVA */}
+            <div style={{ display:"flex", alignItems:"flex-start", gap:14, marginBottom:12 }}>
+
+              {/* Escudo */}
+              <div style={{ position:"relative", flexShrink:0 }}>
+                <svg width="54" height="62" viewBox="0 0 54 62" fill="none">
+                  <path d="M27 3 L5 11 V31 C5 45 27 59 27 59 C27 59 49 45 49 31 V11 Z"
+                    fill="rgba(0,0,0,0.55)" stroke="rgba(255,255,255,0.22)" strokeWidth="1.5"/>
+                </svg>
+                <div style={{ position:"absolute", inset:0, display:"flex", alignItems:"center", justifyContent:"center" }}>
+                  <span style={{ fontFamily:"Cinzel,serif", fontWeight:700, fontSize:20, color:"#fff", lineHeight:1 }}>{defesa}</span>
+                </div>
               </div>
-            )}
-            <div style={{ marginTop: 8 }}>
+
+              {/* Fórmula */}
+              <div style={{ flex:1, paddingTop:3 }}>
+                <div className="op-label" style={{ marginBottom:6, fontSize:9 }}>Defesa</div>
+                <div style={{ display:"flex", alignItems:"center", gap:5, flexWrap:"wrap" }}>
+                  <span style={{ fontFamily:"'Share Tech Mono',monospace", fontSize:11, color:"rgba(255,255,255,0.45)" }}>
+                    = 10 + <span style={{ color:"rgba(255,255,255,0.75)" }}>{attrs.AGI||0}</span> AGI
+                  </span>
+                  <span style={{ color:"rgba(255,255,255,0.3)", fontSize:12 }}>+</span>
+                  <div style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:1 }}>
+                    {editMode
+                      ? <input type="number" value={defesaBonus} onChange={e => setDefesaBonus(parseInt(e.target.value)||0)}
+                          style={{ ...inputMini, width:38, textAlign:"center", fontSize:12, padding:"2px 4px" }}/>
+                      : <span style={{ fontFamily:"Cinzel,serif", fontWeight:700, fontSize:13, color:"#fff" }}>{defesaBonus}</span>}
+                    <span style={{ fontSize:8, color:"rgba(255,255,255,0.3)", letterSpacing:"0.04em" }}>Equip.</span>
+                  </div>
+                  <span style={{ color:"rgba(255,255,255,0.3)", fontSize:12 }}>+</span>
+                  <div style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:1 }}>
+                    {editMode
+                      ? <input type="number" value={defesaOutros} onChange={e => setDefesaOutros(parseInt(e.target.value)||0)}
+                          style={{ ...inputMini, width:38, textAlign:"center", fontSize:12, padding:"2px 4px" }}/>
+                      : <span style={{ fontFamily:"Cinzel,serif", fontWeight:700, fontSize:13, color:"#fff" }}>{defesaOutros}</span>}
+                    <span style={{ fontSize:8, color:"rgba(255,255,255,0.3)", letterSpacing:"0.04em" }}>Outros.</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* BLOQUEIO + ESQUIVA */}
+              <div style={{ display:"flex", gap:16, flexShrink:0, paddingTop:2 }}>
+                <div style={{ textAlign:"center" }}>
+                  <div className="op-label" style={{ marginBottom:4, fontSize:9 }}>Bloqueio</div>
+                  {editMode
+                    ? <input type="number" value={bloqueio} onChange={e => setBloqueio(parseInt(e.target.value)||0)}
+                        style={{ ...inputMini, width:42, textAlign:"center", fontSize:16, padding:"2px 4px" }}/>
+                    : <div style={{ fontFamily:"Cinzel,serif", fontSize:22, fontWeight:700, color:"#fff", lineHeight:1 }}>{bloqueio}</div>}
+                </div>
+                <div style={{ textAlign:"center" }}>
+                  <div className="op-label" style={{ marginBottom:4, fontSize:9 }}>Esquiva</div>
+                  <div style={{ fontFamily:"Cinzel,serif", fontSize:22, fontWeight:700, color:"#fff", lineHeight:1 }}>{esquiva}</div>
+                  {editMode && (
+                    <input type="number" value={esquivaBonus} onChange={e => setEsquivaBonus(parseInt(e.target.value)||0)}
+                      style={{ ...inputMini, width:42, textAlign:"center", fontSize:10, padding:"2px 4px", marginTop:3 }} placeholder="+bônus"/>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div style={{ height:1, background:"rgba(255,255,255,0.06)", marginBottom:10 }}/>
+
+            {/* PROTEÇÃO */}
+            <div style={{ marginBottom:8 }}>
               <Field label="Proteção" value={protecao} editMode={editMode} onChange={setProtecao} placeholder="ex: Colete (RD 5)" />
             </div>
-            <div style={{ marginTop: 6 }}>
-              <div className="op-label" style={{ marginBottom: 4 }}>Resistências</div>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+
+            {/* RESISTÊNCIAS */}
+            <div style={{ marginBottom:8 }}>
+              <div className="op-label" style={{ marginBottom:4 }}>Resistências</div>
+              <div style={{ display:"flex", flexWrap:"wrap", gap:4 }}>
                 {resistencias.map((r, i) => (
-                  <span key={i} className="op-data" style={{ fontSize: 11, padding: "2px 8px", borderRadius: 3, background: "rgba(201,168,76,0.1)", border: "1px solid var(--border)", color: "var(--muted2)", display: "flex", alignItems: "center", gap: 5 }}>
-                    {r}{editMode && <button onClick={() => setResistencias((a) => a.filter((_, idx) => idx !== i))} style={{ background: "none", border: "none", color: "var(--danger-text)", cursor: "pointer", padding: 0 }}>×</button>}
+                  <span key={i} className="op-data" style={{ fontSize:11, padding:"2px 8px", borderRadius:3, background:"rgba(201,168,76,0.1)", border:"1px solid var(--border)", color:"var(--muted2)", display:"flex", alignItems:"center", gap:5 }}>
+                    {r}{editMode && <button onClick={() => setResistencias((a) => a.filter((_, idx) => idx !== i))} style={{ background:"none", border:"none", color:"var(--danger-text)", cursor:"pointer", padding:0 }}>×</button>}
                   </span>
                 ))}
                 {editMode && (
                   <input placeholder="+ resistência" onKeyDown={(e) => { if (e.key === "Enter" && e.currentTarget.value.trim()) { setResistencias((a) => [...a, e.currentTarget.value.trim()]); e.currentTarget.value = ""; } }}
-                    style={{ ...inputMini, width: 110, fontSize: 11 }} />
+                    style={{ ...inputMini, width:110, fontSize:11 }} />
                 )}
-                {!editMode && resistencias.length === 0 && <span className="op-data" style={{ fontSize: 11, color: "var(--muted)" }}>nenhuma</span>}
+                {!editMode && resistencias.length === 0 && <span className="op-data" style={{ fontSize:11, color:"var(--muted)" }}>nenhuma</span>}
+              </div>
+            </div>
+
+            {/* PROFICIÊNCIAS */}
+            <div>
+              <div className="op-label" style={{ marginBottom:4 }}>Proficiências</div>
+              <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+                <span style={{ fontFamily:"Cinzel,serif", fontSize:18, fontWeight:700, color:"var(--gold)" }}>+{proeficiencia}</span>
+                {editMode && (
+                  <input type="number" value={proeficiencia} onChange={e => setProeficiencia(parseInt(e.target.value)||0)}
+                    style={{ ...inputMini, width:50, fontSize:12, padding:"2px 6px" }}/>
+                )}
               </div>
             </div>
           </div>
@@ -1025,7 +1091,7 @@ export default function OrdemParanormalSheet({ character, charId, onBack, onUpda
         if (!edit) return null;
         const proposed = edit.proposedData || {};
         const base = { ...character, attrs, form, pv: hp, san, pe, pvMax, sanMax, peMax,
-          skillTreino, skillOutros, nex, pdBonus, creditos, defesaBonus, esquivaBonus,
+          skillTreino, skillOutros, nex, pdBonus, creditos, defesaBonus, defesaOutros, esquivaBonus,
           bloqueio, protecao, resistencias, rituais, itens, habilidades, attacks, poderes, inventario, descricao, diario };
         let diffs = []; let _diffErr = null;
         try { diffs = buildDiff(base, proposed); } catch(e) { _diffErr = String(e); }
