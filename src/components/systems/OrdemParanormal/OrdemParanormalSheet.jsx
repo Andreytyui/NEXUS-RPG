@@ -358,7 +358,10 @@ export default function OrdemParanormalSheet({ character, charId, onBack, onUpda
   /* ── derived ── */
   const { peTurno, deslocamento } = deriveStats(attrs, nex);
   const defesa = 10 + (attrs.AGI || 0) + defesaBonus + defesaOutros;
-  const esquiva = (attrs.AGI || 0) + esquivaBonus;
+  const treino2bônus = t => t === 1 ? 5 : t === 2 ? 10 : t === 3 ? 15 : 0;
+  const reflexosTreino = treino2bônus(skillTreino["Reflexos"]);
+  const reflexosExtra  = skillOutros["Reflexos"] || 0;
+  const esquiva = (attrs.AGI || 0) + reflexosTreino + reflexosExtra + esquivaBonus;
   const pvPct = pvMax > 0 ? hp / pvMax : 0;
   const sanPct = sanMax > 0 ? san / sanMax : 0;
   const pePct = peMax > 0 ? pe / peMax : 0;
@@ -783,6 +786,9 @@ export default function OrdemParanormalSheet({ character, charId, onBack, onUpda
                 <div style={{ textAlign:"center" }}>
                   <div className="op-label" style={{ marginBottom:4, fontSize:9 }}>Esquiva</div>
                   <div style={{ fontFamily:"Cinzel,serif", fontSize:22, fontWeight:700, color:"#fff", lineHeight:1 }}>{esquiva}</div>
+                  <div style={{ fontFamily:"'Share Tech Mono',monospace", fontSize:8, color:"rgba(255,255,255,0.3)", marginTop:3, whiteSpace:"nowrap" }}>
+                    AGI{reflexosTreino > 0 ? `+R${reflexosTreino}` : ""}{reflexosExtra > 0 ? `+${reflexosExtra}` : ""}{esquivaBonus > 0 ? `+${esquivaBonus}` : ""}
+                  </div>
                   {editMode && (
                     <input type="number" value={esquivaBonus} onChange={e => setEsquivaBonus(parseInt(e.target.value)||0)}
                       style={{ ...inputMini, width:42, textAlign:"center", fontSize:10, padding:"2px 4px", marginTop:3 }} placeholder="+bônus"/>
