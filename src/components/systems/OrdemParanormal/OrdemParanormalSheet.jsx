@@ -199,6 +199,7 @@ export default function OrdemParanormalSheet({ character, charId, onBack, onUpda
   const [skillOutros, setSkillOutros] = useState(character.skillOutros ?? {});
   const [skillAttr] = useState(character.skillAttr ?? {});
   const [pdBonus, setPdBonus] = useState(character.pdBonus ?? 0);
+  const [deslocamentoBonus, setDeslocamentoBonus] = useState(character.deslocamentoBonus ?? 0);
   const [nex, setNex] = useState(character.nex ?? 5);
 
   const cs0 = useMemo(() => nexStats(character.nex ?? 5, classe?.id, character.attrs || attrs), []); // eslint-disable-line
@@ -290,7 +291,7 @@ export default function OrdemParanormalSheet({ character, charId, onBack, onUpda
     const edit = pendingEdits[Math.min(reviewIdx, pendingEdits.length - 1)];
     if (!edit) return;
     const base = { ...character, attrs, form, pv: hp, san, pe, pvMax, sanMax, peMax,
-      skillTreino, skillOutros, nex, pdBonus, creditos, defesaBonus, esquivaBonus,
+      skillTreino, skillOutros, nex, pdBonus, deslocamentoBonus, creditos, defesaBonus, esquivaBonus,
       bloqueio, protecao, resistencias, rituais, itens, habilidades, attacks, poderes, inventario, descricao, diario };
     let diffs = [];
     try { diffs = buildDiff(base, edit.proposedData || {}); } catch(e) { console.error("buildDiff useEffect error", e); }
@@ -324,7 +325,7 @@ export default function OrdemParanormalSheet({ character, charId, onBack, onUpda
 
   /* ── snapshot + debounced save (latest kept in ref for flush) ── */
   const snapshot = {
-    ...character, attrs, form, origem, classe, skillTreino, skillOutros, skillAttr, pdBonus, nex,
+    ...character, attrs, form, origem, classe, skillTreino, skillOutros, skillAttr, pdBonus, deslocamentoBonus, nex,
     pv: hp, san, pe, pvMax, sanMax, peMax, attacks, ataques: attacks, skills, poderes, rituais, itens,
     diario, creditos, rollHistory, trilha, defesaBonus, defesaOutros, esquivaBonus, bloqueio, protecao, resistencias,
     proeficiencia, elementoAfinidade, elementoEscolhidoEm, elementoGmOverride, elementoNotas,
@@ -349,18 +350,19 @@ export default function OrdemParanormalSheet({ character, charId, onBack, onUpda
     }, 900);
     return () => clearTimeout(saveTimer.current);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [attrs, form, skillTreino, skillOutros, pdBonus, nex, hp, san, pe, pvMax, sanMax, peMax, attacks, skills, poderes,
+  }, [attrs, form, skillTreino, skillOutros, pdBonus, deslocamentoBonus, nex, hp, san, pe, pvMax, sanMax, peMax, attacks, skills, poderes,
       rituais, itens, diario, creditos, defesaBonus, defesaOutros, esquivaBonus, bloqueio, protecao, resistencias,
       proeficiencia, elementoAfinidade, elementoNotas, habilidades, inventario, descricao, dtRituais]);
   useEffect(() => () => flushSave(), []); // flush on unmount
   const handleBack = () => { flushSave(); onBack?.(); };
 
   /* ── derived ── */
-  const { peTurno, deslocamento } = deriveStats(attrs, nex);
+  const { peTurno } = deriveStats(attrs, nex);
+  const deslocamentoDisplay = `${6 + (attrs.AGI || 0) + deslocamentoBonus}m / ${4 + (attrs.AGI || 0) + deslocamentoBonus}q`;
   const defesa = 10 + (attrs.AGI || 0) + defesaBonus + defesaOutros;
   const reflexosTreino = Number(skillTreino["Reflexos"]) || 0;
   const reflexosExtra  = Number(skillOutros["Reflexos"]) || 0;
-  const esquiva        = defesa + reflexosTreino + reflexosExtra;
+  const esquiva        = 10 + (attrs.AGI || 0) + reflexosTreino + reflexosExtra;
   const profBonus = nex >= 95 ? 6 : nex >= 75 ? 5 : nex >= 55 ? 4 : nex >= 35 ? 3 : nex >= 15 ? 2 : 1;
   const pvPct = pvMax > 0 ? hp / pvMax : 0;
   const sanPct = sanMax > 0 ? san / sanMax : 0;
@@ -787,7 +789,7 @@ export default function OrdemParanormalSheet({ character, charId, onBack, onUpda
                   <div className="op-label" style={{ marginBottom:4, fontSize:9 }}>Esquiva</div>
                   <div style={{ fontFamily:"Cinzel,serif", fontSize:22, fontWeight:700, color:"#fff", lineHeight:1 }}>{esquiva}</div>
                   <div style={{ fontFamily:"'Share Tech Mono',monospace", fontSize:8, color:"rgba(255,255,255,0.3)", marginTop:3, whiteSpace:"nowrap" }}>
-                    DEF{reflexosTreino > 0 ? `+Ref${reflexosTreino}` : ""}{reflexosExtra > 0 ? `+${reflexosExtra}` : ""}
+                    10+{attrs.AGI||0}AGI{reflexosTreino > 0 ? `+Ref${reflexosTreino}` : ""}{reflexosExtra > 0 ? `+${reflexosExtra}` : ""}
                   </div>
                 </div>
               </div>
@@ -940,7 +942,7 @@ export default function OrdemParanormalSheet({ character, charId, onBack, onUpda
       {/* ═══ FOOTER readouts ═══ */}
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 14, position: "relative", zIndex: 1 }}>
         <Readout label="PD / Turno" value={`${peTurno + pdBonus}`} note="esforço por rodada" onStep={editMode ? (d) => setPdBonus((b) => b + d) : null} />
-        <Readout label="Deslocamento" value={deslocamento} note="movimento por rodada" />
+        <Readout label="Deslocamento" value={deslocamentoDisplay} note="movimento por rodada" onStep={editMode ? (d) => setDeslocamentoBonus((b) => b + d) : null} />
         <Readout label="Classe" value={classe?.name || "Mundano"} note={origem?.name || "sem origem"} />
         {breach && (
           <button className="op-emrg" onClick={() => setWhisperOn((v) => !v)} style={{ flex: "0 0 auto", alignSelf: "center" }} aria-pressed={whisperOn}>
@@ -958,10 +960,10 @@ export default function OrdemParanormalSheet({ character, charId, onBack, onUpda
 
       {/* ═══ OVERLAYS ═══ */}
       {roll && (roll.crit ? (
-        /* ─── CRÍTICO: modal central fullscreen ─── */
-        <div className="op-overlay op-screenshake" onClick={() => setRoll(null)} role="dialog" aria-label="Resultado crítico">
+        /* ─── CRÍTICO: modal central fullscreen (portal em document.body) ─── */
+        createPortal(<div className="op-overlay" style={rootVars} onClick={() => setRoll(null)} role="dialog" aria-label="Resultado crítico">
           <div aria-hidden="true" style={{ position: "absolute", inset: 0, pointerEvents: "none", boxShadow: `inset 0 0 200px 70px ${theme.crisis.vignette}`, animation: "op-crit-vig 3s ease-in-out infinite" }} />
-          <div className={`op-roll-card op-grain op-crit op-crit-${elementoAfinidade || "ordem"}`}>
+          <div className={`op-roll-card op-grain op-crit op-crit-${elementoAfinidade || "ordem"} op-screenshake`}>
             <div className="op-crit-bg" aria-hidden="true">
               <div className="op-crit-symbol"><ElementoSymbol id={elementoAfinidade || "ordem"} size={210} color={theme.primary} /></div>
               <div className="op-orbit">
@@ -1011,7 +1013,7 @@ export default function OrdemParanormalSheet({ character, charId, onBack, onUpda
 
             <div className="op-label" style={{ marginTop: 14, textAlign: "center", color: "var(--muted)", position: "relative", zIndex: 2 }}>clique para fechar</div>
           </div>
-        </div>
+        </div>, document.body)
       ) : (
         /* ─── NORMAL: corner card fixo na viewport (portal em document.body) ─── */
         createPortal(

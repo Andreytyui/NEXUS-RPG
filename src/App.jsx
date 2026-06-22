@@ -328,22 +328,25 @@ const fsCreateCampaign = async (uid, userName, data) => {
 
 const fsJoinCampaign = async (uid, userName, code) => {
   try {
-    const q = query(collection(db,"campaigns"), where("inviteCode","==",code.toUpperCase()), where("isActive","==",true));
+    const q = query(collection(db,"campaigns"), where("inviteCode","==",code.toUpperCase()));
     const snap = await getDocs(q);
-    if (snap.empty) return { error: "Código inválido ou campanha não encontrada." };
-    const campDoc = snap.docs[0];
+    const activeDoc = snap.docs.find(d => d.data().isActive !== false);
+    if (!activeDoc) return { error: "Código inválido ou campanha não encontrada." };
+    const campDoc = activeDoc;
     const camp = campDoc.data();
     if (camp.members.includes(uid)) return { error: "Você já é membro desta campanha." };
     if (camp.members.length >= (camp.maxPlayers || 6)) return { error: "Campanha lotada." };
     const campSystem = camp.system || "Genérico";
     const memberLimitQ = query(
       collection(db, "campaigns"),
-      where("members", "array-contains", uid),
-      where("system", "==", campSystem),
-      where("isActive", "==", true)
+      where("members", "array-contains", uid)
     );
     const memberLimitSnap = await getDocs(memberLimitQ);
-    if (memberLimitSnap.size >= 3) return { error: `Você já participa de 3 campanhas do sistema "${campSystem}".` };
+    const sameSystemActive = memberLimitSnap.docs.filter(d => {
+      const data = d.data();
+      return data.isActive !== false && (data.system || "Genérico") === campSystem;
+    }).length;
+    if (sameSystemActive >= 3) return { error: `Você já participa de 3 campanhas do sistema "${campSystem}".` };
     await updateDoc(doc(db,"campaigns",campDoc.id), {
       members: arrayUnion(uid),
       [`memberNames.${uid}`]: userName,
@@ -1646,47 +1649,77 @@ function ChatMessage({ msg, uid, formatTime }) {
   const isRoll = msg.type === "roll";
 
   if (isSystem) return (
-    <div style={{textAlign:"center",padding:"5px 0"}}>
-      <span style={{fontFamily:"'Crimson Pro',serif",fontSize:13,color:"var(--muted)",fontStyle:"italic",padding:"3px 14px",background:"rgba(255,255,255,0.03)",borderRadius:12,border:"1px solid var(--border)"}}>
+    <div style={{textAlign:"center",padding:"10px 0",margin:"2px 0"}}>
+      <span style={{
+        fontFamily:"'Crimson Pro',serif",fontSize:14,
+        color:"rgba(210,190,230,0.75)",fontStyle:"italic",
+        padding:"5px 18px",
+        background:"rgba(176,48,216,0.08)",
+        borderRadius:20,border:"1px solid rgba(176,48,216,0.16)"
+      }}>
         {msg.content}
       </span>
     </div>
   );
 
   return (
-    <div style={{display:"flex",gap:8,alignItems:"flex-start",padding:"2px 4px",flexDirection:isOwn?"row-reverse":"row"}}>
-      <div style={{width:32,height:32,borderRadius:"50%",flexShrink:0,
-        background:"linear-gradient(135deg,rgba(176,48,216,0.28),rgba(176,48,216,0.08))",
-        border:"1px solid rgba(176,48,216,0.22)",
+    <div style={{display:"flex",gap:10,alignItems:"flex-start",padding:"2px 6px",flexDirection:isOwn?"row-reverse":"row"}}>
+      <div style={{
+        width:36,height:36,borderRadius:"50%",flexShrink:0,
+        background: isOwn
+          ? "linear-gradient(135deg,rgba(176,48,216,0.55),rgba(110,30,180,0.45))"
+          : "linear-gradient(135deg,rgba(255,255,255,0.14),rgba(255,255,255,0.07))",
+        border: isOwn
+          ? "1.5px solid rgba(200,110,255,0.55)"
+          : "1.5px solid rgba(255,255,255,0.18)",
         display:msg.grouped?"block":"flex",alignItems:"center",justifyContent:"center",
-        fontFamily:"Cinzel,serif",fontSize:12,color:"#c8a8f0",overflow:"hidden",
-        opacity:msg.grouped?0:1,pointerEvents:"none",
+        fontFamily:"Cinzel,serif",fontSize:14,fontWeight:600,color:"#e8d4ff",
+        overflow:"hidden",opacity:msg.grouped?0:1,pointerEvents:"none",
       }}>
         {!msg.grouped && (msg.userPhoto
           ? <img src={msg.userPhoto} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>
-          : (msg.userName?.charAt(0)?.toUpperCase()||"?"))}
+          : <span>{msg.userName?.charAt(0)?.toUpperCase()||"?"}</span>)}
       </div>
-      <div style={{maxWidth:"72%",display:"flex",flexDirection:"column",gap:1,alignItems:isOwn?"flex-end":"flex-start"}}>
+      <div style={{maxWidth:"74%",display:"flex",flexDirection:"column",gap:3,alignItems:isOwn?"flex-end":"flex-start"}}>
         {!msg.grouped && (
-          <div style={{display:"flex",gap:6,alignItems:"center",padding:"0 4px"}}>
-            {!isOwn && <span style={{fontFamily:"Cinzel,serif",fontSize:10,letterSpacing:1,color:isRoll?"#c8a8f0":"var(--muted2)"}}>{msg.userName}</span>}
-            <span style={{fontFamily:"Cinzel,serif",fontSize:8,color:"var(--muted)",letterSpacing:0.5}}>{formatTime(msg.timestamp)}</span>
+          <div style={{display:"flex",gap:8,alignItems:"baseline",padding:"0 5px",flexDirection:isOwn?"row-reverse":"row"}}>
+            {!isOwn && (
+              <span style={{fontFamily:"Cinzel,serif",fontSize:11,letterSpacing:0.5,color:"#c4a8e0",fontWeight:600}}>
+                {msg.userName}
+              </span>
+            )}
+            <span style={{fontFamily:"'Crimson Pro',serif",fontSize:11,color:"rgba(200,180,220,0.42)"}}>
+              {formatTime(msg.timestamp)}
+            </span>
           </div>
         )}
         <div style={{
-          padding:isRoll?"10px 14px":"8px 12px",
-          borderRadius:isOwn?"10px 2px 10px 10px":"2px 10px 10px 10px",
-          background:isRoll?"rgba(176,48,216,0.14)":isOwn?"rgba(176,48,216,0.18)":"var(--card2)",
-          border:isRoll?"1px solid rgba(176,48,216,0.35)":isOwn?"1px solid rgba(176,48,216,0.28)":"1px solid var(--border)",
+          padding:isRoll?"11px 15px":"9px 14px",
+          borderRadius:isOwn?"14px 3px 14px 14px":"3px 14px 14px 14px",
+          background: isRoll
+            ? "rgba(110,50,190,0.28)"
+            : isOwn
+              ? "rgba(148,52,210,0.40)"
+              : "rgba(255,255,255,0.10)",
+          border: isRoll
+            ? "1px solid rgba(176,48,216,0.50)"
+            : isOwn
+              ? "1px solid rgba(190,100,255,0.42)"
+              : "1px solid rgba(255,255,255,0.14)",
           fontFamily:isRoll?"Cinzel,serif":"'Crimson Pro',serif",
-          fontSize:isRoll?12:15,color:isRoll?"#c8a8f0":"var(--text)",lineHeight:1.5,wordBreak:"break-word",
+          fontSize:isRoll?13:17,
+          color:isOwn?"#f0e0ff":"#ede5f8",
+          lineHeight:1.6,wordBreak:"break-word",
+          boxShadow: isOwn
+            ? "0 2px 8px rgba(120,40,200,0.22)"
+            : "0 1px 4px rgba(0,0,0,0.18)",
         }}>
           {isRoll ? (
-            <div style={{display:"flex",flexDirection:"column",gap:3}}>
-              <span style={{fontSize:9,letterSpacing:1,opacity:0.65,textTransform:"uppercase"}}>🎲 Rolagem</span>
-              <span>{msg.content.replace(/\*\*/g,"")}</span>
+            <div style={{display:"flex",flexDirection:"column",gap:4}}>
+              <span style={{fontSize:9,letterSpacing:1.5,opacity:0.65,textTransform:"uppercase",color:"#c8a8f0"}}>🎲 Rolagem</span>
+              <span style={{fontSize:16,color:"#ecdcff"}}>{msg.content.replace(/\*\*/g,"")}</span>
               {msg.rollData && (
-                <span style={{fontSize:11,opacity:0.6,fontFamily:"'Crimson Pro',serif"}}>
+                <span style={{fontSize:12,opacity:0.65,fontFamily:"'Crimson Pro',serif",color:"#bca8dc"}}>
                   [{msg.rollData.rolls?.join(", ")}]{msg.rollData.mod!==0?` ${msg.rollData.mod>0?"+":""}${msg.rollData.mod}`:""}
                 </span>
               )}
@@ -1698,7 +1731,7 @@ function ChatMessage({ msg, uid, formatTime }) {
   );
 }
 
-function CampaignChat({ campaignId, uid, userName, userPhoto }) {
+function CampaignChat({ campaignId, uid, userName, userPhoto, isMaster }) {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(true);
@@ -1706,9 +1739,22 @@ function CampaignChat({ campaignId, uid, userName, userPhoto }) {
   const [typingUsers, setTypingUsers] = useState([]);
   const [lastDoc, setLastDoc] = useState(null);
   const [hasMore, setHasMore] = useState(false);
+  const [clearing, setClearing] = useState(false);
   const messagesEndRef = useRef(null);
   const typingTimeoutRef = useRef(null);
   const LIMIT = 50;
+
+  const clearAllMessages = async () => {
+    if (!window.confirm("Apagar todas as mensagens do chat? Esta ação não pode ser desfeita.")) return;
+    setClearing(true);
+    try {
+      const snap = await getDocs(collection(db, "campaigns", campaignId, "messages"));
+      const b = writeBatch(db);
+      snap.docs.forEach(d => b.delete(d.ref));
+      await b.commit();
+    } catch(e) { console.error(e); }
+    setClearing(false);
+  };
 
   useEffect(() => {
     setLoading(true);
@@ -1721,7 +1767,11 @@ function CampaignChat({ campaignId, uid, userName, userPhoto }) {
       limit(LIMIT)
     );
     const unsub = onSnapshot(q, snap => {
-      const msgs = snap.docs.map(d=>({id:d.id,...d.data()})).reverse();
+      const cutoff = Date.now() - MSG_TTL_MS;
+      const msgs = snap.docs
+        .map(d=>({id:d.id,...d.data()}))
+        .filter(d => (d.timestamp?.toMillis?.() ?? Date.now()) >= cutoff)
+        .reverse();
       setMessages(msgs);
       if (snap.docs.length>0) setLastDoc(snap.docs[snap.docs.length-1]);
       setHasMore(snap.docs.length===LIMIT);
@@ -1803,67 +1853,117 @@ function CampaignChat({ campaignId, uid, userName, userPhoto }) {
     <div style={{display:"flex",flexDirection:"column",flex:1,minHeight:0,overflow:"hidden"}}>
       {hasMore && (
         <div style={{textAlign:"center",padding:"8px 0",flexShrink:0}}>
-          <button onClick={loadMore} style={{background:"none",border:"1px solid var(--border)",borderRadius:4,cursor:"pointer",color:"var(--muted)",fontFamily:"Cinzel,serif",fontSize:8,letterSpacing:1,textTransform:"uppercase",padding:"5px 14px"}}>
-            Carregar mensagens anteriores
+          <button onClick={loadMore} style={{
+            background:"rgba(176,48,216,0.10)",border:"1px solid rgba(176,48,216,0.28)",
+            borderRadius:20,cursor:"pointer",
+            color:"#c8a8f0",fontFamily:"Cinzel,serif",fontSize:9,letterSpacing:1,
+            textTransform:"uppercase",padding:"6px 18px",transition:"all 0.18s",
+          }}>
+            ↑ Carregar mensagens anteriores
           </button>
         </div>
       )}
-      <div style={{flex:1,overflowY:"auto",padding:"12px 4px",display:"flex",flexDirection:"column",gap:1,minHeight:0}}>
+      <div style={{
+        flex:1,overflowY:"auto",padding:"14px 8px",
+        display:"flex",flexDirection:"column",gap:4,minHeight:0,
+        scrollbarWidth:"thin",scrollbarColor:"rgba(176,48,216,0.25) transparent",
+      }}>
         {loading && (
-          <div style={{display:"flex",justifyContent:"center",padding:"40px 0"}}>
-            <div style={{width:24,height:24,border:"2px solid rgba(176,48,216,0.3)",borderTopColor:"#b030d8",borderRadius:"50%",animation:"spin 0.8s linear infinite"}}/>
+          <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",flex:1,gap:12,padding:"40px 0"}}>
+            <div style={{width:28,height:28,border:"2.5px solid rgba(176,48,216,0.2)",borderTopColor:"#b030d8",borderRadius:"50%",animation:"spin 0.8s linear infinite"}}/>
+            <span style={{fontFamily:"'Crimson Pro',serif",fontSize:14,color:"rgba(200,175,225,0.5)",fontStyle:"italic"}}>Carregando mensagens…</span>
           </div>
         )}
         {chatError && (
-          <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",flex:1,gap:10,textAlign:"center",padding:"20px"}}>
-            <div style={{fontSize:28,opacity:0.5}}>⚠</div>
-            <div style={{fontFamily:"Cinzel,serif",fontSize:10,letterSpacing:1,color:"#e07070",textTransform:"uppercase"}}>Erro ao carregar chat</div>
-            <div style={{fontFamily:"'Crimson Pro',serif",fontSize:13,color:"var(--muted)",fontStyle:"italic",maxWidth:380,lineHeight:1.6}}>{chatError}</div>
+          <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",flex:1,gap:12,textAlign:"center",padding:"24px 16px"}}>
+            <div style={{fontSize:30,opacity:0.6}}>⚠</div>
+            <div style={{fontFamily:"Cinzel,serif",fontSize:11,letterSpacing:1,color:"#e07070",textTransform:"uppercase"}}>Erro ao carregar chat</div>
+            <div style={{fontFamily:"'Crimson Pro',serif",fontSize:15,color:"rgba(220,190,230,0.6)",fontStyle:"italic",maxWidth:380,lineHeight:1.65}}>{chatError}</div>
           </div>
         )}
         {!loading&&!chatError&&messages.length===0 && (
-          <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",flex:1,gap:10,opacity:0.45,textAlign:"center"}}>
-            <div style={{fontSize:32}}>💬</div>
-            <div style={{fontFamily:"Cinzel,serif",fontSize:10,letterSpacing:1,color:"var(--muted)",textTransform:"uppercase"}}>Nenhuma mensagem</div>
-            <div style={{fontFamily:"'Crimson Pro',serif",fontSize:14,color:"var(--muted)",fontStyle:"italic"}}>Use /r 1d20 para rolar dados no chat</div>
+          <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",flex:1,gap:12,textAlign:"center",padding:"40px 16px"}}>
+            <div style={{fontSize:36,opacity:0.35}}>💬</div>
+            <div style={{fontFamily:"Cinzel,serif",fontSize:11,letterSpacing:1.5,color:"rgba(200,180,220,0.5)",textTransform:"uppercase"}}>Nenhuma mensagem ainda</div>
+            <div style={{fontFamily:"'Crimson Pro',serif",fontSize:15,color:"rgba(200,175,215,0.4)",fontStyle:"italic",lineHeight:1.55}}>
+              Use <span style={{fontFamily:"Cinzel,serif",fontSize:13,color:"rgba(200,140,255,0.65)"}}>/ r 1d20+5</span> para rolar dados no chat
+            </div>
           </div>
         )}
         {grouped.map(msg=>(
           <ChatMessage key={msg.id} msg={msg} uid={uid} formatTime={formatTime}/>
         ))}
         {typingUsers.length>0 && (
-          <div style={{display:"flex",alignItems:"center",gap:8,padding:"4px 8px",opacity:0.6}}>
-            <div style={{display:"flex",gap:3,alignItems:"center"}}>
+          <div style={{display:"flex",alignItems:"center",gap:10,padding:"6px 12px"}}>
+            <div style={{display:"flex",gap:4,alignItems:"center"}}>
               {[0,1,2].map(i=>(
-                <div key={i} style={{width:5,height:5,borderRadius:"50%",background:"var(--muted2)",animation:`pulse 1.2s ${i*0.2}s infinite`}}/>
+                <div key={i} style={{
+                  width:6,height:6,borderRadius:"50%",
+                  background:"rgba(176,48,216,0.55)",
+                  animation:`pulse 1.2s ${i*0.2}s infinite`
+                }}/>
               ))}
             </div>
-            <span style={{fontFamily:"'Crimson Pro',serif",fontSize:13,color:"var(--muted2)",fontStyle:"italic"}}>
+            <span style={{fontFamily:"'Crimson Pro',serif",fontSize:14,color:"rgba(200,175,220,0.55)",fontStyle:"italic"}}>
               {typingUsers.map(u=>u.userName).join(", ")} está digitando...
             </span>
           </div>
         )}
         <div ref={messagesEndRef}/>
       </div>
-      <div style={{padding:"10px 4px",borderTop:"1px solid var(--border)",display:"flex",gap:8,alignItems:"center",flexShrink:0}}>
-        <div style={{flex:1,position:"relative"}}>
-          <input
-            value={input}
-            onChange={handleInput}
-            onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();sendMessage();}}}
-            placeholder="Mensagem... ou /1d20+5 para rolar dados"
-            style={{paddingRight:50,background:"rgba(176,48,216,0.06)",border:"1px solid rgba(176,48,216,0.22)",borderRadius:6}}
-          />
-          <span style={{position:"absolute",right:10,top:"50%",transform:"translateY(-50%)",fontFamily:"Cinzel,serif",fontSize:9,color:"var(--muted)",letterSpacing:1,pointerEvents:"none"}}>🎲</span>
+      <div style={{
+        padding:"12px 8px 10px",
+        borderTop:"1px solid rgba(176,48,216,0.18)",
+        display:"flex",flexDirection:"column",gap:8,flexShrink:0,
+        background:"rgba(0,0,0,0.18)",
+      }}>
+        <div style={{display:"flex",gap:8,alignItems:"center"}}>
+          <div style={{flex:1,position:"relative"}}>
+            <input
+              value={input}
+              onChange={handleInput}
+              onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();sendMessage();}}}
+              placeholder="Mensagem… ou /r 1d20+5 para dados"
+              style={{
+                paddingRight:46,paddingLeft:14,height:42,
+                background:"rgba(255,255,255,0.07)",
+                border:"1px solid rgba(176,48,216,0.30)",
+                borderRadius:10,
+                color:"#ede5f8",
+                fontFamily:"'Crimson Pro',serif",
+                fontSize:16,
+                outline:"none",
+                width:"100%",
+                boxSizing:"border-box",
+                transition:"border-color 0.2s",
+              }}
+            />
+            <span style={{position:"absolute",right:12,top:"50%",transform:"translateY(-50%)",fontSize:14,opacity:0.4,pointerEvents:"none"}}>🎲</span>
+          </div>
+          <button onClick={sendMessage} disabled={!input.trim()} style={{
+            width:42,height:42,borderRadius:10,flexShrink:0,
+            background:input.trim()?"rgba(150,50,220,0.45)":"rgba(255,255,255,0.05)",
+            border:input.trim()?"1px solid rgba(190,90,255,0.5)":"1px solid rgba(255,255,255,0.1)",
+            cursor:input.trim()?"pointer":"default",
+            display:"flex",alignItems:"center",justifyContent:"center",
+            color:input.trim()?"#e8d0ff":"rgba(200,175,220,0.3)",
+            fontSize:16,transition:"all 0.2s",
+            boxShadow:input.trim()?"0 2px 10px rgba(140,40,220,0.3)":"none",
+          }}>➤</button>
         </div>
-        <button onClick={sendMessage} disabled={!input.trim()} style={{
-          width:38,height:38,borderRadius:6,flexShrink:0,
-          background:input.trim()?"rgba(176,48,216,0.18)":"rgba(255,255,255,0.04)",
-          border:input.trim()?"1px solid rgba(176,48,216,0.38)":"1px solid var(--border)",
-          cursor:input.trim()?"pointer":"default",
-          display:"flex",alignItems:"center",justifyContent:"center",
-          color:input.trim()?"#c8a8f0":"var(--muted)",fontSize:15,transition:"all 0.2s",
-        }}>➤</button>
+        {isMaster && (
+          <button onClick={clearAllMessages} disabled={clearing || messages.length===0}
+            style={{
+              width:"100%",padding:"6px",borderRadius:7,
+              border:"1px solid rgba(220,50,50,0.25)",
+              background:"rgba(220,50,50,0.06)",
+              color:messages.length>0?"rgba(230,110,110,0.85)":"rgba(255,255,255,0.18)",
+              fontFamily:"Cinzel,serif",fontSize:9,letterSpacing:"0.12em",textTransform:"uppercase",
+              cursor:messages.length>0?"pointer":"default",transition:"all 0.2s",
+            }}>
+            {clearing ? "Limpando…" : "🗑 Apagar todo o histórico do chat"}
+          </button>
+        )}
       </div>
     </div>
   );
@@ -3877,6 +3977,10 @@ function MestrePanel({ campaign, uid, userName, userPhoto }) {
   const [gmLog, setGmLog] = useState([]);
   const [narr, setNarr] = useState("");
   const [narrSent, setNarrSent] = useState(false);
+  const [narrTarget, setNarrTarget] = useState("all"); // "all" | "specific"
+  const [narrTargetIds, setNarrTargetIds] = useState(new Set());
+  const [narrImage, setNarrImage] = useState(""); // base64
+  const narrImageInputRef = useRef(null);
 
   useEffect(() => {
     const qy = query(collection(db, "campaigns", campaign.id, "sharedSheets"));
@@ -3913,11 +4017,33 @@ function MestrePanel({ campaign, uid, userName, userPhoto }) {
     setDice("");
   };
 
-  const sendNarr = async () => {
-    const text = narr.trim(); if (!text) return;
-    try { await updateDoc(doc(db, "campaigns", campaign.id), { narracao: { text, ts: Date.now(), by: userName } }); } catch (e) { console.error(e); }
-    setNarr(""); setNarrSent(true); setTimeout(() => setNarrSent(false), 2500);
+  const sendNarr = async (testMode = false) => {
+    const text = narr.trim();
+    if (!text && !narrImage) return;
+    const payload = { text, image: narrImage || null, ts: Date.now(), by: userName };
+    try {
+      if (testMode) {
+        await updateDoc(doc(db, "campaigns", campaign.id), { narracaoTest: { ...payload, test: true } });
+      } else if (narrTarget === "all") {
+        await updateDoc(doc(db, "campaigns", campaign.id), { narracao: payload });
+      } else {
+        const updates = {};
+        narrTargetIds.forEach(pid => { updates[`narracaoPrivada.${pid}`] = payload; });
+        if (Object.keys(updates).length > 0) await updateDoc(doc(db, "campaigns", campaign.id), updates);
+      }
+    } catch(e) { console.error(e); }
+    setNarr(""); setNarrImage(""); setNarrSent(true); setTimeout(() => setNarrSent(false), 2500);
   };
+
+  const handleNarrImage = async (e) => {
+    const file = e.target.files?.[0]; if (!file) return;
+    try { setNarrImage(await resizeCoverImage(file)); } catch(_) {}
+    e.target.value = "";
+  };
+
+  const toggleNarrTarget = (pid) => setNarrTargetIds(prev => {
+    const next = new Set(prev); next.has(pid) ? next.delete(pid) : next.add(pid); return next;
+  });
 
   const lbl = { fontFamily: "Cinzel,serif", fontSize: 10, letterSpacing: "0.12em", textTransform: "uppercase", color: "rgba(255,255,255,0.5)" };
   const card = { background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 10, padding: 14 };
@@ -4050,31 +4176,132 @@ function MestrePanel({ campaign, uid, userName, userPhoto }) {
       </div>
 
       {/* FERRAMENTAS */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-        {/* Dados do Mestre */}
-        <div style={card}>
-          <div style={{ ...lbl, marginBottom: 8 }}>🎲 Dados do Mestre</div>
-          <div style={{ display: "flex", gap: 6 }}>
-            <input value={dice} onChange={e => setDice(e.target.value)} onKeyDown={e => e.key === "Enter" && doRoll(false)} placeholder="2d6+3, 1d20…" style={inp} />
-            <button onClick={() => doRoll(false)} title="Rolagem privada" style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.15)", borderRadius: 6, color: "#ccc", padding: "0 12px", cursor: "pointer", fontFamily: "'Cinzel',serif", fontSize: 10 }}>Privado</button>
-            <button onClick={() => doRoll(true)} title="Revelar para jogadores" style={{ background: "rgba(176,48,216,0.25)", border: "1px solid rgba(176,48,216,0.5)", borderRadius: 6, color: "#e8c8ff", padding: "0 12px", cursor: "pointer", fontFamily: "'Cinzel',serif", fontSize: 10 }}>Revelar</button>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+
+        {/* ── Dados do Mestre ── */}
+        <div style={{ background:"linear-gradient(135deg,rgba(30,10,50,0.7),rgba(10,5,20,0.9))", border:"1px solid rgba(176,48,216,0.2)", borderRadius:12, padding:16, display:"flex", flexDirection:"column", gap:10 }}>
+          <div style={{ display:"flex", alignItems:"center", gap:8, paddingBottom:10, borderBottom:"1px solid rgba(255,255,255,0.06)" }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="rgba(176,48,216,0.8)" strokeWidth="1.8"><polygon points="12 2 19 7 19 17 12 22 5 17 5 7 12 2"/><path d="M5 7l7 5 7-5M12 12v10" opacity="0.5"/></svg>
+            <span style={{ fontFamily:"Cinzel,serif", fontSize:10, letterSpacing:"0.14em", textTransform:"uppercase", color:"rgba(176,48,216,0.9)" }}>Dados do Mestre</span>
           </div>
-          <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 3, maxHeight: 120, overflowY: "auto" }}>
+          <div style={{ display:"flex", gap:6 }}>
+            <input value={dice} onChange={e => setDice(e.target.value)} onKeyDown={e => e.key==="Enter" && doRoll(false)}
+              placeholder="2d6+3, 1d20…"
+              style={{ flex:1, background:"rgba(0,0,0,0.5)", border:"1px solid rgba(255,255,255,0.1)", borderRadius:7, color:"#e0d0ff", padding:"8px 10px", fontFamily:"'Share Tech Mono',monospace", fontSize:12, outline:"none" }}/>
+          </div>
+          <div style={{ display:"flex", gap:6 }}>
+            <button onClick={() => doRoll(false)} style={{ flex:1, padding:"7px", borderRadius:7, border:"1px solid rgba(255,255,255,0.14)", background:"rgba(255,255,255,0.05)", color:"rgba(255,255,255,0.6)", fontFamily:"Cinzel,serif", fontSize:9, letterSpacing:1, textTransform:"uppercase", cursor:"pointer" }}>🔒 Privado</button>
+            <button onClick={() => doRoll(true)} style={{ flex:1, padding:"7px", borderRadius:7, border:"1px solid rgba(176,48,216,0.55)", background:"rgba(176,48,216,0.2)", color:"#d8a8ff", fontFamily:"Cinzel,serif", fontSize:9, letterSpacing:1, textTransform:"uppercase", cursor:"pointer" }}>📢 Revelar</button>
+          </div>
+          <div style={{ display:"flex", flexDirection:"column", gap:4, maxHeight:130, overflowY:"auto" }}>
+            {gmLog.length === 0 && <div style={{ fontFamily:"'Crimson Pro',serif", fontSize:12, color:"rgba(255,255,255,0.25)", textAlign:"center", padding:"8px 0" }}>Nenhuma rolagem ainda</div>}
             {gmLog.map(r => (
-              <div key={r.id} style={{ fontFamily: "'Share Tech Mono',monospace", fontSize: 11, color: "rgba(255,255,255,0.6)", display: "flex", justifyContent: "space-between" }}>
-                <span>{r.expr} [{r.rolls.join(",")}]</span><span style={{ color: r.reveal ? "#d8a8ff" : "rgba(255,255,255,0.5)" }}>{r.total}{r.reveal ? " 📢" : " 🔒"}</span>
+              <div key={r.id} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"4px 8px", borderRadius:5, background:"rgba(0,0,0,0.3)", border:"1px solid rgba(255,255,255,0.05)" }}>
+                <span style={{ fontFamily:"'Share Tech Mono',monospace", fontSize:10, color:"rgba(255,255,255,0.5)" }}>{r.expr} <span style={{ color:"rgba(255,255,255,0.3)" }}>[{r.rolls.join(",")}]</span></span>
+                <span style={{ fontFamily:"'Share Tech Mono',monospace", fontSize:12, fontWeight:700, color: r.reveal?"#d8a8ff":"rgba(255,255,255,0.55)" }}>{r.total} {r.reveal?"📢":"🔒"}</span>
               </div>
             ))}
           </div>
         </div>
 
-        {/* Narração Global */}
-        <div style={card}>
-          <div style={{ ...lbl, marginBottom: 8 }}>📢 Narração Global</div>
-          <textarea value={narr} onChange={e => setNarr(e.target.value)} placeholder="Uma transmissão que aparecerá na tela de todos os jogadores…" style={{ ...inp, fontFamily: "'Crimson Pro',serif", minHeight: 64, resize: "vertical" }} />
-          <button onClick={sendNarr} disabled={!narr.trim()} style={{ marginTop: 8, width: "100%", background: narr.trim() ? "rgba(176,48,216,0.25)" : "rgba(255,255,255,0.04)", border: "1px solid rgba(176,48,216,0.5)", borderRadius: 6, color: "#e8c8ff", padding: "9px", cursor: narr.trim() ? "pointer" : "default", fontFamily: "'Cinzel',serif", fontSize: 10, letterSpacing: 1, textTransform: "uppercase" }}>
-            {narrSent ? "✓ Transmitido" : "Transmitir"}
-          </button>
+        {/* ── Narração Global ── */}
+        <div style={{ background:"linear-gradient(135deg,rgba(20,5,35,0.8),rgba(8,4,18,0.95))", border:"1px solid rgba(176,48,216,0.25)", borderRadius:12, padding:16, display:"flex", flexDirection:"column", gap:10 }}>
+          <div style={{ display:"flex", alignItems:"center", gap:8, paddingBottom:10, borderBottom:"1px solid rgba(255,255,255,0.06)" }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="rgba(176,48,216,0.8)" strokeWidth="1.8"><path d="M22 3H2l8 9.46V19l4 2v-8.54L22 3z"/></svg>
+            <span style={{ fontFamily:"Cinzel,serif", fontSize:10, letterSpacing:"0.14em", textTransform:"uppercase", color:"rgba(176,48,216,0.9)" }}>Narração Global</span>
+          </div>
+
+          {/* Destino */}
+          <div style={{ display:"flex", background:"rgba(0,0,0,0.3)", borderRadius:8, padding:3, gap:3 }}>
+            {[["all","🌐 Todos"],["specific","👤 Específicos"]].map(([v,l]) => (
+              <button key={v} onClick={() => setNarrTarget(v)}
+                style={{ flex:1, padding:"6px", borderRadius:6, border:"none", background: narrTarget===v?"rgba(176,48,216,0.35)":"transparent",
+                  color: narrTarget===v?"#e8c8ff":"rgba(255,255,255,0.4)", fontFamily:"Cinzel,serif", fontSize:9, letterSpacing:1,
+                  textTransform:"uppercase", cursor:"pointer", transition:"all 0.2s" }}>{l}</button>
+            ))}
+          </div>
+
+          {/* Seleção de players específicos */}
+          {narrTarget === "specific" && (() => {
+            const charByOwner = {};
+            sheets.forEach(s => { charByOwner[s.ownerId] = { name: s.characterData?.form?.personagem || s.characterName, avatar: s.characterData?.form?.avatar }; });
+            const players = (campaign.members||[]).map(id => ({ id, char: charByOwner[id] }));
+            return players.length > 0 ? (
+              <div style={{ display:"flex", flexWrap:"wrap", gap:6 }}>
+                {players.map(({ id, char }) => {
+                  const sel = narrTargetIds.has(id);
+                  const name = char?.name || (id === uid ? "Você" : "Jogador");
+                  return (
+                    <label key={id} onClick={() => toggleNarrTarget(id)}
+                      style={{ display:"flex", alignItems:"center", gap:7, cursor:"pointer", padding:"5px 10px 5px 6px",
+                        borderRadius:20, border:`1px solid ${sel?"rgba(176,48,216,0.7)":"rgba(255,255,255,0.1)"}`,
+                        background: sel?"rgba(176,48,216,0.18)":"rgba(255,255,255,0.03)", transition:"all 0.18s" }}>
+                      <div style={{ width:22, height:22, borderRadius:"50%", overflow:"hidden", flexShrink:0,
+                        border:`1.5px solid ${sel?"rgba(176,48,216,0.8)":"rgba(255,255,255,0.2)"}`,
+                        background:"rgba(176,48,216,0.1)", display:"flex", alignItems:"center", justifyContent:"center" }}>
+                        {char?.avatar ? <img src={char.avatar} alt="" style={{ width:"100%", height:"100%", objectFit:"cover" }}/> : <span style={{ fontSize:10 }}>👤</span>}
+                      </div>
+                      <span style={{ fontFamily:"Cinzel,serif", fontSize:9, color: sel?"#e8c8ff":"rgba(255,255,255,0.55)", whiteSpace:"nowrap" }}>{name}</span>
+                      {sel && <span style={{ fontSize:9, color:"#b030d8" }}>✓</span>}
+                    </label>
+                  );
+                })}
+              </div>
+            ) : <div style={{ fontFamily:"'Crimson Pro',serif", fontSize:12, color:"rgba(255,255,255,0.3)", padding:"4px 0" }}>Nenhum membro na campanha</div>;
+          })()}
+
+          {/* Texto */}
+          <textarea value={narr} onChange={e => setNarr(e.target.value)}
+            placeholder="Escreva a narração que aparecerá na tela dos jogadores…"
+            style={{ background:"rgba(0,0,0,0.4)", border:"1px solid rgba(255,255,255,0.08)", borderRadius:8,
+              color:"#e8e0f0", padding:"10px 12px", fontFamily:"'Crimson Pro',serif", fontSize:14,
+              lineHeight:1.5, minHeight:72, resize:"vertical", outline:"none", width:"100%", boxSizing:"border-box" }}/>
+
+          {/* Imagem */}
+          <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+            <button onClick={() => narrImageInputRef.current?.click()}
+              style={{ display:"flex", alignItems:"center", gap:6, padding:"6px 12px", borderRadius:7,
+                border:"1px solid rgba(255,255,255,0.12)", background:"rgba(255,255,255,0.04)",
+                color:"rgba(255,255,255,0.55)", fontFamily:"Cinzel,serif", fontSize:9, letterSpacing:1,
+                textTransform:"uppercase", cursor:"pointer" }}>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>
+              Imagem
+            </button>
+            {narrImage && (
+              <button onClick={() => setNarrImage("")}
+                style={{ padding:"4px 8px", borderRadius:6, border:"1px solid rgba(255,80,80,0.35)",
+                  background:"rgba(255,80,80,0.07)", color:"#f88", fontFamily:"Cinzel,serif", fontSize:9, cursor:"pointer" }}>× Remover</button>
+            )}
+            <input ref={narrImageInputRef} type="file" accept="image/*" hidden onChange={handleNarrImage}/>
+          </div>
+          {narrImage && (
+            <img src={narrImage} alt="preview"
+              style={{ maxWidth:"100%", maxHeight:110, borderRadius:7, objectFit:"contain",
+                border:"1px solid rgba(176,48,216,0.25)", background:"rgba(0,0,0,0.3)" }}/>
+          )}
+
+          {/* Botões */}
+          <div style={{ display:"flex", gap:8, marginTop:2 }}>
+            <button onClick={() => sendNarr(true)} disabled={!narr.trim() && !narrImage}
+              style={{ flex:1, padding:"9px 6px", borderRadius:8,
+                border:`1px solid ${(narr.trim()||narrImage)?"rgba(255,200,70,0.5)":"rgba(255,255,255,0.07)"}`,
+                background:(narr.trim()||narrImage)?"rgba(255,200,70,0.1)":"rgba(255,255,255,0.02)",
+                color:(narr.trim()||narrImage)?"#ffd060":"rgba(255,255,255,0.25)",
+                fontFamily:"Cinzel,serif", fontSize:9, letterSpacing:1, textTransform:"uppercase",
+                cursor:(narr.trim()||narrImage)?"pointer":"default" }}>
+              🧪 Testar
+            </button>
+            <button onClick={() => sendNarr(false)} disabled={!narr.trim() && !narrImage}
+              style={{ flex:2, padding:"9px", borderRadius:8,
+                border:`1px solid ${(narr.trim()||narrImage)?"rgba(176,48,216,0.6)":"rgba(255,255,255,0.07)"}`,
+                background:(narr.trim()||narrImage)?"linear-gradient(135deg,rgba(120,20,180,0.4),rgba(176,48,216,0.25))":"rgba(255,255,255,0.02)",
+                color:(narr.trim()||narrImage)?"#e8c8ff":"rgba(255,255,255,0.25)",
+                fontFamily:"Cinzel,serif", fontSize:10, letterSpacing:1, textTransform:"uppercase",
+                cursor:(narr.trim()||narrImage)?"pointer":"default",
+                boxShadow:(narr.trim()||narrImage)?"0 0 12px rgba(176,48,216,0.2)":"none" }}>
+              {narrSent ? "✓ Transmitido" : "📡 Transmitir"}
+            </button>
+          </div>
         </div>
       </div>
 
@@ -4097,33 +4324,77 @@ function MestrePanel({ campaign, uid, userName, userPhoto }) {
   );
 }
 
-/* Overlay de narração global — escuta campaign.narracao e exibe em tela cheia p/ todos. */
-function NarracaoOverlay({ campaign }) {
-  const ts = campaign?.narracao?.ts;
-  const text = campaign?.narracao?.text || "";
-  const seenRef = useRef(ts || 0);
+/* Overlay de narração global — escuta narracao (global), narracaoPrivada[uid] e narracaoTest (mestre). */
+function NarracaoOverlay({ campaign, uid, isMaster }) {
+  const pickLatest = () => {
+    const candidates = [
+      campaign?.narracao,
+      campaign?.narracaoPrivada?.[uid],
+      isMaster ? campaign?.narracaoTest : null,
+    ].filter(Boolean);
+    return candidates.reduce((best, c) => (!best || c.ts > best.ts) ? c : best, null);
+  };
+
+  const initTs = Math.max(
+    campaign?.narracao?.ts || 0,
+    campaign?.narracaoPrivada?.[uid]?.ts || 0,
+    campaign?.narracaoTest?.ts || 0,
+  );
+  const seenRef = useRef(initTs);
   const [show, setShow] = useState(false);
+  const [current, setCurrent] = useState(null);
   const [typed, setTyped] = useState("");
 
-  useEffect(() => {
-    if (ts && ts > seenRef.current) { seenRef.current = ts; setShow(true); }
-  }, [ts]);
+  const globalTs  = campaign?.narracao?.ts;
+  const privateTs = campaign?.narracaoPrivada?.[uid]?.ts;
+  const testTs    = campaign?.narracaoTest?.ts;
 
   useEffect(() => {
-    if (!show) return;
+    const latest = pickLatest();
+    if (latest && latest.ts > seenRef.current) {
+      seenRef.current = latest.ts;
+      setCurrent(latest);
+      setShow(true);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [globalTs, privateTs, testTs]);
+
+  useEffect(() => {
+    if (!show || !current) return;
+    const text = current.text || "";
     let i = 0; setTyped("");
     const iv = setInterval(() => { i++; setTyped(text.slice(0, i)); if (i >= text.length) clearInterval(iv); }, 28);
     return () => clearInterval(iv);
-  }, [show, text]);
+  }, [show, current]);
 
-  if (!show) return null;
+  if (!show || !current) return null;
+  const isTest = !!current.test;
+  const text = current.text || "";
+  const image = current.image || null;
+
   return createPortal(
-    <div onClick={() => setShow(false)} style={{ position: "fixed", inset: 0, zIndex: 400, background: "radial-gradient(circle at 50% 40%, rgba(20,4,30,0.9), rgba(0,0,0,0.97))", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 28, cursor: "pointer" }}>
-      <svg width="54" height="54" viewBox="0 0 64 64" fill="none" style={{ marginBottom: 24, opacity: 0.8 }}><path d="M3 32c8-14 18-20 29-20s21 6 29 20c-8 14-18 20-29 20S11 46 3 32z" stroke="#b030d8" strokeWidth="1.6" /><circle cx="32" cy="32" r="9" stroke="#b030d8" strokeWidth="1.6" /><circle cx="32" cy="32" r="3.5" fill="#b030d8" /></svg>
-      <div style={{ fontFamily: "'Crimson Pro',serif", fontSize: "clamp(18px,3.2vw,30px)", color: "#e8e0f0", textAlign: "center", maxWidth: 760, lineHeight: 1.6, textShadow: "0 0 24px rgba(176,48,216,0.4)", minHeight: 40 }}>
-        {typed}<span style={{ opacity: 0.6 }}>▌</span>
+    <div onClick={() => setShow(false)} style={{ position:"fixed", inset:0, zIndex:400, background:"radial-gradient(circle at 50% 40%, rgba(20,4,30,0.9), rgba(0,0,0,0.97))", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", padding:28, cursor:"pointer" }}>
+      {isTest && (
+        <div style={{ position:"absolute", top:18, left:"50%", transform:"translateX(-50%)", background:"rgba(255,200,50,0.15)", border:"1px solid rgba(255,200,50,0.5)", borderRadius:20, padding:"4px 18px", fontFamily:"'Cinzel',serif", fontSize:9, letterSpacing:2, color:"#ffd580", textTransform:"uppercase" }}>
+          🧪 Modo Teste — só você está vendo
+        </div>
+      )}
+      <svg width="44" height="44" viewBox="0 0 64 64" fill="none" style={{ marginBottom:image?14:24, opacity:0.8 }}>
+        <path d="M3 32c8-14 18-20 29-20s21 6 29 20c-8 14-18 20-29 20S11 46 3 32z" stroke="#b030d8" strokeWidth="1.6"/>
+        <circle cx="32" cy="32" r="9" stroke="#b030d8" strokeWidth="1.6"/>
+        <circle cx="32" cy="32" r="3.5" fill="#b030d8"/>
+      </svg>
+      {image && (
+        <img src={image} alt="" style={{ maxWidth:"min(680px,88vw)", maxHeight:"38vh", objectFit:"contain", borderRadius:8, marginBottom:20, boxShadow:"0 0 40px rgba(176,48,216,0.3)" }}/>
+      )}
+      {text && (
+        <div style={{ fontFamily:"'Crimson Pro',serif", fontSize:"clamp(18px,3.2vw,30px)", color:"#e8e0f0", textAlign:"center", maxWidth:760, lineHeight:1.6, textShadow:"0 0 24px rgba(176,48,216,0.4)", minHeight:40 }}>
+          {typed}<span style={{ opacity:0.6 }}>▌</span>
+        </div>
+      )}
+      <div style={{ marginTop:30, fontFamily:"'Cinzel',serif", fontSize:9, letterSpacing:2, textTransform:"uppercase", color:"rgba(255,255,255,0.4)" }}>
+        — transmissão do mestre · clique para fechar —
       </div>
-      <div style={{ marginTop: 30, fontFamily: "'Cinzel',serif", fontSize: 9, letterSpacing: 2, textTransform: "uppercase", color: "rgba(255,255,255,0.4)" }}>— transmissão do mestre · clique para fechar —</div>
     </div>,
     document.body
   );
@@ -4138,6 +4409,30 @@ function CampaignDetail({ campaign, uid, userName, userPhoto, characters, onBack
   const isMaster = campaign.masterId === uid;
   const isAdmin  = !isMaster && (campaign.admins||[]).includes(uid);
   const coverInputRef = useRef(null);
+
+  /* ── Live-sync: always push character changes to sharedSheets regardless of active tab ── */
+  const liveSheetsRef = useRef([]);
+  useEffect(() => {
+    const q = query(collection(db, "campaigns", campaign.id, "sharedSheets"));
+    const unsub = onSnapshot(q, snap => {
+      liveSheetsRef.current = snap.docs
+        .map(d => ({ id: d.id, ...d.data() }))
+        .filter(s => s.ownerId === uid && s.isLive);
+    });
+    return unsub;
+  }, [campaign.id, uid]);
+
+  useEffect(() => {
+    if (!characters?.length || !liveSheetsRef.current.length) return;
+    liveSheetsRef.current.forEach(sheet => {
+      const char = characters.find(c => String(c.id || c.createdAt) === sheet.characterId);
+      if (!char) return;
+      updateDoc(doc(db, "campaigns", campaign.id, "sharedSheets", sheet.id), {
+        characterData: char,
+        characterName: char.form?.personagem || "Sem nome",
+      }).catch(console.error);
+    });
+  }, [characters]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleCoverUpload = async (file) => {
     if (!file || !file.type.startsWith("image/")) return;
@@ -4205,7 +4500,7 @@ function CampaignDetail({ campaign, uid, userName, userPhoto, characters, onBack
   return (
     <>
     {coverPreview && <CoverPreviewModal image={coverPreview} onConfirm={confirmCoverUpload} onClose={()=>setCoverPreview(null)}/>}
-    <NarracaoOverlay campaign={campaign}/>
+    <NarracaoOverlay campaign={campaign} uid={uid} isMaster={isMaster}/>
     <div className="fade" style={{display:"flex",flexDirection:"column",height:"calc(100vh - 136px)",minHeight:400,gap:0}}>
 
       {/* ── Banner de capa ── */}
@@ -4299,7 +4594,7 @@ function CampaignDetail({ campaign, uid, userName, userPhoto, characters, onBack
 
       {/* ── Conteúdo ── */}
       <div style={{flex:1,overflow:"hidden",display:"flex",flexDirection:"column",paddingTop:10}}>
-        {activeTab==="chat"     && <CampaignChat campaignId={campaign.id} uid={uid} userName={userName} userPhoto={userPhoto}/>}
+        {activeTab==="chat"     && <CampaignChat campaignId={campaign.id} uid={uid} userName={userName} userPhoto={userPhoto} isMaster={isMaster}/>}
         {activeTab==="sheets"   && <SharedSheetsPanel campaignId={campaign.id} uid={uid} userName={userName} isMaster={isMaster} characters={characters}/>}
         {activeTab==="rolls"    && <RollFeed campaignId={campaign.id} uid={uid}/>}
         {activeTab==="members"  && <MembersPanel campaign={campaign} uid={uid} isMaster={isMaster}/>}
@@ -11658,8 +11953,36 @@ export default function App() {
       sp: spToken && now < spExp ? spToken : null,
     };
   });
-  const ytPlayerRef     = useRef(null);
-  const rollCampaignRef = useRef(null);
+  const ytPlayerRef        = useRef(null);
+  const rollCampaignRef    = useRef(null);
+  const liveSheetRefsRef   = useRef({}); // { characterId: [docRef] }
+
+  // Global live-sheet tracker — stays active regardless of which screen is open
+  const campaignsRef = useRef([]);
+  campaignsRef.current = campaigns;
+  useEffect(() => {
+    if (!currentUser?.uid) { liveSheetRefsRef.current = {}; return; }
+    const uid = currentUser.uid;
+    const camps = campaignsRef.current;
+    if (!camps.length) return;
+    const unsubs = camps.map(camp =>
+      onSnapshot(collection(db, "campaigns", camp.id, "sharedSheets"), snap => {
+        const next = { ...liveSheetRefsRef.current };
+        snap.docs.forEach(d => {
+          const data = d.data();
+          if (data.ownerId !== uid) return;
+          const cId = data.characterId;
+          if (!next[cId]) next[cId] = [];
+          next[cId] = next[cId].filter(r => r.id !== d.id);
+          if (data.isLive) next[cId].push(d.ref);
+          if (!next[cId].length) delete next[cId];
+        });
+        liveSheetRefsRef.current = next;
+      }, () => {})
+    );
+    return () => unsubs.forEach(u => u());
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentUser?.uid, campaigns.map(c => c.id).join('|')]);
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, user => {
@@ -11894,6 +12217,13 @@ export default function App() {
         const cId = String(updated.id || updated.createdAt);
         if (updated.public) fsSavePublicSheet(cId, updated, currentUser?.uid);
         else fsRemovePublicSheet(cId);
+        // Sync to live sharedSheets via global ref (always active)
+        (liveSheetRefsRef.current[cId] || []).forEach(ref =>
+          updateDoc(ref, {
+            characterData: updated,
+            characterName: updated.form?.personagem || "Sem nome",
+          }).catch(console.error)
+        );
       };
       const sheetFallback = (
         <div style={{minHeight:"50vh",display:"flex",alignItems:"center",justifyContent:"center"}}>
