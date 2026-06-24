@@ -18,7 +18,7 @@ jobs:
           cache: npm
 
       - name: Instalar dependências
-        run: npm ci
+        run: npm install
 
       - name: Build (inclui ESLint do CRA)
         run: npm run build
@@ -45,7 +45,7 @@ jobs:
           cache: npm
 
       - name: Instalar dependências
-        run: npm ci
+        run: npm install
 
       - name: Rodar testes com cobertura
         run: npm test -- --watchAll=false --ci --coverage --coverageReporters=lcov --coverageReporters=text-summary
