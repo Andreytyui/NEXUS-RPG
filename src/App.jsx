@@ -4,30 +4,22 @@ import { ThemeStyles } from "./themes/ThemeProvider";
 import { ELEMENTOS, getElementTheme } from "./components/systems/OrdemParanormal/elementos";
 import ElementoSymbol from "./components/systems/OrdemParanormal/ElementoSymbol";
 import DossierCard from "./components/systems/OrdemParanormal/DossierCard";
-import { initializeApp } from "firebase/app";
+import { auth, db } from "./firebase";
+import { useAuth } from "./hooks/useAuth";
+import { useCharacter } from "./hooks/useCharacter";
+import { useCampaign } from "./hooks/useCampaign";
 import {
-  getAuth, onAuthStateChanged,
   signInWithEmailAndPassword, createUserWithEmailAndPassword,
   signInWithPopup, GoogleAuthProvider, reauthenticateWithPopup,
-  sendPasswordResetEmail, updateProfile, signOut,
+  sendPasswordResetEmail, updateProfile,
   setPersistence, browserLocalPersistence, browserSessionPersistence,
 } from "firebase/auth";
-import { getFirestore, doc, setDoc, getDoc, updateDoc, deleteField, collection, addDoc, query, orderBy, limit, onSnapshot, getDocs, serverTimestamp, arrayUnion, arrayRemove, where, deleteDoc, startAfter, writeBatch, Timestamp } from "firebase/firestore";
+import { doc, setDoc, getDoc, updateDoc, deleteField, collection, addDoc, query, orderBy, limit, onSnapshot, getDocs, serverTimestamp, arrayUnion, arrayRemove, where, deleteDoc, startAfter, writeBatch, Timestamp } from "firebase/firestore";
 import { roadmapData } from './roadmapData';
 
 // System-specific sheets are code-split (Phase 3 theming architecture).
 const OrdemParanormalSheet = lazy(() => import("./components/systems/OrdemParanormal/OrdemParanormalSheet"));
 
-const firebaseApp = initializeApp({
-  apiKey: "AIzaSyAunCnV2lla9DVIy_4A-ngR1W23dZNRUKU",
-  authDomain: "nexus-rpg-app.firebaseapp.com",
-  projectId: "nexus-rpg-app",
-  storageBucket: "nexus-rpg-app.firebasestorage.app",
-  messagingSenderId: "947645487813",
-  appId: "1:947645487813:web:ab4b81ff1a37b8b65c2eac",
-});
-const auth = getAuth(firebaseApp);
-const db = getFirestore(firebaseApp);
 const googleProvider = new GoogleAuthProvider();
 
 /* ── Firestore helpers (fail-silent so app still works if Firestore not enabled) ── */
@@ -42,29 +34,6 @@ const fsGetMusicLinks = async (uid) => {
 };
 
 /* ── Firestore: fichas (fail-silent) ── */
-const fsSaveCharacter = async (uid, character) => {
-  if (!uid || !character) return;
-  try {
-    const charId = String(character.id || character.createdAt || Date.now());
-    await setDoc(doc(db, "users", uid, "characters", charId), { ...character, _updatedAt: Date.now() });
-  } catch (_) {}
-};
-const fsDeleteCharacter = async (uid, character) => {
-  if (!uid || !character) return;
-  try {
-    const charId = String(character.id || character.createdAt || Date.now());
-    await deleteDoc(doc(db, "users", uid, "characters", charId));
-  } catch (_) {}
-};
-const fsLoadCharacters = async (uid, systemId) => {
-  if (!uid) return null;
-  try {
-    const q = query(collection(db, "users", uid, "characters"), where("systemId", "==", systemId));
-    const snap = await getDocs(q);
-    if (snap.empty) return null;
-    return snap.docs.map(d => { const data = d.data(); delete data._updatedAt; return data; });
-  } catch (_) { return null; }
-};
 
 const fsSavePublicSheet = async (charId, data, ownerUid) => {
   try {
@@ -102,12 +71,6 @@ const fsGetUserPlan = async (uid) => {
     const snap = await getDoc(doc(db, "users", uid));
     return snap.exists() ? (snap.data().plan || 'free') : 'free';
   } catch (_) { return 'free'; }
-};
-const fsEnsureUserDoc = async (uid, email) => {
-  if (!uid) return;
-  try {
-    await setDoc(doc(db, "users", uid), { email, plan: 'free' }, { merge: true });
-  } catch (_) {}
 };
 
 /* ── Criação de cobrança PIX ── */
@@ -294,76 +257,6 @@ function CoverPreviewModal({ image: initialImage, onConfirm, onClose }) {
   , document.body);
 }
 
-const fsCreateCampaign = async (uid, userName, data) => {
-  try {
-    const system = data.system || "Genérico";
-    const existingQ = query(
-      collection(db, "campaigns"),
-      where("masterId", "==", uid),
-      where("system", "==", system),
-      where("isActive", "==", true)
-    );
-    const existingSnap = await getDocs(existingQ);
-    if (existingSnap.size >= 3) {
-      return { limitError: `Você já possui 3 campanhas do sistema "${system}". Exclua uma antes de criar outra.` };
-    }
-    const code = generateInviteCode();
-    const ref = await addDoc(collection(db,"campaigns"), {
-      name: data.name,
-      description: data.description || "",
-      system,
-      masterId: uid,
-      masterName: userName,
-      inviteCode: code,
-      members: [uid],
-      memberNames: { [uid]: userName },
-      createdAt: serverTimestamp(),
-      isActive: true,
-      maxPlayers: data.maxPlayers || 6,
-      coverImage: data.coverImage || null,
-    });
-    return { id: ref.id, code };
-  } catch (e) { console.error(e); return null; }
-};
-
-const fsJoinCampaign = async (uid, userName, code) => {
-  try {
-    const q = query(collection(db,"campaigns"), where("inviteCode","==",code.toUpperCase()));
-    const snap = await getDocs(q);
-    const activeDoc = snap.docs.find(d => d.data().isActive !== false);
-    if (!activeDoc) return { error: "Código inválido ou campanha não encontrada." };
-    const campDoc = activeDoc;
-    const camp = campDoc.data();
-    if (camp.members.includes(uid)) return { error: "Você já é membro desta campanha." };
-    if (camp.members.length >= (camp.maxPlayers || 6)) return { error: "Campanha lotada." };
-    const campSystem = camp.system || "Genérico";
-    const memberLimitQ = query(
-      collection(db, "campaigns"),
-      where("members", "array-contains", uid)
-    );
-    const memberLimitSnap = await getDocs(memberLimitQ);
-    const sameSystemActive = memberLimitSnap.docs.filter(d => {
-      const data = d.data();
-      return data.isActive !== false && (data.system || "Genérico") === campSystem;
-    }).length;
-    if (sameSystemActive >= 3) return { error: `Você já participa de 3 campanhas do sistema "${campSystem}".` };
-    await updateDoc(doc(db,"campaigns",campDoc.id), {
-      members: arrayUnion(uid),
-      [`memberNames.${uid}`]: userName,
-    });
-    await addDoc(collection(db,"campaigns",campDoc.id,"messages"), {
-      userId:"system", userName:"Sistema", userPhoto:null,
-      content:`${userName} entrou na campanha.`,
-      type:"system", timestamp:serverTimestamp(),
-    });
-    return { id: campDoc.id };
-  } catch (e) { console.error(e); return { error:"Erro ao entrar na campanha." }; }
-};
-
-const fsGetUserCampaigns = (uid, cb, onError) => {
-  const q = query(collection(db,"campaigns"), where("members","array-contains",uid));
-  return onSnapshot(q, snap => cb(snap.docs.map(d=>({id:d.id,...d.data()}))), onError || (() => cb([])));
-};
 
 const fsSendMessage = async (campaignId, uid, userName, userPhoto, content, type, rollData) => {
   try {
@@ -11906,11 +11799,9 @@ function PublicSheetView({ charId }) {
 
 export default function App() {
   const [introPlayed, setIntroPlayed] = useState(() => sessionStorage.getItem("nx_intro") === "1");
-  const [loggedIn, setLoggedIn] = useState(null); // null = carregando, false = deslogado, true = logado
-  const [currentUser, setCurrentUser] = useState(null);
-  const [campaigns, setCampaigns] = useState([]);
-  const [campaignsLoading, setCampaignsLoading] = useState(false);
-  const [campaignSubKey, setCampaignSubKey] = useState(0);
+  const { currentUser, authLoading, userName: hookUserName, userPhoto: hookUserPhoto, logout } = useAuth();
+  const loggedIn = authLoading ? null : !!currentUser;
+  const { campaigns, campsLoading: campaignsLoading, createCampaign, joinCampaign, leaveCampaign } = useCampaign(currentUser?.uid, hookUserName);
   const [selectedCampaign, setSelectedCampaign] = useState(null);
   const [showCreateCampaign, setShowCreateCampaign] = useState(false);
   const [showJoinCampaign, setShowJoinCampaign] = useState(false);
@@ -11923,14 +11814,7 @@ export default function App() {
   const [historyOpen, setHistoryOpen] = useState(false);
   const [creatingChar, setCreatingChar] = useState(false);
   const [createdChar, setCreatedChar] = useState(null);
-  const charKey = activeSystem ? `nexus_characters_${activeSystem.id}` : null;
-  const [characters, setCharacters] = useState(() => {
-    try {
-      const sys = JSON.parse(localStorage.getItem('nexus_system') || 'null');
-      const key = sys ? `nexus_characters_${sys.id}` : null;
-      return key ? JSON.parse(localStorage.getItem(key) || '[]') : [];
-    } catch { return []; }
-  });
+  const { characters, setCharacters, charsLoading, saveCharacter, deleteCharacter } = useCharacter(currentUser?.uid, activeSystem?.id);
   const sessKey = activeSystem ? `nexus_sessions_${activeSystem.id}` : null;
   const [sessions, setSessions] = useState(() => {
     try {
@@ -11984,15 +11868,6 @@ export default function App() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentUser?.uid, campaigns.map(c => c.id).join('|')]);
 
-  useEffect(() => {
-    const unsub = onAuthStateChanged(auth, user => {
-      setLoggedIn(!!user);
-      setCurrentUser(user || null);
-      if (user) fsEnsureUserDoc(user.uid, user.email || '');
-    });
-    return unsub;
-  }, []);
-
   // Escuta plano em tempo real — ativa automaticamente após PIX pago
   useEffect(() => {
     if (!currentUser) { setUserPlans([]); return; }
@@ -12003,19 +11878,8 @@ export default function App() {
   }, [currentUser?.uid]);
 
   useEffect(() => {
-    if (!currentUser) { setCampaigns([]); return; }
-    setCampaignsLoading(true);
-    const unsub = fsGetUserCampaigns(currentUser.uid, (list) => {
-      setCampaigns(list);
-      setCampaignsLoading(false);
-      setSelectedCampaign(prev => prev ? (list.find(c=>c.id===prev.id)||null) : null);
-    }, () => {
-      setCampaigns([]);
-      setCampaignsLoading(false);
-      setTimeout(() => setCampaignSubKey(k => k + 1), 5000);
-    });
-    return unsub;
-  }, [currentUser?.uid, campaignSubKey]);
+    setSelectedCampaign(prev => prev ? (campaigns.find(c => c.id === prev.id) || null) : null);
+  }, [campaigns]);
 
   useEffect(() => {
     if (activeSystem) localStorage.setItem('nexus_system', JSON.stringify(activeSystem));
@@ -12093,25 +11957,7 @@ export default function App() {
     window.addEventListener('popstate', onPop);
     return () => window.removeEventListener('popstate', onPop);
   }, [characters, campaigns]);
-  useEffect(() => {
-    if (charKey) localStorage.setItem(charKey, JSON.stringify(characters));
-  }, [characters, charKey]);
-  useEffect(() => {
-    if (!activeSystem) return;
-    const key = `nexus_characters_${activeSystem.id}`;
-    const localChars = (() => { try { return JSON.parse(localStorage.getItem(key) || '[]'); } catch { return []; } })();
-    setCharacters(localChars);
-    setCreatedChar(null);
-    // Tenta carregar do Firestore e mescla (Firestore é fonte de verdade)
-    if (currentUser) {
-      fsLoadCharacters(currentUser.uid, activeSystem.id).then(fsChars => {
-        if (fsChars && fsChars.length > 0) {
-          setCharacters(fsChars);
-          localStorage.setItem(key, JSON.stringify(fsChars));
-        }
-      });
-    }
-  }, [activeSystem?.id, currentUser?.uid]);
+  useEffect(() => { setCreatedChar(null); }, [activeSystem?.id]);
   useEffect(() => {
     if (!activeSystem) return;
     const key = `nexus_sessions_${activeSystem.id}`;
@@ -12133,12 +11979,6 @@ export default function App() {
     document.head.appendChild(tag);
   }, []);
 
-  const handleLogout = () => {
-    localStorage.removeItem('nexus_system');
-    localStorage.removeItem('nexus_screen');
-    signOut(auth);
-  };
-
   const handleFinishChar = (char) => {
     const sysCharCount = characters.filter(c =>
       c.systemId === activeSystem?.id || (!c.systemId && activeSystem?.id === 'op')
@@ -12155,12 +11995,10 @@ export default function App() {
     const d = new Date();
     const dateStr = `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${String(d.getFullYear()).slice(-2)}`;
     const charWithDate = { ...char, id: Date.now(), nex: 5, createdAt: dateStr, systemId: activeSystem?.id };
-    setCharacters(prev => [...prev, charWithDate]);
+    saveCharacter(charWithDate);
     setCreatedChar(charWithDate);
     setCreatingChar(false);
     setScreen("sheet");
-    // Persiste no Firestore
-    fsSaveCharacter(currentUser?.uid, charWithDate);
   };
 
   const [pendingEdits, setPendingEdits] = useState([]);
@@ -12175,8 +12013,7 @@ export default function App() {
     const keep = { id: createdChar.id, createdAt: createdChar.createdAt, systemId: createdChar.systemId, public: createdChar.public, editToken: createdChar.editToken, ownerUid: currentUser?.uid };
     const final = mergedChar ? { ...mergedChar, ...keep } : { ...createdChar, ...edit.proposedData, ...keep };
     setCreatedChar(final);
-    setCharacters(prev => prev.map(c => (c.id && c.id === final.id) || (!c.id && c.createdAt === final.createdAt) ? final : c));
-    fsSaveCharacter(currentUser?.uid, final);
+    saveCharacter(final);
     fsSavePublicSheet(cId, final, currentUser?.uid);
     await fsResolvePendingEdit(cId, edit.id, "approved");
     setPendingEdits(prev => prev.filter(e => e.id !== edit.id));
@@ -12212,8 +12049,7 @@ export default function App() {
       };
       const handleSheetUpdate = (updated) => {
         setCreatedChar(updated);
-        setCharacters(prev => prev.map(c => (c.id && c.id === updated.id) || (!c.id && c.createdAt === updated.createdAt) ? updated : c));
-        fsSaveCharacter(currentUser?.uid, updated);
+        saveCharacter(updated);
         const cId = String(updated.id || updated.createdAt);
         if (updated.public) fsSavePublicSheet(cId, updated, currentUser?.uid);
         else fsRemovePublicSheet(cId);
@@ -12257,7 +12093,7 @@ export default function App() {
     }
     switch(screen){
       case "dashboard": return <Dashboard system={activeSystem} onCreateChar={()=>setCreatingChar(true)} characters={characters} sessions={sessions} onSelectChar={c=>{ setCreatedChar(c); setScreen("sheet"); }} onNav={setScreen} userPlans={userPlans} onShowUpgrade={()=>setScreen("planos")}/>;
-      case "sheet":     return <SheetList characters={characters} system={activeSystem} onCreateChar={()=>setCreatingChar(true)} onSelectChar={c=>{ setCreatedChar(c); }} onDeleteChar={(c)=>{ fsDeleteCharacter(currentUser?.uid, c); setCharacters(prev => prev.filter(x => !((x.id && x.id===c.id) || (!x.id && x.createdAt===c.createdAt)))); if (createdChar && ((createdChar.id && createdChar.id===c.id) || (!createdChar.id && createdChar.createdAt===c.createdAt))) setCreatedChar(null); }}/>;
+      case "sheet":     return <SheetList characters={characters} system={activeSystem} onCreateChar={()=>setCreatingChar(true)} onSelectChar={c=>{ setCreatedChar(c); }} onDeleteChar={(c)=>{ deleteCharacter(c); if (createdChar && ((createdChar.id && createdChar.id===c.id) || (!createdChar.id && createdChar.createdAt===c.createdAt))) setCreatedChar(null); }}/>;
       case "map":       return <MapEditor />;
       case "master":    return <MasterAssistant system={activeSystem} onAddSession={()=>setSessions(prev=>[...prev,{id:Date.now(),date:new Date().toLocaleDateString('pt-BR')}])} />;
       case "roadmap":   return <RoadmapScreen />;
@@ -12272,8 +12108,8 @@ export default function App() {
             <>
               <CampaignDetail campaign={live} uid={uid} userName={userName} userPhoto={userPhoto}
                 characters={characters} onBack={()=>setSelectedCampaign(null)}/>
-              {showCreateCampaign && <CreateCampaignModal onClose={()=>setShowCreateCampaign(false)} onCreate={async(data)=>{const r=await fsCreateCampaign(uid,userName,data);if(r&&!r.limitError){setShowCreateCampaign(false);setCampaignSubKey(k=>k+1);return true;}return r||false;}}/>}
-              {showJoinCampaign && <JoinCampaignModal onClose={()=>setShowJoinCampaign(false)} onJoin={async(code)=>{const r=await fsJoinCampaign(uid,userName,code);if(!r?.error){setShowJoinCampaign(false);setCampaignSubKey(k=>k+1);}return r;}}/>}
+              {showCreateCampaign && <CreateCampaignModal onClose={()=>setShowCreateCampaign(false)} onCreate={async(data)=>{const r=await createCampaign(data);if(r&&!r.limitError){setShowCreateCampaign(false);return true;}return r||false;}}/>}
+              {showJoinCampaign && <JoinCampaignModal onClose={()=>setShowJoinCampaign(false)} onJoin={async(code)=>{const r=await joinCampaign(code);if(!r?.error)setShowJoinCampaign(false);return r;}}/>}
             </>
           );
         }
@@ -12283,8 +12119,8 @@ export default function App() {
               onOpenCampaign={setSelectedCampaign}
               onCreateCampaign={()=>setShowCreateCampaign(true)}
               onJoinCampaign={()=>setShowJoinCampaign(true)}/>
-            {showCreateCampaign && <CreateCampaignModal onClose={()=>setShowCreateCampaign(false)} onCreate={async(data)=>{const r=await fsCreateCampaign(uid,userName,data);if(r&&!r.limitError){setShowCreateCampaign(false);setCampaignSubKey(k=>k+1);return true;}return r||false;}}/>}
-            {showJoinCampaign && <JoinCampaignModal onClose={()=>setShowJoinCampaign(false)} onJoin={async(code)=>{const r=await fsJoinCampaign(uid,userName,code);if(!r?.error)setShowJoinCampaign(false);return r;}}/>}
+            {showCreateCampaign && <CreateCampaignModal onClose={()=>setShowCreateCampaign(false)} onCreate={async(data)=>{const r=await createCampaign(data);if(r&&!r.limitError){setShowCreateCampaign(false);return true;}return r||false;}}/>}
+            {showJoinCampaign && <JoinCampaignModal onClose={()=>setShowJoinCampaign(false)} onJoin={async(code)=>{const r=await joinCampaign(code);if(!r?.error)setShowJoinCampaign(false);return r;}}/>}
           </>
         );
       }
@@ -12301,8 +12137,8 @@ export default function App() {
   if (_pubM) return <PublicSheetView charId={_pubM[1]} />;
 
   if (loggedIn === null) return (<><G/><div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"var(--bg)"}}><div style={{width:32,height:32,border:"2px solid rgba(201,168,76,0.3)",borderTopColor:"var(--gold)",borderRadius:"50%",animation:"spin 0.8s linear infinite"}}/></div></>);
-  if (!loggedIn) return (<><G/><Login onLogin={()=>setLoggedIn(true)}/></>);
-  if (!activeSystem) return (<><G/><SystemSelect onSelect={sys => setActiveSystem(sys)} onLogout={handleLogout}/></>);
+  if (!loggedIn) return (<><G/><Login onLogin={()=>{}}/></>);
+  if (!activeSystem) return (<><G/><SystemSelect onSelect={sys => setActiveSystem(sys)} onLogout={logout}/></>);
 
   if (creatingChar) return (
     <><G/><CharacterCreator onFinish={handleFinishChar} onCancel={()=>setCreatingChar(false)}/></>
@@ -12314,9 +12150,9 @@ export default function App() {
       <ThemeStyles/>
       <Deco/>
       <div style={{display:"flex", minHeight:"100vh", background: screen === "roadmap" ? "transparent" : "var(--bg)", position:"relative", zIndex:1}}>
-        <Sidebar active={screen} onNav={setScreen} collapsed={collapsed} setCollapsed={setCollapsed} system={activeSystem} onChangeSystem={()=>setActiveSystem(null)} onLogout={handleLogout} campaignCount={campaigns.filter(c=>c.isActive&&c.masterId===currentUser?.uid).length}/>
+        <Sidebar active={screen} onNav={setScreen} collapsed={collapsed} setCollapsed={setCollapsed} system={activeSystem} onChangeSystem={()=>setActiveSystem(null)} onLogout={logout} campaignCount={campaigns.filter(c=>c.isActive&&c.masterId===currentUser?.uid).length}/>
         <div style={{flex:1, display:"flex", flexDirection:"column", minWidth:0, overflow:"hidden"}}>
-          <Topbar screen={screen} system={activeSystem} onChangeSystem={()=>setActiveSystem(null)} onLogout={handleLogout}/>
+          <Topbar screen={screen} system={activeSystem} onChangeSystem={()=>setActiveSystem(null)} onLogout={logout}/>
           {/* hidden div that hosts the YT IFrame player — never unmounts */}
           <div id="yt-player-host" style={{ position:"fixed", top:-9999, left:-9999, width:1, height:1, pointerEvents:"none" }} />
           <main style={{flex:1, overflowY: (screen==="master" || (screen==="sheet" && createdChar && activeSystem?.id==="op")) ? "hidden" : "auto", padding: screen==="master" ? 0 : ((screen==="sheet" && createdChar && activeSystem?.id==="op") ? "12px 14px" : "20px 20px"), paddingBottom: screen==="master" ? 0 : ((screen==="sheet" && createdChar && activeSystem?.id==="op") ? 12 : (nowPlaying ? 112 : 20)), display:"flex", flexDirection:"column", minHeight:0}}>
