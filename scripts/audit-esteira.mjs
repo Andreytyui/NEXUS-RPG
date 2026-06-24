@@ -13,7 +13,7 @@ const IGNORE_DIRS = new Set([
   "node_modules", ".git", ".spec-driven",
   ".agents", ".cursor", ".gemini", ".windsurf",
 ]);
-const NO_FRONTMATTER_OK = new Set(["RELEASING.md", "CHANGELOG.md"]);
+const NO_FRONTMATTER_OK = new Set(["RELEASING.md", "CHANGELOG.md", "README.md"]);
 // Arquivos de instruções gerados (fora de um dir próprio) que também são views derivadas.
 const isGenerated = (f) => {
   const r = relative(ROOT, f).replace(/\\/g, "/");

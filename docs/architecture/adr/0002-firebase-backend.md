@@ -1,3 +1,9 @@
+---
+name: adr-0002-firebase-backend
+description: ADR retroativo — Firebase como backend (Auth, Firestore, Hosting). Puxe ao trabalhar em infra ou dados.
+alwaysApply: false
+---
+
 # ADR-0002: Firebase como backend completo
 
 - **Status:** aceito

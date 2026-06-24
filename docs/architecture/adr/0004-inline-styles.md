@@ -1,3 +1,9 @@
+---
+name: adr-0004-inline-styles
+description: ADR retroativo — inline styles como estratégia de estilização. Puxe ao trabalhar em componentes UI ou avaliar CSS-in-JS.
+alwaysApply: false
+---
+
 # ADR-0004: Inline styles como estratégia de estilização
 
 - **Status:** aceito

@@ -1,3 +1,9 @@
+---
+name: adr-0003-react-cra
+description: ADR retroativo — React CRA como bundler. Puxe ao trabalhar em build, bundler ou migração para Vite.
+alwaysApply: false
+---
+
 # ADR-0003: React com Create React App (CRA)
 
 - **Status:** aceito
