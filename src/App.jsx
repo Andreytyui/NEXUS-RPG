@@ -16,6 +16,7 @@ import {
 } from "firebase/auth";
 import { doc, setDoc, getDoc, updateDoc, deleteField, collection, addDoc, query, orderBy, limit, onSnapshot, getDocs, serverTimestamp, arrayUnion, arrayRemove, where, deleteDoc, startAfter, writeBatch, Timestamp } from "firebase/firestore";
 import { roadmapData } from './roadmapData';
+import { useLocale } from "./i18n/useLocale";
 
 // System-specific sheets are code-split (Phase 3 theming architecture).
 const OrdemParanormalSheet = lazy(() => import("./components/systems/OrdemParanormal/OrdemParanormalSheet"));
@@ -865,33 +866,109 @@ const NavIco = ({ d, extra, size=18 }) => (
   </svg>
 );
 
+/* Rune icon helper — thin occult SVG at 18×18 */
+const RuneIco = ({ children }) => (
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
+    stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+    {children}
+  </svg>
+);
+
 const navItems = [
   { id:"dashboard", label:"Painel",
-    svg: <NavIco d={["M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"]} extra={<polyline points="9 22 9 12 15 12 15 22"/>}/> },
-  { id:"sheet",     label:"Fichas",
-    svg: <NavIco d={["M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z","M14 2v6h6","M16 13H8","M16 17H8","M10 9H8"]}/> },
-  { id:"map",       label:"Mapas",
-    svg: <NavIco d={[]} extra={<><polygon points="3 6 9 3 15 6 21 3 21 18 15 21 9 18 3 21"/><line x1="9" y1="3" x2="9" y2="18"/><line x1="15" y1="6" x2="15" y2="21"/></>}/> },
-  { id:"master",    label:"Ajudante do Mestre",
-    svg: <NavIco d={[]} extra={<><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></>}/> },
-  { id:"music",     label:"Trilhas",
-    svg: <NavIco d={[]} extra={<><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></>}/> },
-  { id:"party",     label:"Campanhas",
-    svg: <NavIco d={[]} extra={<><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></>}/> },
-  { id:"roadmap",   label:"Roadmap",
-    svg: <NavIco d={["M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z","M4 22v-7"]}/> },
-  { id:"planos",    label:"Planos",
-    svg: <NavIco d={[]} extra={<><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></>}/> },
+    svg: (
+      <RuneIco>
+        {/* Olho da Ordem — all-seeing eye */}
+        <path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z"/>
+        <circle cx="12" cy="12" r="3"/>
+        <line x1="12" y1="2" x2="12" y2="5"/>
+        <line x1="12" y1="19" x2="12" y2="22"/>
+      </RuneIco>
+    )},
+  { id:"sheet", label:"Fichas",
+    svg: (
+      <RuneIco>
+        {/* Códex arcano — twin-tome with glyphs */}
+        <path d="M2 4a2 2 0 0 1 2-2h6v20H4a2 2 0 0 1-2-2V4z"/>
+        <path d="M22 4a2 2 0 0 0-2-2h-6v20h6a2 2 0 0 0 2-2V4z"/>
+        <line x1="10" y1="2" x2="10" y2="22"/>
+        <path d="M5.5 9l2 2-2 2"/>
+        <line x1="14" y1="9" x2="18" y2="9"/>
+        <line x1="14" y1="14" x2="18" y2="14"/>
+      </RuneIco>
+    )},
+  { id:"map", label:"Mapas",
+    svg: (
+      <RuneIco>
+        {/* Compasso proibido — 8-pointed star in circle */}
+        <circle cx="12" cy="12" r="9"/>
+        <polygon points="12,5 13.8,10.2 19,12 13.8,13.8 12,19 10.2,13.8 5,12 10.2,10.2"/>
+      </RuneIco>
+    )},
+  { id:"master", label:"Ajudante do Mestre",
+    svg: (
+      <RuneIco>
+        {/* Varinha do Ritual — wand with arcane sparks */}
+        <line x1="6" y1="20" x2="18" y2="8"/>
+        <path d="M14 4l2 2-8 8-2-2z"/>
+        <line x1="10" y1="2" x2="10" y2="5"/>
+        <line x1="14" y1="1" x2="16" y2="3"/>
+        <line x1="2" y1="10" x2="5" y2="10"/>
+        <line x1="1" y1="14" x2="3" y2="16"/>
+        <circle cx="5.5" cy="18.5" r="2"/>
+      </RuneIco>
+    )},
+  { id:"music", label:"Trilhas",
+    svg: (
+      <RuneIco>
+        {/* Vórtice Sonoro — spiral frequency rune */}
+        <path d="M12 21c4.97 0 9-4.03 9-9S16.97 3 12 3 3 7.03 3 12"/>
+        <path d="M12 17c2.76 0 5-2.24 5-5s-2.24-5-5-5-5 2.24-5 5"/>
+        <circle cx="12" cy="12" r="2"/>
+        <line x1="3" y1="12" x2="7" y2="15"/>
+        <line x1="3" y1="12" x2="7" y2="9"/>
+      </RuneIco>
+    )},
+  { id:"party", label:"Campanhas",
+    svg: (
+      <RuneIco>
+        {/* Círculos do Coven — three interlocked rings */}
+        <circle cx="9" cy="9" r="4.5"/>
+        <circle cx="15" cy="9" r="4.5"/>
+        <circle cx="12" cy="15.5" r="4.5"/>
+      </RuneIco>
+    )},
+  { id:"roadmap", label:"Roadmap",
+    svg: (
+      <RuneIco>
+        {/* Profecia — scroll with inner sigil */}
+        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+        <path d="M14 2v6h6"/>
+        <polygon points="12,10 14,13 12,16 10,13"/>
+        <line x1="8" y1="13" x2="10" y2="13"/>
+        <line x1="14" y1="13" x2="16" y2="13"/>
+      </RuneIco>
+    )},
+  { id:"planos", label:"Planos",
+    svg: (
+      <RuneIco>
+        {/* Grimório Selado — nested diamonds */}
+        <polygon points="12,2 22,12 12,22 2,12"/>
+        <polygon points="12,6 18,12 12,18 6,12"/>
+        <circle cx="12" cy="12" r="1.8"/>
+      </RuneIco>
+    )},
 ];
 
 function MobileBottomNav({ active, onNav }) {
+  const { t } = useLocale();
   const items = navItems.slice(0, 6);
   return (
     <div className="bottomnav">
       {items.map(item => (
         <button key={item.id} className={active === item.id ? "active" : ""} onClick={() => onNav(item.id)}>
           <span style={{display:"flex",alignItems:"center",justifyContent:"center"}}>{item.svg}</span>
-          <span>{item.label}</span>
+          <span>{t("nav."+item.id)}</span>
         </button>
       ))}
     </div>
@@ -899,6 +976,7 @@ function MobileBottomNav({ active, onNav }) {
 }
 
 function Sidebar({ active, onNav, collapsed, setCollapsed, system, onChangeSystem, onLogout, campaignCount }) {
+  const { t, lang, setLang } = useLocale();
   const [profilePhoto, setProfilePhoto] = useState(() => localStorage.getItem("nexus_profile_photo") || "");
   const [profileName, setProfileName] = useState(() => localStorage.getItem("nexus_profile_name") || "Agente");
   const [editingProfile, setEditingProfile] = useState(false);
@@ -1003,30 +1081,30 @@ function Sidebar({ active, onNav, collapsed, setCollapsed, system, onChangeSyste
           const isActive = active === item.id;
           return (
             <button key={item.id} onClick={()=>onNav(item.id)}
-              title={collapsed ? item.label : ""}
+              title={collapsed ? t("nav."+item.id) : ""}
               style={{
                 display:"flex", alignItems:"center",
                 justifyContent: collapsed ? "center" : "flex-start",
                 gap:10, padding: collapsed ? "10px 0" : "10px 12px",
-                background: isActive ? "var(--purple-dim)" : "transparent",
+                background: isActive ? (system?.accent ? `${system.accent}18` : "var(--purple-dim)") : "transparent",
                 border:"none", borderRadius:8,
                 cursor:"pointer", position:"relative",
                 fontFamily:"Cinzel,serif", fontSize:11, letterSpacing:"0.05em",
-                color: isActive ? "var(--purple2)" : "var(--muted2)",
+                color: isActive ? (system?.accent || "var(--purple2)") : "var(--muted2)",
                 fontWeight: isActive ? 600 : 400,
                 transition:"all 0.18s",
-                boxShadow: isActive ? "inset 0 0 0 1px var(--purple-glow)" : "none",
+                boxShadow: isActive ? `inset 0 0 0 1px ${system?.accent ? system.accent+"40" : "var(--purple-glow)"}` : "none",
               }}
               onMouseEnter={e=>{ if(!isActive){ e.currentTarget.style.background="rgba(255,255,255,0.05)"; e.currentTarget.style.color="var(--text)"; }}}
               onMouseLeave={e=>{ if(!isActive){ e.currentTarget.style.background="transparent"; e.currentTarget.style.color="var(--muted2)"; }}}>
               <span style={{
                 display:"flex", alignItems:"center", justifyContent:"center",
                 minWidth:20, flexShrink:0,
-                color: isActive ? "var(--purple2)" : "var(--muted2)",
-                filter: isActive ? "drop-shadow(0 0 4px var(--purple-glow))" : "none",
+                color: isActive ? (system?.accent || "var(--purple2)") : "var(--muted2)",
+                filter: isActive ? `drop-shadow(0 0 5px ${system?.accent || "var(--purple-glow)"})` : "none",
                 transition:"all 0.18s",
               }}>{item.svg}</span>
-              {!collapsed && <span style={{whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{item.label}</span>}
+              {!collapsed && <span style={{whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{t("nav."+item.id)}</span>}
             </button>
           );
         })}
@@ -1051,7 +1129,7 @@ function Sidebar({ active, onNav, collapsed, setCollapsed, system, onChangeSyste
             ? <><path d="M13 17l5-5-5-5"/><path d="M6 17l5-5-5-5"/></>
             : <><path d="M11 17l-5-5 5-5"/><path d="M18 17l-5-5 5-5"/></>}
         </svg>
-        {!collapsed && <span>Recolher</span>}
+        {!collapsed && <span>{t("sidebar.collapse")}</span>}
       </button>
 
       {/* User */}
@@ -1076,7 +1154,22 @@ function Sidebar({ active, onNav, collapsed, setCollapsed, system, onChangeSyste
               ? <img src={profilePhoto} alt="perfil" style={{width:"100%",height:"100%",objectFit:"cover"}}/>
               : avatarLetter}
           </div>
-          <button onClick={onLogout} title="Sair da conta" style={{
+          <button
+            onClick={() => setLang(lang === "pt" ? "en" : "pt")}
+            title={lang === "pt" ? "Switch to English" : "Mudar para Português"}
+            style={{
+              background:"none", border:"1px solid rgba(201,168,76,0.2)", borderRadius:6,
+              cursor:"pointer", color:"var(--gold)", padding:"3px 4px",
+              display:"flex", alignItems:"center", justifyContent:"center",
+              transition:"all 0.2s", width:32, height:22,
+              fontFamily:"Cinzel,serif", fontSize:8, letterSpacing:1, fontWeight:700,
+            }}
+            onMouseEnter={e=>{e.currentTarget.style.background="rgba(201,168,76,0.1)";}}
+            onMouseLeave={e=>{e.currentTarget.style.background="none";}}
+          >
+            {lang === "pt" ? "PT" : "EN"}
+          </button>
+          <button onClick={onLogout} title={t("sidebar.logout")} style={{
             background:"none", border:"1px solid rgba(201,168,76,0.2)", borderRadius:6,
             cursor:"pointer", color:"var(--muted2)", padding:"5px",
             display:"flex", alignItems:"center", justifyContent:"center",
@@ -1114,7 +1207,23 @@ function Sidebar({ active, onNav, collapsed, setCollapsed, system, onChangeSyste
             <div style={{fontFamily:"Cinzel,serif", fontSize:11, color:"var(--text)", whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis"}}>{profileName}</div>
             <div style={{fontFamily:"Cinzel,serif", fontSize:8, letterSpacing:1, color:"var(--gold)", textTransform:"uppercase"}}>✦ Pro</div>
           </div>
-          <button onClick={onLogout} title="Sair da conta" style={{
+          {/* Language toggle */}
+          <button
+            onClick={() => setLang(lang === "pt" ? "en" : "pt")}
+            title={lang === "pt" ? t("settings.langEN") : t("settings.langPT")}
+            style={{
+              background:"none", border:"1px solid rgba(201,168,76,0.2)", borderRadius:6,
+              cursor:"pointer", color:"var(--gold)", padding:"4px 6px",
+              display:"flex", alignItems:"center", justifyContent:"center",
+              transition:"all 0.2s", flexShrink:0,
+              fontFamily:"Cinzel,serif", fontSize:9, letterSpacing:1, fontWeight:700,
+            }}
+            onMouseEnter={e=>{e.currentTarget.style.background="rgba(201,168,76,0.1)";e.currentTarget.style.borderColor="rgba(201,168,76,0.5)";}}
+            onMouseLeave={e=>{e.currentTarget.style.background="none";e.currentTarget.style.borderColor="rgba(201,168,76,0.2)";}}
+          >
+            {lang === "pt" ? "PT" : "EN"}
+          </button>
+          <button onClick={onLogout} title={t("sidebar.logout")} style={{
             background:"none", border:"1px solid rgba(201,168,76,0.2)", borderRadius:6,
             cursor:"pointer", color:"var(--muted2)", padding:"5px",
             display:"flex", alignItems:"center", justifyContent:"center",
@@ -4692,6 +4801,8 @@ function UpgradeModal({ onClose, onGoToPlans }) {
    DASHBOARD
 ═══════════════════════════════ */
 function Dashboard({ system, onCreateChar, characters, sessions, onSelectChar, onNav, userPlans = [], onShowUpgrade }) {
+  const locale = useLocale();
+  const sT = locale.t;
   const accent = system?.accent || "var(--gold)";
   const accentText = system?.accentText || system?.accent || "var(--gold)";
   const isSubscribed = userPlans.includes(system?.id);
@@ -4772,7 +4883,7 @@ function Dashboard({ system, onCreateChar, characters, sessions, onSelectChar, o
       {/* Header */}
       <div style={{display:"flex", justifyContent:"space-between", alignItems:"flex-end", flexWrap:"wrap", gap:12, marginTop:8}}>
         <div>
-          <div style={{fontFamily:"Cinzel,serif", fontSize:12, letterSpacing:"0.08em", color:"var(--muted)", textTransform:"uppercase", marginBottom:6}}>Bem-vindo de volta</div>
+          <div style={{fontFamily:"Cinzel,serif", fontSize:12, letterSpacing:"0.08em", color:"var(--muted)", textTransform:"uppercase", marginBottom:6}}>{sT("dashboard.welcome")}</div>
           <h1 style={{fontFamily:"'Cinzel Decorative',serif", fontSize:24, fontWeight:700,
             background:`linear-gradient(135deg,${accent},#e8c96d)`,
             WebkitBackgroundClip:"text", WebkitTextFillColor:"transparent", backgroundClip:"text"}}>Painel do Agente</h1>
@@ -4894,11 +5005,14 @@ function Dashboard({ system, onCreateChar, characters, sessions, onSelectChar, o
 /* ═══════════════════════════════
    SHEET LIST — Agent Grid
 ═══════════════════════════════ */
-function SheetList({ characters, system, onCreateChar, onSelectChar, onDeleteChar }) {
+function SheetList({ characters, system, onCreateChar, onSelectChar, onDeleteChar, onUpdateChar }) {
   const [search, setSearch] = useState("");
   const [menuOpen, setMenuOpen] = useState(null);
   const [confirmDelete, setConfirmDelete] = useState(null);
   const [toast, setToast] = useState("");
+  const [hoverCard, setHoverCard] = useState(null);
+  const [adjustCard, setAdjustCard] = useState(null);
+  const [charAdjust, setCharAdjust] = useState({});
   useEffect(() => { if (!toast) return; const t = setTimeout(() => setToast(""), 2600); return () => clearTimeout(t); }, [toast]);
   const purple = "#7c3aed";
   const purpleHover = "#6d28d9";
@@ -4999,12 +5113,60 @@ function SheetList({ characters, system, onCreateChar, onSelectChar, onDeleteCha
                 borderBottom:"1px solid rgba(255,255,255,0.06)",
                 display:"flex", alignItems:"center", justifyContent:"center",
                 fontSize:56, overflow:"hidden", position:"relative",
-              }}>
+              }}
+                onMouseEnter={() => setHoverCard(i)}
+                onMouseLeave={() => { if (adjustCard !== i) setHoverCard(null); }}
+              >
                 {c.form?.avatar
-                  ? <img src={c.form.avatar} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>
+                  ? <img src={c.form.avatar} alt="" style={{
+                      width:"100%", height:"100%", objectFit:"cover",
+                      objectPosition:`center ${charAdjust[c.id||c.createdAt] ?? c.form?.avatarPosY ?? 50}%`,
+                    }}/>
                   : <span style={{opacity:0.18}}>🕵️</span>}
                 {/* subtle gradient overlay */}
-                <div style={{position:"absolute",bottom:0,left:0,right:0,height:60,background:"linear-gradient(to top, rgba(12,12,20,0.8), transparent)"}}/>
+                <div style={{position:"absolute",bottom:0,left:0,right:0,height:60,background:"linear-gradient(to top, rgba(12,12,20,0.8), transparent)", pointerEvents:"none"}}/>
+
+                {/* Adjust mode overlay */}
+                {adjustCard === i ? (
+                  <div onClick={e => e.stopPropagation()} style={{
+                    position:"absolute", inset:0, zIndex:6,
+                    background:"rgba(0,0,0,0.68)",
+                    display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", gap:10,
+                  }}>
+                    <div style={{color:"rgba(255,255,255,0.65)", fontFamily:"Cinzel,serif", fontSize:9, letterSpacing:1.5, textTransform:"uppercase"}}>Ajustar Posição</div>
+                    <input type="range" min={0} max={100}
+                      value={charAdjust[c.id||c.createdAt] ?? c.form?.avatarPosY ?? 50}
+                      onChange={e => {
+                        const key = c.id||c.createdAt;
+                        setCharAdjust(prev => ({...prev, [key]: +e.target.value}));
+                      }}
+                      style={{width:"72%", accentColor:"#7c3aed", cursor:"pointer"}}
+                    />
+                    <div style={{display:"flex", gap:8}}>
+                      <button onClick={e => {
+                        e.stopPropagation();
+                        const key = c.id||c.createdAt;
+                        const newY = charAdjust[key] ?? c.form?.avatarPosY ?? 50;
+                        onUpdateChar?.({ ...c, form: { ...c.form, avatarPosY: newY } });
+                        setAdjustCard(null); setHoverCard(null);
+                      }} style={{background:"#7c3aed", border:"none", color:"#fff", borderRadius:5, padding:"5px 14px", fontFamily:"Cinzel,serif", fontSize:9, letterSpacing:1, cursor:"pointer"}}>Salvar</button>
+                      <button onClick={e => {
+                        e.stopPropagation();
+                        const key = c.id||c.createdAt;
+                        setCharAdjust(prev => { const n={...prev}; delete n[key]; return n; });
+                        setAdjustCard(null); setHoverCard(null);
+                      }} style={{background:"transparent", border:"1px solid rgba(255,255,255,0.2)", color:"rgba(255,255,255,0.5)", borderRadius:5, padding:"5px 12px", fontFamily:"Cinzel,serif", fontSize:9, letterSpacing:1, cursor:"pointer"}}>Cancelar</button>
+                    </div>
+                  </div>
+                ) : (hoverCard === i && c.form?.avatar) ? (
+                  <button onClick={e => { e.stopPropagation(); setAdjustCard(i); }} style={{
+                    position:"absolute", bottom:8, left:8, zIndex:5,
+                    background:"rgba(0,0,0,0.72)", border:"1px solid rgba(255,255,255,0.18)",
+                    color:"rgba(255,255,255,0.75)", borderRadius:5, padding:"4px 9px",
+                    fontFamily:"Cinzel,serif", fontSize:8, letterSpacing:1, cursor:"pointer",
+                    textTransform:"uppercase",
+                  }}>⤢ Ajustar</button>
+                ) : null}
               </div>
 
               {/* Info */}
@@ -7634,6 +7796,8 @@ function CharacterCreator({ onFinish, onCancel }) {
   const [classe, setClasse] = useState(null);
   const [form, setForm] = useState({ personagem:"", jogador:"", aparencia:"", personalidade:"", historico:"", objetivo:"", avatar:"" });
   const avatarInputRef = useRef(null);
+  const aiArtEnabled = localStorage.getItem("nexus_ai_art") === "1";
+  const [aiComingSoon, setAiComingSoon] = useState(false);
   const handleAvatarFile = (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -7953,13 +8117,52 @@ function CharacterCreator({ onFinish, onCancel }) {
           <div style={{fontFamily:"Crimson Pro,serif",fontSize:13,color:"var(--muted2)",marginBottom:10}}>
             Clique no quadro para enviar uma foto ou ilustração do seu agente.
           </div>
-          {form.avatar && (
-            <button onClick={()=>setForm(f=>({...f,avatar:""}))} style={{
-              background:"none", border:"1px solid rgba(255,255,255,0.12)", borderRadius:4,
-              color:"var(--muted2)", cursor:"pointer", fontFamily:"Cinzel,serif",
-              fontSize:10, letterSpacing:1, padding:"5px 12px",
-            }}>Remover imagem</button>
-          )}
+          <div style={{display:"flex", flexWrap:"wrap", gap:8, alignItems:"center"}}>
+            {form.avatar && (
+              <button onClick={()=>setForm(f=>({...f,avatar:""}))} style={{
+                background:"none", border:"1px solid rgba(255,255,255,0.12)", borderRadius:4,
+                color:"var(--muted2)", cursor:"pointer", fontFamily:"Cinzel,serif",
+                fontSize:10, letterSpacing:1, padding:"5px 12px",
+              }}>Remover imagem</button>
+            )}
+            {aiArtEnabled && (
+              <div>
+                <button
+                  onClick={() => setAiComingSoon(s => !s)}
+                  style={{
+                    background: aiComingSoon
+                      ? "linear-gradient(135deg,#3b1f6a,#5b2d9e)"
+                      : "linear-gradient(135deg,#2a1550,#4a2080)",
+                    border:"1px solid #8b5cf660",
+                    borderRadius:4, cursor:"pointer",
+                    fontFamily:"Cinzel,serif", fontSize:10, letterSpacing:1,
+                    color:"#c4a0f5", padding:"5px 14px",
+                    display:"flex", alignItems:"center", gap:6,
+                    transition:"all 0.2s",
+                  }}
+                  onMouseEnter={e=>e.currentTarget.style.borderColor="#8b5cf6"}
+                  onMouseLeave={e=>e.currentTarget.style.borderColor="#8b5cf660"}
+                >
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
+                  </svg>
+                  Gerar com IA
+                </button>
+                {aiComingSoon && (
+                  <div style={{
+                    marginTop:8, padding:"10px 14px",
+                    background:"rgba(139,92,246,0.08)", border:"1px solid rgba(139,92,246,0.25)",
+                    borderRadius:6, maxWidth:260,
+                  }}>
+                    <div style={{fontFamily:"Cinzel,serif",fontSize:10,letterSpacing:1,color:"#8b5cf6",marginBottom:4}}>✦ EM DESENVOLVIMENTO</div>
+                    <div style={{fontFamily:"Crimson Pro,serif",fontSize:13,color:"var(--muted2)",lineHeight:1.5}}>
+                      Integração Higgsfield chegando em breve. Você poderá descrever seu agente e gerar um retrato com IA.
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
@@ -8299,6 +8502,7 @@ function Bar({val, set, max, setMax, color, label}) {
    identidade visual Nexus
 ═══════════════════════════════ */
 function FullSheet({ character, onBack, onUpdate, onRoll, showPanel, onTogglePanel }) {
+  const { t: sT, lang: appLang, setLang: setAppLang } = useLocale();
   const { attrs: initAttrs } = character;
   const [attrs,  setAttrs]  = useState(initAttrs);
   const [origem, setOrigem] = useState(character.origem ?? null);
@@ -8356,6 +8560,8 @@ function FullSheet({ character, onBack, onUpdate, onRoll, showPanel, onTogglePan
   const [isPrivate,       setIsPrivate]       = useState(character.isPrivate       ?? false);
   const [allowMasterEdit, setAllowMasterEdit] = useState(character.allowMasterEdit ?? true);
   const [allowAnyEdit,    setAllowAnyEdit]    = useState(character.allowAnyEdit    ?? false);
+  const [aiArt, setAiArt] = useState(() => localStorage.getItem("nexus_ai_art") === "1");
+  const toggleAiArt = (val) => { localStorage.setItem("nexus_ai_art", val ? "1" : "0"); setAiArt(val); };
   const [diceInput, setDiceInput] = useState("");
   const [rollPopup, setRollPopup] = useState(null);
   const [attacks, setAttacks] = useState(character.attacks ?? []);
@@ -8586,19 +8792,19 @@ function FullSheet({ character, onBack, onUpdate, onRoll, showPanel, onTogglePan
           <div onClick={e=>e.stopPropagation()} style={{background:"#111",border:"1px solid #2a2a2a",borderRadius:12,width:560,maxWidth:"95vw",boxShadow:"0 24px 64px rgba(0,0,0,0.8)",overflow:"hidden"}}>
             {/* Header */}
             <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"20px 24px 0"}}>
-              <span style={{fontFamily:"Cinzel,serif",fontSize:16,color:"#fff",fontWeight:600}}>Configurações</span>
+              <span style={{fontFamily:"Cinzel,serif",fontSize:16,color:"#fff",fontWeight:600}}>{sT("settings.title")}</span>
               <button onClick={()=>setShowSettings(false)} style={{background:"none",border:"none",cursor:"pointer",color:"#888",fontSize:18,lineHeight:1,padding:4}}>✕</button>
             </div>
             {/* Tabs */}
             <div style={{display:"flex",gap:0,padding:"12px 24px 0",borderBottom:"1px solid #222",marginTop:8}}>
-              {["ficha","stream"].map(t=>(
-                <button key={t} onClick={()=>setSettingsTab(t)} style={{
+              {["ficha","stream","idioma"].map(tabId=>(
+                <button key={tabId} onClick={()=>setSettingsTab(tabId)} style={{
                   background:"none",border:"none",cursor:"pointer",
-                  fontFamily:"Cinzel,serif",fontSize:12,letterSpacing:1,textTransform:"capitalize",
-                  color:settingsTab===t?"#fff":"#666",
-                  borderBottom:settingsTab===t?"2px solid #8b5cf6":"2px solid transparent",
+                  fontFamily:"Cinzel,serif",fontSize:12,letterSpacing:1,
+                  color:settingsTab===tabId?"#fff":"#666",
+                  borderBottom:settingsTab===tabId?"2px solid #8b5cf6":"2px solid transparent",
                   padding:"0 4px 10px",marginRight:20,marginBottom:-1,transition:"all 0.2s",
-                }}>{t.charAt(0).toUpperCase()+t.slice(1)}</button>
+                }}>{sT("settings.tabs."+tabId)}</button>
               ))}
             </div>
             {/* Content */}
@@ -8663,9 +8869,48 @@ function FullSheet({ character, onBack, onUpdate, onRoll, showPanel, onTogglePan
                     </div>
                   </div>
                 ))}
+                {/* Geração de Arte com IA */}
+                <div>
+                  <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}>
+                    <div style={{fontFamily:"Cinzel,serif",fontSize:13,color:"#fff"}}>Geração de Arte com IA</div>
+                    <span style={{fontFamily:"Cinzel,serif",fontSize:8,letterSpacing:1,color:"#8b5cf6",border:"1px solid #8b5cf633",borderRadius:4,padding:"1px 6px"}}>BETA</span>
+                  </div>
+                  <div style={{fontSize:12,color:"#666",marginBottom:10,lineHeight:1.5}}>
+                    Habilita o botão "Gerar com IA" no upload de retrato do personagem. Usa Higgsfield para criar imagens a partir de uma descrição.
+                  </div>
+                  <div style={{display:"inline-flex",border:"1px solid #333",borderRadius:6,overflow:"hidden"}}>
+                    <button onClick={()=>toggleAiArt(false)} style={{padding:"8px 20px",background:!aiArt?"#8b5cf6":"transparent",border:"none",cursor:"pointer",fontFamily:"Cinzel,serif",fontSize:10,letterSpacing:1,color:!aiArt?"#fff":"#666",transition:"all 0.2s"}}>DESLIGADO</button>
+                    <button onClick={()=>toggleAiArt(true)}  style={{padding:"8px 20px",background: aiArt?"#8b5cf6":"transparent",border:"none",cursor:"pointer",fontFamily:"Cinzel,serif",fontSize:10,letterSpacing:1,color: aiArt?"#fff":"#666",transition:"all 0.2s"}}>LIGADO</button>
+                  </div>
+                </div>
               </>)}
               {settingsTab==="stream" && (
                 <div style={{color:"#666",fontFamily:"Cinzel,serif",fontSize:12,textAlign:"center",padding:"20px 0"}}>Em breve</div>
+              )}
+              {settingsTab==="idioma" && (
+                <div style={{display:"flex",flexDirection:"column",gap:20}}>
+                  <div style={{fontFamily:"Cinzel,serif",fontSize:13,color:"#fff"}}>{sT("settings.language")}</div>
+                  <div style={{display:"flex",gap:12}}>
+                    {[{id:"pt",label:sT("settings.langPT")},{id:"en",label:sT("settings.langEN")}].map(opt=>(
+                      <button key={opt.id} onClick={()=>setAppLang(opt.id)} style={{
+                        flex:1, padding:"14px 12px",
+                        background: appLang===opt.id ? "#8b5cf620" : "#1a1a1a",
+                        border: appLang===opt.id ? "2px solid #8b5cf6" : "2px solid #333",
+                        borderRadius:8, cursor:"pointer",
+                        fontFamily:"Cinzel,serif", fontSize:12, letterSpacing:1,
+                        color: appLang===opt.id ? "#fff" : "#666",
+                        transition:"all 0.2s",
+                      }}>
+                        <div style={{fontSize:22,marginBottom:6}}>{opt.id==="pt" ? "🇧🇷" : "🇺🇸"}</div>
+                        {opt.label}
+                        {appLang===opt.id && <div style={{fontSize:9,color:"#8b5cf6",marginTop:4,letterSpacing:2}}>✦ ATIVO</div>}
+                      </button>
+                    ))}
+                  </div>
+                  <div style={{fontFamily:"'Crimson Pro',serif",fontSize:12,color:"#555",lineHeight:1.6}}>
+                    {sT("settings.langHint")}
+                  </div>
+                </div>
               )}
             </div>
           </div>
@@ -11798,6 +12043,7 @@ function PublicSheetView({ charId }) {
 }
 
 export default function App() {
+  const { t: sT, lang: appLang, setLang: setAppLang } = useLocale();
   const [introPlayed, setIntroPlayed] = useState(() => sessionStorage.getItem("nx_intro") === "1");
   const { currentUser, authLoading, userName: hookUserName, userPhoto: hookUserPhoto, logout } = useAuth();
   const loggedIn = authLoading ? null : !!currentUser;
@@ -12093,7 +12339,7 @@ export default function App() {
     }
     switch(screen){
       case "dashboard": return <Dashboard system={activeSystem} onCreateChar={()=>setCreatingChar(true)} characters={characters} sessions={sessions} onSelectChar={c=>{ setCreatedChar(c); setScreen("sheet"); }} onNav={setScreen} userPlans={userPlans} onShowUpgrade={()=>setScreen("planos")}/>;
-      case "sheet":     return <SheetList characters={characters} system={activeSystem} onCreateChar={()=>setCreatingChar(true)} onSelectChar={c=>{ setCreatedChar(c); }} onDeleteChar={(c)=>{ deleteCharacter(c); if (createdChar && ((createdChar.id && createdChar.id===c.id) || (!createdChar.id && createdChar.createdAt===c.createdAt))) setCreatedChar(null); }}/>;
+      case "sheet":     return <SheetList characters={characters} system={activeSystem} onCreateChar={()=>setCreatingChar(true)} onSelectChar={c=>{ setCreatedChar(c); }} onDeleteChar={(c)=>{ deleteCharacter(c); if (createdChar && ((createdChar.id && createdChar.id===c.id) || (!createdChar.id && createdChar.createdAt===c.createdAt))) setCreatedChar(null); }} onUpdateChar={(c)=>saveCharacter(c)}/>;
       case "map":       return <MapEditor />;
       case "master":    return <MasterAssistant system={activeSystem} onAddSession={()=>setSessions(prev=>[...prev,{id:Date.now(),date:new Date().toLocaleDateString('pt-BR')}])} />;
       case "roadmap":   return <RoadmapScreen />;

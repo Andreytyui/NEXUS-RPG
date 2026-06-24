@@ -8,6 +8,7 @@
 
 import AttributeCircle from "./AttributeCircle";
 import { ATTR_LABELS } from "./rules";
+import { useLocale } from "../../../i18n/useLocale";
 
 /* pentagon points as % of the box: AGI top, then clockwise */
 const POS = {
@@ -20,6 +21,7 @@ const POS = {
 const EDGE_ORDER = ["AGI", "INT", "VIG", "PRE", "FOR"];
 
 export default function AttrConstellation({ attrs, accent = "#e8c96d", onRoll, onEdit, edit, size = 76 }) {
+  const { t } = useLocale();
   const elementTheme = { glow: accent, rune: accent };
   const pts = EDGE_ORDER.map((k) => `${POS[k].x},${POS[k].y}`).join(" ");
 
@@ -38,7 +40,7 @@ export default function AttrConstellation({ attrs, accent = "#e8c96d", onRoll, o
         <div key={k} style={{ position: "absolute", left: `${POS[k].x}%`, top: `${POS[k].y}%`, transform: "translate(-50%,-50%)" }}>
           <AttributeCircle
             abbr={k}
-            name={ATTR_LABELS[k]}
+            name={t("op.attrs." + k) || ATTR_LABELS[k]}
             value={attrs[k] ?? 0}
             size={size}
             elementTheme={elementTheme}

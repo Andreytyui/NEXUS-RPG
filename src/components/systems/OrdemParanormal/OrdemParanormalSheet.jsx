@@ -12,6 +12,7 @@
 
 import { useState, useEffect, useRef, useMemo } from "react";
 import { createPortal } from "react-dom";
+import { useLocale } from "../../../i18n/useLocale";
 import AttrConstellation from "./AttrConstellation";
 import VitalSign from "./VitalSign";
 import { OrdemSheetStyles } from "./ordemStyles";
@@ -274,6 +275,10 @@ export default function OrdemParanormalSheet({ character, charId, onBack, onUpda
   const [copiedReader, setCopiedReader] = useState(false);
   const [copiedEditor, setCopiedEditor] = useState(false);
   const [showPendingPanel, setShowPendingPanel] = useState(false);
+  const [showSheetSettings, setShowSheetSettings] = useState(false);
+  const [aiArt, setAiArtState] = useState(() => localStorage.getItem("nexus_ai_art") === "1");
+  const { t, lang, setLang } = useLocale();
+  const toggleAiArt = (val) => { localStorage.setItem("nexus_ai_art", val ? "1" : "0"); setAiArtState(val); };
   const [reviewIdx, setReviewIdx] = useState(0);
   const [selectedDiffs, setSelectedDiffs] = useState({});
   const isPublic = !!character.public;
@@ -490,38 +495,39 @@ export default function OrdemParanormalSheet({ character, charId, onBack, onUpda
     "--crisis-vignette": theme.crisis.vignette,
   };
 
-  const TABS = [["combate", "Combate"], ["habilidades", "Habilidades"], ["rituais", "Rituais"], ["inventario", "Inventário"], ["descricao", "Descrição"]];
+  const TABS = [["combate", t("op.sheet.tabs.combate")], ["habilidades", t("op.sheet.tabs.habilidades")], ["rituais", t("op.sheet.tabs.rituais")], ["inventario", t("op.sheet.tabs.inventario")], ["descricao", t("op.sheet.tabs.descricao")]];
   const filteredPericias = PERICIAS.filter((p) => p.base.toLowerCase().includes(skillFilter.toLowerCase()));
 
   const inputMini = { padding: "4px 7px", fontSize: 13, width: "100%" };
 
   const renderSkillRow = (p) => {
-    const t = Number(skillTreino[p.base]) || 0;
-    const isTrained = t > 0;
+    const tBonus = Number(skillTreino[p.base]) || 0;
+    const isTrained = tBonus > 0;
     const ak = skillAttr[p.base] || p.attr;
     const outros = Number(skillOutros[p.base] || 0);
-    const bonus = t + outros;
+    const bonus = tBonus + outros;
+    const skillName = t("op.pericias." + p.base) || p.base;
     return (
       <div key={p.base} className="op-skill">
-        <span role="button" tabIndex={0} title="Alternar grau de treino" aria-label={`Treino de ${p.base}`}
+        <span role="button" tabIndex={0} title="Alternar grau de treino" aria-label={`Treino de ${skillName}`}
           onClick={() => setSkillTreino((s) => { const cur = Number(s[p.base]) || 0; const next = cur >= 15 ? 0 : cur >= 10 ? 15 : cur >= 5 ? 10 : 5; return { ...s, [p.base]: next }; })}
           onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && setSkillTreino((s) => { const cur = Number(s[p.base]) || 0; const next = cur >= 15 ? 0 : cur >= 10 ? 15 : cur >= 5 ? 10 : 5; return { ...s, [p.base]: next }; })}
-          style={{ color: treinoColor(t), fontSize: 13, textAlign: "center", cursor: "pointer" }}>{isTrained ? "⬢" : "⬡"}</span>
-        <span onClick={() => rollSkill(p)} title={`Rolar ${p.base}`}
-          style={{ color: isTrained ? treinoColor(t) : "var(--muted2)", cursor: "pointer", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-          {p.base}
+          style={{ color: treinoColor(tBonus), fontSize: 13, textAlign: "center", cursor: "pointer" }}>{isTrained ? "⬢" : "⬡"}</span>
+        <span onClick={() => rollSkill(p)} title={`Rolar ${skillName}`}
+          style={{ color: isTrained ? treinoColor(tBonus) : "var(--muted2)", cursor: "pointer", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          {skillName}
           {p.onlyTrained && <sup title="Somente treinado" style={{ color: "var(--muted)", cursor: "help" }}>*</sup>}
           {p.needsKit && <sup title="Somente treinado com Bônus" style={{ color: "var(--muted)", cursor: "help" }}>+</sup>}
         </span>
         <span style={{ textAlign: "center", color: "var(--muted)", fontSize: 10 }}>{ak}</span>
         <span style={{ textAlign: "center", color: isTrained ? "var(--el-glow)" : "var(--muted)" }}>({bonus})</span>
-        <input type="number" value={t} onClick={(e) => e.stopPropagation()} aria-label={`Treino ${p.base}`}
+        <input type="number" value={tBonus} onClick={(e) => e.stopPropagation()} aria-label={`Treino ${skillName}`}
           onChange={(e) => setSkillTreino((s) => ({ ...s, [p.base]: Math.max(0, Math.min(99, parseInt(e.target.value, 10) || 0)) }))}
-          style={{ color: treinoColor(t) }} />
-        <input type="number" value={outros} onClick={(e) => e.stopPropagation()} aria-label={`Outros ${p.base}`}
+          style={{ color: treinoColor(tBonus) }} />
+        <input type="number" value={outros} onClick={(e) => e.stopPropagation()} aria-label={`Outros ${skillName}`}
           onChange={(e) => setSkillOutros((s) => ({ ...s, [p.base]: parseInt(e.target.value, 10) || 0 }))}
           style={{ color: "var(--muted2)" }} />
-        <button className="op-roll-btn" onClick={() => rollSkill(p)} aria-label={`Rolar ${p.base}`}>🎲</button>
+        <button className="op-roll-btn" onClick={() => rollSkill(p)} aria-label={`Rolar ${skillName}`}>🎲</button>
       </div>
     );
   };
@@ -537,9 +543,9 @@ export default function OrdemParanormalSheet({ character, charId, onBack, onUpda
       {/* ═══ HEADER (sticky) ═══ */}
       <div className={isMedo ? "op-static" : undefined} style={{ position: "sticky", top: 0, zIndex: 5, background: "linear-gradient(180deg, var(--bg) 70%, transparent)", paddingBottom: 8, marginBottom: 8 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-          <button className="btn-ghost" onClick={handleBack} aria-label="Voltar">← Voltar</button>
+          <button className="btn-ghost" onClick={handleBack} aria-label="Voltar">← {t("common.back")}</button>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div className="op-label" style={{ marginBottom: 2 }}>Dossiê de Agente · Ordem Paranormal</div>
+            <div className="op-label" style={{ marginBottom: 2 }}>{t("op.sheet.subtitle")}</div>
             <h1 className={`op-glitch ${wounded ? "on" : ""}`}
               style={{ fontFamily: "var(--font-display,'Cinzel Decorative',serif)", fontSize: "clamp(22px,3.4vw,38px)", color: "var(--el-glow)", lineHeight: 1.05, margin: 0, textShadow: "0 0 18px var(--el-glow)" }}>
               {charName}
@@ -552,11 +558,18 @@ export default function OrdemParanormalSheet({ character, charId, onBack, onUpda
               <span className="op-data" style={{ fontSize: 11, color: theme.accent }}>{theme.name}{isMedo && elementoGmOverride ? " 🔒" : ""}</span>
             </span>
           )}
-          <span style={{ fontFamily: "var(--font-title,'Cinzel',serif)", fontWeight: 700, letterSpacing: "0.14em", textTransform: "uppercase", color: "var(--danger-text,#d85a5a)", border: "2px solid var(--danger,#8b1a1a)", borderRadius: 4, padding: "3px 9px", fontSize: 10, transform: "rotate(-7deg)", boxShadow: "0 0 6px rgba(139,26,26,0.4)" }}>Agente Ativo</span>
+          <span style={{ fontFamily: "var(--font-title,'Cinzel',serif)", fontWeight: 700, letterSpacing: "0.14em", textTransform: "uppercase", color: "var(--danger-text,#d85a5a)", border: "2px solid var(--danger,#8b1a1a)", borderRadius: 4, padding: "3px 9px", fontSize: 10, transform: "rotate(-7deg)", boxShadow: "0 0 6px rgba(139,26,26,0.4)" }}>{t("op.sheet.agenteAtivo")}</span>
           <button onClick={() => setShowShortcuts((v) => !v)} className="btn-ghost" aria-label="Atalhos de teclado" title="Atalhos">?</button>
+          <button onClick={() => setShowSheetSettings(v => !v)} className="btn-ghost" title="Configurações" aria-label="Configurações"
+            style={showSheetSettings ? { borderColor:"rgba(201,168,76,0.6)", color:"var(--gold2)" } : undefined}>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="3"/>
+              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+            </svg>
+          </button>
           <button onClick={() => setEditMode((v) => !v)} aria-pressed={editMode} className="btn-ghost"
             style={editMode ? { background: "var(--gold-dim)", borderColor: "var(--gold)", color: "var(--gold2)" } : undefined}>
-            {editMode ? "🔓 Editando" : "🔒 Travado"}
+            {editMode ? t("op.sheet.editing") : t("op.sheet.locked")}
           </button>
           {!readOnly && charId && (
             <div style={{ position: "relative", display:"flex", gap:6 }}>
@@ -564,7 +577,7 @@ export default function OrdemParanormalSheet({ character, charId, onBack, onUpda
               {isPublic && pendingEdits?.length > 0 && (
                 <button className="btn-ghost" onClick={() => { setShowPendingPanel(v=>!v); setShowShare(false); setReviewIdx(0); }}
                   style={{ borderColor:"rgba(251,191,36,0.5)", color:"#fbbf24", position:"relative" }}>
-                  ✎ Revisões
+                  {t("op.sheet.revisions")}
                   <span style={{ position:"absolute", top:-6, right:-6, width:16, height:16, borderRadius:"50%", background:"#fbbf24", color:"#000", fontFamily:"Cinzel,serif", fontSize:9, display:"flex", alignItems:"center", justifyContent:"center", fontWeight:700 }}>{pendingEdits.length}</span>
                 </button>
               )}
@@ -573,7 +586,7 @@ export default function OrdemParanormalSheet({ character, charId, onBack, onUpda
               )}
               <button className="btn-ghost" onClick={() => { setShowShare(v => !v); setShowPendingPanel(false); if (!showShare && isPublic && onLoadPendingEdits) onLoadPendingEdits(); }}
                 style={isPublic ? { borderColor:"rgba(74,222,128,0.5)", color:"#4ade80" } : undefined}>
-                {isPublic ? "🔗 Pública" : "🔗 Compartilhar"}
+                {isPublic ? t("op.sheet.public") : t("op.sheet.share")}
               </button>
 
               {/* Share popover */}
@@ -581,18 +594,18 @@ export default function OrdemParanormalSheet({ character, charId, onBack, onUpda
                 <div style={{ position:"absolute", top:"calc(100% + 6px)", right:0, zIndex:50, width:300,
                   background:"var(--card,#111)", border:"1px solid rgba(255,255,255,0.12)", borderRadius:8,
                   padding:"14px", boxShadow:"0 8px 32px rgba(0,0,0,0.6)" }}>
-                  <div style={{ fontFamily:"Cinzel,serif", fontSize:10, letterSpacing:"0.1em", color:"rgba(255,255,255,0.45)", textTransform:"uppercase", marginBottom:10 }}>Compartilhar Dossiê</div>
+                  <div style={{ fontFamily:"Cinzel,serif", fontSize:10, letterSpacing:"0.1em", color:"rgba(255,255,255,0.45)", textTransform:"uppercase", marginBottom:10 }}>{t("op.sheet.shareTitle")}</div>
                   {isPublic && (
                     <>
                       {/* Link Leitor */}
                       <div style={{ marginBottom:10 }}>
-                        <div style={{ fontFamily:"Cinzel,serif", fontSize:9, color:"rgba(255,255,255,0.4)", marginBottom:4, letterSpacing:"0.08em", textTransform:"uppercase" }}>👁 Link de Leitor</div>
+                        <div style={{ fontFamily:"Cinzel,serif", fontSize:9, color:"rgba(255,255,255,0.4)", marginBottom:4, letterSpacing:"0.08em", textTransform:"uppercase" }}>{t("op.sheet.readerLink")}</div>
                         <div style={{ display:"flex", gap:6 }}>
                           <input readOnly value={`${window.location.origin}/p/${charId}`}
                             style={{ flex:1, background:"rgba(0,0,0,0.4)", border:"1px solid rgba(255,255,255,0.1)", borderRadius:4, color:"#eee", padding:"5px 8px", fontSize:10, fontFamily:"monospace", minWidth:0 }}/>
                           <button className="btn-ghost" style={{ flexShrink:0, fontSize:10 }}
                             onClick={() => { navigator.clipboard.writeText(`${window.location.origin}/p/${charId}`); setCopiedReader(true); setTimeout(()=>setCopiedReader(false),2000); }}>
-                            {copiedReader ? "✓" : "Copiar"}
+                            {copiedReader ? t("op.sheet.copied") : t("op.sheet.copy")}
                           </button>
                         </div>
                       </div>
@@ -676,7 +689,7 @@ export default function OrdemParanormalSheet({ character, charId, onBack, onUpda
 
           {/* identity badges */}
           <div className="op-ink" style={{ padding: "10px 12px", background: "rgba(0,0,0,0.25)", display: "flex", flexDirection: "column", gap: 6 }}>
-            <Field label="Jogador" value={form.jogador || character.jogador || "—"} editMode={editMode} onChange={(v) => setForm((f) => ({ ...f, jogador: v }))} />
+            <Field label={t("op.sheet.player")} value={form.jogador || character.jogador || "—"} editMode={editMode} onChange={(v) => setForm((f) => ({ ...f, jogador: v }))} />
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 2 }}>
               <Badge>{origem?.name || "Sem origem"}</Badge>
               <Badge accent>{({ combatente: "⚔️", especialista: "🔬", ocultista: "🌑" }[classe?.id] || "◈")} {classe?.name || "Mundano"}</Badge>
@@ -686,7 +699,7 @@ export default function OrdemParanormalSheet({ character, charId, onBack, onUpda
 
           {/* ATTRIBUTES — pentagon constellation (no central orb) */}
           <div className="op-ink" style={{ padding: "12px 6px 6px", background: "rgba(0,0,0,0.25)" }}>
-            <div className="op-label" style={{ textAlign: "center", marginBottom: 2 }}>Atributos</div>
+            <div className="op-label" style={{ textAlign: "center", marginBottom: 2 }}>{t("op.sheet.attributes")}</div>
             <AttrConstellation
               attrs={attrs}
               accent={theme.accent}
@@ -752,7 +765,7 @@ export default function OrdemParanormalSheet({ character, charId, onBack, onUpda
 
               {/* Fórmula */}
               <div style={{ flex:1, paddingTop:3 }}>
-                <div className="op-label" style={{ marginBottom:6, fontSize:9 }}>Defesa</div>
+                <div className="op-label" style={{ marginBottom:6, fontSize:9 }}>{t("op.sheet.combat.defense")}</div>
                 <div style={{ display:"flex", alignItems:"center", gap:5, flexWrap:"wrap" }}>
                   <span style={{ fontFamily:"'Share Tech Mono',monospace", fontSize:11, color:"rgba(255,255,255,0.45)" }}>
                     = 10 + <span style={{ color:"rgba(255,255,255,0.75)" }}>{attrs.AGI||0}</span> AGI
@@ -837,18 +850,18 @@ export default function OrdemParanormalSheet({ character, charId, onBack, onUpda
         <div className={`op-ink op-col-panel${mobileSec !== "pericias" ? " op-mobile-hidden" : ""}`} style={{ display: "flex", flexDirection: "column", minHeight: 0, overflow: "hidden", background: "rgba(0,0,0,0.22)" }}>
           <div style={{ padding: "10px 12px", borderBottom: "1px solid var(--border2)", display: "flex", flexDirection: "column", gap: 8 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <span className="op-label" style={{ color: "var(--el-glow)" }}>Relatório de Capacidades</span>
-              <span className="op-data" style={{ fontSize: 9, color: "var(--muted)" }}>{trained.size} ATIVAS</span>
+              <span className="op-label" style={{ color: "var(--el-glow)" }}>{t("op.sheet.skills.title")}</span>
+              <span className="op-data" style={{ fontSize: 9, color: "var(--muted)" }}>{trained.size} {t("op.sheet.skills.actives")}</span>
             </div>
-            <input value={skillFilter} onChange={(e) => setSkillFilter(e.target.value)} placeholder="🔍 filtrar perícia…" style={{ ...inputMini, fontFamily: "var(--font-data,'Share Tech Mono',monospace)" }} />
+            <input value={skillFilter} onChange={(e) => setSkillFilter(e.target.value)} placeholder={t("op.sheet.skills.filter")} style={{ ...inputMini, fontFamily: "var(--font-data,'Share Tech Mono',monospace)" }} />
           </div>
           <div className="op-skill-head">
             <span />
-            <span className="op-label" style={{ fontSize: 8 }}>Perícia</span>
-            <span className="op-label" style={{ fontSize: 8, textAlign: "center" }}>Dados</span>
-            <span className="op-label" style={{ fontSize: 8, textAlign: "center" }}>Bônus</span>
-            <span className="op-label" style={{ fontSize: 8, textAlign: "center" }}>Treino</span>
-            <span className="op-label" style={{ fontSize: 8, textAlign: "center" }}>Outros</span>
+            <span className="op-label" style={{ fontSize: 8 }}>{t("op.sheet.skills.skill")}</span>
+            <span className="op-label" style={{ fontSize: 8, textAlign: "center" }}>{t("op.sheet.skills.dados")}</span>
+            <span className="op-label" style={{ fontSize: 8, textAlign: "center" }}>{t("op.sheet.skills.bonus")}</span>
+            <span className="op-label" style={{ fontSize: 8, textAlign: "center" }}>{t("op.sheet.skills.treino")}</span>
+            <span className="op-label" style={{ fontSize: 8, textAlign: "center" }}>{t("op.sheet.skills.outros")}</span>
             <span />
           </div>
           <div className="op-col-rows" style={{ overflowY: "auto", flex: 1, minHeight: 0 }}>
@@ -862,10 +875,10 @@ export default function OrdemParanormalSheet({ character, charId, onBack, onUpda
                   <button onClick={() => setCollapsedCats((c) => ({ ...c, [g.id]: !c[g.id] }))} aria-expanded={!collapsed}
                     style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, padding: "7px 12px", background: "rgba(201,168,76,0.05)", border: "none", borderTop: "1px solid var(--border)", cursor: "pointer" }}>
                     <span className="op-label" style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                      <span style={{ color: "var(--el-glow)" }}>{collapsed ? "▸" : "▾"}</span>{g.label}
+                      <span style={{ color: "var(--el-glow)" }}>{collapsed ? "▸" : "▾"}</span>{t("op.skillGroups." + g.id) || g.label}
                       <span style={{ color: "var(--muted)" }}>({rows.length})</span>
                     </span>
-                    {ativas > 0 && <span className="op-data" style={{ fontSize: 9, color: "var(--el-glow)" }}>{ativas} ATIVA{ativas > 1 ? "S" : ""}</span>}
+                    {ativas > 0 && <span className="op-data" style={{ fontSize: 9, color: "var(--el-glow)" }}>{ativas} {ativas > 1 ? t("op.sheet.skills.actives") : t("op.sheet.skills.active")}</span>}
                   </button>
                   {!collapsed && rows.map(renderSkillRow)}
                 </div>
@@ -873,7 +886,7 @@ export default function OrdemParanormalSheet({ character, charId, onBack, onUpda
             })}
           </div>
           <div className="op-data" style={{ padding: "8px 12px", fontSize: 9, color: "var(--muted)", borderTop: "1px solid var(--border)" }}>
-            * Somente treinado · + Somente treinado com Bônus
+            {t("op.sheet.skills.footnote")}
           </div>
         </div>
 
@@ -920,7 +933,7 @@ export default function OrdemParanormalSheet({ character, charId, onBack, onUpda
                 <ElementoSymbol id={elementoAfinidade} size={26} />
                 <div>
                   <div style={{ fontFamily: "var(--font-display,'Cinzel Decorative',serif)", fontSize: 16, color: theme.accent }}>{theme.sectionTitle}</div>
-                  <div className="op-data" style={{ fontSize: 9, color: "var(--muted)" }}>Afinidade: {theme.name}</div>
+                  <div className="op-data" style={{ fontSize: 9, color: "var(--muted)" }}>{t("op.sheet.afinidade")}: {theme.name}</div>
                 </div>
                 <MiniBtn onClick={add(setElementoNotas, { text: "" })} style={{ marginLeft: "auto" }}>+ Novo</MiniBtn>
               </div>
@@ -941,9 +954,9 @@ export default function OrdemParanormalSheet({ character, charId, onBack, onUpda
 
       {/* ═══ FOOTER readouts ═══ */}
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 14, position: "relative", zIndex: 1 }}>
-        <Readout label="PD / Turno" value={`${peTurno + pdBonus}`} note="esforço por rodada" onStep={editMode ? (d) => setPdBonus((b) => b + d) : null} />
-        <Readout label="Deslocamento" value={deslocamentoDisplay} note="movimento por rodada" onStep={editMode ? (d) => setDeslocamentoBonus((b) => b + d) : null} />
-        <Readout label="Classe" value={classe?.name || "Mundano"} note={origem?.name || "sem origem"} />
+        <Readout label={t("op.sheet.pdPerTurn")} value={`${peTurno + pdBonus}`} note={t("op.sheet.effortPerRound")} onStep={editMode ? (d) => setPdBonus((b) => b + d) : null} />
+        <Readout label={t("op.sheet.combat.move")} value={deslocamentoDisplay} note={t("op.sheet.combat.moveNote")} onStep={editMode ? (d) => setDeslocamentoBonus((b) => b + d) : null} />
+        <Readout label={t("op.sheet.classe")} value={classe?.name || t("op.sheet.mundano")} note={origem?.name || t("op.sheet.noOrigin")} />
         {breach && (
           <button className="op-emrg" onClick={() => setWhisperOn((v) => !v)} style={{ flex: "0 0 auto", alignSelf: "center" }} aria-pressed={whisperOn}>
             {whisperOn ? "🔇 Silenciar sussurro" : "🔊 Ouvir o Outro Lado"}
@@ -1221,6 +1234,72 @@ export default function OrdemParanormalSheet({ character, charId, onBack, onUpda
           <div className="op-data" style={{ fontSize: 10, color: "var(--muted)", marginTop: 10 }}>Ctrl+Enter para gerar · Gratuito · Powered by Flux AI</div>
         </Modal>
       )}
+
+      {/* ══ SETTINGS MODAL ══ */}
+      {showSheetSettings && createPortal(
+        <div onClick={() => setShowSheetSettings(false)}
+          style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.72)", zIndex:9999,
+            display:"flex", alignItems:"center", justifyContent:"center" }}>
+          <div onClick={e => e.stopPropagation()}
+            style={{ background:"#111", border:"1px solid #2a2a2a", borderRadius:12,
+              width:400, maxWidth:"95vw", boxShadow:"0 24px 64px rgba(0,0,0,0.85)", overflow:"hidden" }}>
+            {/* Header */}
+            <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"18px 22px 0" }}>
+              <span style={{ fontFamily:"Cinzel,serif", fontSize:15, color:"#fff", fontWeight:600 }}>Configurações</span>
+              <button onClick={() => setShowSheetSettings(false)}
+                style={{ background:"none", border:"none", cursor:"pointer", color:"#888", fontSize:18, lineHeight:1, padding:4 }}>✕</button>
+            </div>
+            {/* Content */}
+            <div style={{ padding:"22px 22px 26px", display:"flex", flexDirection:"column", gap:22 }}>
+              {/* Idioma */}
+              <div>
+                <div style={{ fontFamily:"Cinzel,serif", fontSize:12, color:"#fff", marginBottom:12 }}>Idioma</div>
+                <div style={{ display:"flex", gap:10 }}>
+                  {[{id:"pt",flag:"🇧🇷",label:"Português (BR)"},{id:"en",flag:"🇺🇸",label:"English (US)"}].map(opt => (
+                    <button key={opt.id} onClick={() => setLang(opt.id)} style={{
+                      flex:1, padding:"12px 10px",
+                      background: lang===opt.id ? "#8b5cf620" : "#1a1a1a",
+                      border: lang===opt.id ? "2px solid #8b5cf6" : "2px solid #333",
+                      borderRadius:8, cursor:"pointer",
+                      fontFamily:"Cinzel,serif", fontSize:11, letterSpacing:1,
+                      color: lang===opt.id ? "#fff" : "#666", transition:"all 0.2s",
+                    }}>
+                      <div style={{ fontSize:20, marginBottom:5 }}>{opt.flag}</div>
+                      {opt.label}
+                      {lang===opt.id && <div style={{ fontSize:9, color:"#8b5cf6", marginTop:3, letterSpacing:2 }}>✦ ATIVO</div>}
+                    </button>
+                  ))}
+                </div>
+                <div style={{ fontFamily:"'Crimson Pro',serif", fontSize:12, color:"#555", marginTop:8, lineHeight:1.5 }}>
+                  Termos de RPG (NEX, Outro Lado, nomes de habilidades) permanecem no original.
+                </div>
+              </div>
+              {/* AI Art */}
+              <div>
+                <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:6 }}>
+                  <div style={{ fontFamily:"Cinzel,serif", fontSize:12, color:"#fff" }}>Geração de Arte com IA</div>
+                  <span style={{ fontFamily:"Cinzel,serif", fontSize:8, letterSpacing:1, color:"#8b5cf6",
+                    border:"1px solid #8b5cf633", borderRadius:4, padding:"1px 6px" }}>BETA</span>
+                </div>
+                <div style={{ fontSize:12, color:"#666", marginBottom:10, lineHeight:1.5 }}>
+                  Habilita o botão "Gerar com IA" no upload de retrato do personagem.
+                </div>
+                <div style={{ display:"inline-flex", border:"1px solid #333", borderRadius:6, overflow:"hidden" }}>
+                  <button onClick={() => toggleAiArt(false)}
+                    style={{ padding:"7px 18px", background:!aiArt?"#8b5cf6":"transparent", border:"none",
+                      cursor:"pointer", fontFamily:"Cinzel,serif", fontSize:10, letterSpacing:1,
+                      color:!aiArt?"#fff":"#666", transition:"all 0.2s" }}>DESLIGADO</button>
+                  <button onClick={() => toggleAiArt(true)}
+                    style={{ padding:"7px 18px", background:aiArt?"#8b5cf6":"transparent", border:"none",
+                      cursor:"pointer", fontFamily:"Cinzel,serif", fontSize:10, letterSpacing:1,
+                      color:aiArt?"#fff":"#666", transition:"all 0.2s" }}>LIGADO</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
     </div>
   );
 }
@@ -1290,6 +1369,7 @@ function ArsenalCard({ a, i, attrs, upd, rm, setAttacks, rollAttack }) {
 
 function CombateTab({ diceRef, diceInput, setDiceInput, rollFree, attrs, rollAttr, attacks, setAttacks, rollAttack, upd, rm, add, rollCampaign, onOpenHistory }) {
   const [filter, setFilter] = useState("");
+  const { t } = useLocale();
   const inputMini = { padding: "4px 7px", fontSize: 13, width: "100%" };
   const shown = attacks.filter((a) => (a.name || "").toLowerCase().includes(filter.toLowerCase()));
   return (
@@ -1297,11 +1377,11 @@ function CombateTab({ diceRef, diceInput, setDiceInput, rollFree, attrs, rollAtt
       {/* ── CONSOLE DE ROLAGEM ── */}
       <div className="op-ink" style={{ padding: "12px 13px", background: "rgba(0,0,0,0.3)" }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 9 }}>
-          <span className="op-label" style={{ color: "var(--el-accent)" }}>Console de Rolagem</span>
+          <span className="op-label" style={{ color: "var(--el-accent)" }}>{t("op.sheet.combat.console")}</span>
           {rollCampaign && (
             <button onClick={onOpenHistory} className="op-hist-btn" title="Histórico de rolagens da campanha" aria-label="Abrir histórico da campanha">
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></svg>
-              Histórico
+              {t("op.sheet.combat.history")}
             </button>
           )}
         </div>
@@ -1310,14 +1390,14 @@ function CombateTab({ diceRef, diceInput, setDiceInput, rollFree, attrs, rollAtt
           <input ref={diceRef} className="op-terminal" value={diceInput} placeholder="ex: 2d6+3, 1d20, 4d4-1"
             onChange={(e) => setDiceInput(e.target.value)} onKeyDown={(e) => e.key === "Enter" && rollFree()} aria-label="Expressão de dados" />
           <button className="op-rolar" onClick={rollFree}>
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="18" height="18" rx="3" /><circle cx="8" cy="8" r="1.4" fill="currentColor" /><circle cx="16" cy="16" r="1.4" fill="currentColor" /><circle cx="12" cy="12" r="1.4" fill="currentColor" /></svg>Rolar
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="18" height="18" rx="3" /><circle cx="8" cy="8" r="1.4" fill="currentColor" /><circle cx="16" cy="16" r="1.4" fill="currentColor" /><circle cx="12" cy="12" r="1.4" fill="currentColor" /></svg>{t("op.sheet.combat.roll")}
           </button>
         </div>
       </div>
 
       {/* ── TESTES DE ATRIBUTO ── */}
       <div>
-        <div className="op-label" style={{ marginBottom: 8 }}>Testes de Atributo</div>
+        <div className="op-label" style={{ marginBottom: 8 }}>{t("op.sheet.combat.attrTests")}</div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(5,1fr)", gap: 7 }}>
           {ATTR_KEYS.map((k) => (
             <button key={k} className="op-attr-card" onClick={() => rollAttr(k)} aria-label={`Testar ${ATTR_LABELS[k]}`} title={`1d20 + ${ATTR_LABELS[k]}`}>
@@ -1331,14 +1411,14 @@ function CombateTab({ diceRef, diceInput, setDiceInput, rollFree, attrs, rollAtt
       {/* ── ARSENAL ── */}
       <div>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8, gap: 8 }}>
-          <span className="op-label">Arsenal · {attacks.length}</span>
-          <MiniBtn onClick={add(setAttacks, { name: "Nova arma", dano: "1d6", critico: "20", tipo: "", alcance: "Pessoal", attr: "FOR" })}>+ Novo</MiniBtn>
+          <span className="op-label">{t("op.sheet.combat.arsenal")} · {attacks.length}</span>
+          <MiniBtn onClick={add(setAttacks, { name: "Nova arma", dano: "1d6", critico: "20", tipo: "", alcance: "Pessoal", attr: "FOR" })}>{t("op.sheet.combat.newAtk")}</MiniBtn>
         </div>
         {attacks.length > 3 && (
-          <input value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="🔍 filtrar ataques…"
+          <input value={filter} onChange={(e) => setFilter(e.target.value)} placeholder={t("op.sheet.combat.filterAtk")}
             style={{ ...inputMini, marginBottom: 8, fontFamily: "var(--font-data,'Share Tech Mono',monospace)" }} />
         )}
-        {attacks.length === 0 ? <Empty>Nenhum ataque registrado.</Empty> : shown.length === 0 ? <Empty>Nenhum ataque encontrado.</Empty> : (
+        {attacks.length === 0 ? <Empty>{t("op.sheet.emptyAtk")}</Empty> : shown.length === 0 ? <Empty>{t("op.sheet.emptyAtkFilter")}</Empty> : (
           <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
             {shown.map((a) => {
               const i = attacks.indexOf(a);
