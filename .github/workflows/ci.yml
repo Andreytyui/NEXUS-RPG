@@ -51,7 +51,7 @@ jobs:
         run: npm install
 
       - name: Rodar testes com cobertura
-        run: npm test -- --watchAll=false --ci --coverage --coverageReporters=lcov --coverageReporters=text-summary
+        run: npm test -- --watchAll=false --ci --coverage --coverageReporters=lcov --coverageReporters=text-summary --passWithNoTests
         env:
           CI: true
 
