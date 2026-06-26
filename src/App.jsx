@@ -20,6 +20,7 @@ import { useLocale } from "./i18n/useLocale";
 
 // System-specific sheets are code-split (Phase 3 theming architecture).
 const OrdemParanormalSheet = lazy(() => import("./components/systems/OrdemParanormal/OrdemParanormalSheet"));
+const DungeonsAndDragonsSheet = lazy(() => import("./components/systems/DungeonsAndDragons/DungeonsAndDragonsSheet"));
 
 const googleProvider = new GoogleAuthProvider();
 
@@ -12324,6 +12325,10 @@ export default function App() {
                 </Suspense>
                 {historyOpen && activeRollCampaign && <CampaignRollDrawer campaign={activeRollCampaign} onClose={()=>setHistoryOpen(false)}/>}
               </>
+            ) : activeSystem?.id === "dnd" ? (
+              <Suspense fallback={sheetFallback}>
+                <DungeonsAndDragonsSheet character={createdChar} onBack={()=>setCreatedChar(null)} onRoll={handleRoll} onUpdate={handleSheetUpdate}/>
+              </Suspense>
             ) : (
               <FullSheet character={createdChar} onBack={()=>setCreatedChar(null)} onRoll={handleRoll}
                 showPanel={showRollPanel} onTogglePanel={()=>setShowRollPanel(v=>!v)}

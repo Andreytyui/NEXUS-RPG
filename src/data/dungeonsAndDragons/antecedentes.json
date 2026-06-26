@@ -1,0 +1,165 @@
+[
+  {
+    "nome": "Acólito",
+    "pericias": [
+      "Historia",
+      "Religiao"
+    ],
+    "idiomas": 2,
+    "equipamento": "Simbolo sagrado, livro de oracoes, 5 varetas de incenso, manto, roupas comuns, 15 po",
+    "peculiaridade": "Abrigo e ajuda de templos de sua religiao"
+  },
+  {
+    "nome": "Artesao de Guilda",
+    "pericias": [
+      "Historia",
+      "Intuicao"
+    ],
+    "ferramentas": [
+      "Ferramentas de artesao"
+    ],
+    "idiomas": 1,
+    "equipamento": "Ferramentas de artesao, carta de introducao, roupas de viajante, 15 po",
+    "peculiaridade": "Membro de uma guilda com contatos e alojamento"
+  },
+  {
+    "nome": "Artista",
+    "pericias": [
+      "Atuacao",
+      "Acrobacia"
+    ],
+    "ferramentas": [
+      "Instrumento musical",
+      "Kit de disfarca"
+    ],
+    "equipamento": "Instrumento musical, favor de admirador, roupas comuns, 15 po",
+    "peculiaridade": "Sempre tem abrigo nos lugares que se apresenta"
+  },
+  {
+    "nome": "Charlatao",
+    "pericias": [
+      "Enganacao",
+      "Prestidigitacao"
+    ],
+    "ferramentas": [
+      "Kit de disfarca",
+      "Ferramentas de falsificacao"
+    ],
+    "equipamento": "Roupas finas, kit de disfarca, ferramentas de enganacao, 15 po",
+    "peculiaridade": "Identidade falsa estabelecida"
+  },
+  {
+    "nome": "Criminoso",
+    "pericias": [
+      "Enganacao",
+      "Furtividade"
+    ],
+    "ferramentas": [
+      "Ferramentas de ladrao",
+      "Kit de jogos de azar"
+    ],
+    "equipamento": "Pe de cabra, roupas escuras com capuz, 15 po",
+    "peculiaridade": "Contato criminoso e rede de aliados ilegais"
+  },
+  {
+    "nome": "Eremita",
+    "pericias": [
+      "Medicina",
+      "Religiao"
+    ],
+    "ferramentas": [
+      "Kit de herborismo"
+    ],
+    "idiomas": 1,
+    "equipamento": "Estojo com notas, cobertor de inverno, roupas comuns, 5 po",
+    "peculiaridade": "Descoberta ou segredo importante"
+  },
+  {
+    "nome": "Forasteiro",
+    "pericias": [
+      "Atletismo",
+      "Sobrevivencia"
+    ],
+    "idiomas": 1,
+    "ferramentas": [
+      "Instrumento musical"
+    ],
+    "equipamento": "Bastao, armadilha de caca, pele de animal, roupas de viajante, 10 po",
+    "peculiaridade": "Memoria excelente de mapas e geografia, comida da terra"
+  },
+  {
+    "nome": "Heroi do Povo",
+    "pericias": [
+      "Adestrar animais",
+      "Sobrevivencia"
+    ],
+    "ferramentas": [
+      "Ferramentas de artesao",
+      "Veiculos terrestres"
+    ],
+    "equipamento": "Ferramentas de artesao, pas, jarro de ferro, roupas comuns, 10 po",
+    "peculiaridade": "Acolhida calorosa de plebeus"
+  },
+  {
+    "nome": "Marineiro",
+    "pericias": [
+      "Atletismo",
+      "Percepcao"
+    ],
+    "ferramentas": [
+      "Instrumentos de navegacao",
+      "Veiculos aquaticos"
+    ],
+    "equipamento": "Corda de seda, 5 m, boa sorte, roupas comuns, 10 po",
+    "peculiaridade": "Passagem em navios"
+  },
+  {
+    "nome": "Nobre",
+    "pericias": [
+      "Historia",
+      "Persuasao"
+    ],
+    "ferramentas": [
+      "Kit de jogos de azar"
+    ],
+    "idiomas": 1,
+    "equipamento": "Roupas finas, anel com brasao da familia, letra de credito de 25 po",
+    "peculiaridade": "Tratamento privilegiado e acesso a alta sociedade"
+  },
+  {
+    "nome": "Sabio",
+    "pericias": [
+      "Arcanismo",
+      "Historia"
+    ],
+    "idiomas": 2,
+    "equipamento": "Frasco de tinta, caneta, faca, cartas de colegas, roupas comuns, 10 po",
+    "peculiaridade": "Acesso a bibliotecas e instituicoes de pesquisa"
+  },
+  {
+    "nome": "Soldado",
+    "pericias": [
+      "Atletismo",
+      "Intimidacao"
+    ],
+    "ferramentas": [
+      "Veiculos terrestres",
+      "Kit de jogos de azar"
+    ],
+    "equipamento": "Insiginia de patente, trofeu de batalha, dados de osso, roupas comuns, 10 po",
+    "peculiaridade": "Acesso a acampamentos militares e nao-combatentes"
+  },
+  {
+    "nome": "Urchin",
+    "pericias": [
+      "Furtividade",
+      "Prestidigitacao"
+    ],
+    "ferramentas": [
+      "Ferramentas de ladrao",
+      "Kit de disfarca"
+    ],
+    "equipamento": "Faca, mapa da cidade, rato de estimacao, roupas pobres, 10 po",
+    "peculiaridade": "Movimento rapido pela cidade e contatos nas ruas"
+  }
+]

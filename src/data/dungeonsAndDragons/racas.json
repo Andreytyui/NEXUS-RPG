@@ -1,0 +1,83 @@
+[
+  {
+    "nome": "Anão",
+    "tamanho": "Médio",
+    "deslocamento_metros": 9,
+    "bonus_habilidades": [],
+    "idiomas": "Comum",
+    "sub_racas": [],
+    "descricao_curta": "ha subiu pelas costas do adversário morto, desconsiderando o fato de que o pesado monstro jazia sobre seu amigo élfico. Apesar desse novo desconforto, o nariz grande, pontudo e várias vezes quebrado do anão – bem como sua barba vermelha, raiada de branco, mas ainda cor de fogo – surgiu como uma visã"
+  },
+  {
+    "nome": "Elfo",
+    "tamanho": "Médio",
+    "deslocamento_metros": 9,
+    "bonus_habilidades": [],
+    "idiomas": "Comum",
+    "sub_racas": [],
+    "descricao_curta": "do adversário morto, desconsiderando o fato de que o pesado monstro jazia sobre seu amigo élfico. Apesar desse novo desconforto, o nariz grande, pontudo e várias vezes quebrado do anão – bem como sua barba vermelha, raiada de branco, mas ainda cor de fogo – surgiu como uma visão agradável para Driz"
+  },
+  {
+    "nome": "Halfling",
+    "tamanho": "Médio",
+    "deslocamento_metros": 9,
+    "bonus_habilidades": [],
+    "idiomas": "Comum",
+    "sub_racas": [],
+    "descricao_curta": "edos por trás da cabeça e recostou-se contra a capa musgosa do tronco da árvore. Régis era baixo, mesmo para os padrões de sua diminuta raça, e a lanugem de suas madeixas castanhas e encaracoladas mal ultrapassava a marca de um metro. Mas a barriga alargava-se abundantemente, devido a seu amor por u"
+  },
+  {
+    "nome": "Humano",
+    "tamanho": "Médio",
+    "deslocamento_metros": 9,
+    "bonus_habilidades": [],
+    "idiomas": "Comum",
+    "sub_racas": [],
+    "descricao_curta": "ngos navios, primeiro para saquear e aterrorizar, em seguida para colonizar. No entanto, havia uma energia, um amor pela aventura, que foi cantado em cada página. Noite adentro Liriel leu, iluminada pela luz de velas após velas. Ela nunca tinha dado muita atenção para os humanos, mas essas histórias"
+  },
+  {
+    "nome": "Draconato",
+    "tamanho": "Médio",
+    "deslocamento_metros": 9,
+    "bonus_habilidades": [],
+    "idiomas": "Comum",
+    "sub_racas": [],
+    "descricao_curta": "a face tinha ficado pálidas ao redor das bordas, mas Clanless Mehen ainda aparentava ser capaz de derrubar um urso atroz apenas com suas mãos. Ela já não usava sua antiga armadura pesada, substituída por uma armadura de escamas de cor violeta com detalhes prateados brilhantes. Também havia um brasão"
+  },
+  {
+    "nome": "Gnomo",
+    "tamanho": "Médio",
+    "deslocamento_metros": 9,
+    "bonus_habilidades": [],
+    "idiomas": "Comum",
+    "sub_racas": [],
+    "descricao_curta": "surpreendente, Burgell parece ter metade da altura de Aeron e precisa subir em um caixote para ver através do olho mágico. Como a maioria das residências em Oeble, aquela casa em particular foi construída por humanos e os residentes pequenos lidam com isso sem se constranger da melhor forma que pod"
+  },
+  {
+    "nome": "Meio-Elfo",
+    "tamanho": "Médio",
+    "deslocamento_metros": 9,
+    "bonus_habilidades": [],
+    "idiomas": "Comum",
+    "sub_racas": [],
+    "descricao_curta": "longo do caminho. Erguendo-se, Flint recuou para a sombra de um alto pinheiro para ver melhor. As passadas do homem eram marcadas por uma graça natural – uma graça élfica, Flint diria; No entanto, o corpo do homem espessura e musculatura de um humano, enquanto que a barba definitivamente era de natu"
+  },
+  {
+    "nome": "Meio-Orc",
+    "tamanho": "Médio",
+    "deslocamento_metros": 9,
+    "bonus_habilidades": [],
+    "idiomas": "Comum",
+    "sub_racas": [],
+    "descricao_curta": "ota de malha de aço em seu torso grosso e musculoso. Normalmente ele acorda antes da maioria dos guerreiros, já que ele possui uma forte veia de sangue humano e acha a luz do dia menos irritante que a maioria do resto da tribo. Entre os Caveiras Sangrentas, um guerreiro é julgado por sua força, fero"
+  },
+  {
+    "nome": "Tiefling",
+    "tamanho": "Médio",
+    "deslocamento_metros": 9,
+    "bonus_habilidades": [],
+    "idiomas": "Comum",
+    "sub_racas": [],
+    "descricao_curta": "negros, frios como uma tempestade de inverno, que fitavam direto em seu coração e a seriedade repentina em sua voz sacudiu-a. ―O que é que eles estão falando?‖ Ele perguntou. ―Primeiro a curiosidade, segundo a conspiração–‖ Terceiro uma maldição,‖ ela concluiu. ―Você acha que eu nunca havia ouvido"
+  }
+]

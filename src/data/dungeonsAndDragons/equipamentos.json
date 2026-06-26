@@ -1,0 +1,632 @@
+{
+  "armaduras": [
+    {
+      "nome": "Acolchoada",
+      "tipo": "Leve",
+      "preco": "5 po",
+      "ca": "11 + Des",
+      "furtividade": "Desvantagem",
+      "peso": "4 kg"
+    },
+    {
+      "nome": "Couro",
+      "tipo": "Leve",
+      "preco": "10 po",
+      "ca": "11 + Des",
+      "furtividade": "-",
+      "peso": "5 kg"
+    },
+    {
+      "nome": "Couro Batido",
+      "tipo": "Leve",
+      "preco": "45 po",
+      "ca": "12 + Des",
+      "furtividade": "-",
+      "peso": "6,5 kg"
+    },
+    {
+      "nome": "Gibao de Peles",
+      "tipo": "Media",
+      "preco": "10 po",
+      "ca": "12 + Des(max2)",
+      "furtividade": "-",
+      "peso": "6,5 kg"
+    },
+    {
+      "nome": "Camisao de Malha",
+      "tipo": "Media",
+      "preco": "50 po",
+      "ca": "13 + Des(max2)",
+      "furtividade": "-",
+      "peso": "10 kg"
+    },
+    {
+      "nome": "Brunea",
+      "tipo": "Media",
+      "preco": "400 po",
+      "ca": "14 + Des(max2)",
+      "furtividade": "Desvantagem",
+      "peso": "22,5 kg"
+    },
+    {
+      "nome": "Peitoral",
+      "tipo": "Media",
+      "preco": "400 po",
+      "ca": "14 + Des(max2)",
+      "furtividade": "-",
+      "peso": "10 kg"
+    },
+    {
+      "nome": "Meia-Armadura",
+      "tipo": "Media",
+      "preco": "750 po",
+      "ca": "15 + Des(max2)",
+      "furtividade": "Desvantagem",
+      "peso": "20 kg"
+    },
+    {
+      "nome": "Cota de Aneis",
+      "tipo": "Pesada",
+      "preco": "30 po",
+      "ca": "14",
+      "furtividade": "Desvantagem",
+      "peso": "20 kg"
+    },
+    {
+      "nome": "Cota de Malha",
+      "tipo": "Pesada",
+      "preco": "75 po",
+      "ca": "16",
+      "req_forca": "13",
+      "furtividade": "Desvantagem",
+      "peso": "27,5 kg"
+    },
+    {
+      "nome": "Cota de Talas",
+      "tipo": "Pesada",
+      "preco": "200 po",
+      "ca": "17",
+      "req_forca": "15",
+      "furtividade": "Desvantagem",
+      "peso": "30 kg"
+    },
+    {
+      "nome": "Placas",
+      "tipo": "Pesada",
+      "preco": "1500 po",
+      "ca": "18",
+      "req_forca": "15",
+      "furtividade": "Desvantagem",
+      "peso": "32,5 kg"
+    },
+    {
+      "nome": "Escudo",
+      "tipo": "Escudo",
+      "preco": "10 po",
+      "ca": "+2",
+      "furtividade": "-",
+      "peso": "3 kg"
+    }
+  ],
+  "armas": {
+    "simples_corpo_a_corpo": [
+      {
+        "nome": "Clava",
+        "preco": "1 pp",
+        "dano": "1d4 contundente",
+        "peso": "1 kg",
+        "propriedades": "Leve"
+      },
+      {
+        "nome": "Adaga",
+        "preco": "2 po",
+        "dano": "1d4 perfurante",
+        "peso": "0,5 kg",
+        "propriedades": "Arremesso (6/18), leveza"
+      },
+      {
+        "nome": "Bordao",
+        "preco": "2 pp",
+        "dano": "1d6 contundente",
+        "peso": "2 kg",
+        "propriedades": "Versatil (1d8)"
+      },
+      {
+        "nome": "Foice Leve",
+        "preco": "1 pp",
+        "dano": "1d4 cortante",
+        "peso": "1 kg",
+        "propriedades": "Leve"
+      },
+      {
+        "nome": "Lanca",
+        "preco": "1 po",
+        "dano": "1d6 perfurante",
+        "peso": "1,5 kg",
+        "propriedades": "Arremesso (6/18), versatil (1d8)"
+      },
+      {
+        "nome": "Maca",
+        "preco": "5 po",
+        "dano": "1d6 contundente",
+        "peso": "2 kg",
+        "propriedades": "-"
+      },
+      {
+        "nome": "Machado de Mao",
+        "preco": "5 po",
+        "dano": "1d6 cortante",
+        "peso": "1 kg",
+        "propriedades": "Leve, arremesso (6/18)"
+      },
+      {
+        "nome": "Martelo Leve",
+        "preco": "2 po",
+        "dano": "1d4 contundente",
+        "peso": "1 kg",
+        "propriedades": "Leve, arremesso (6/18)"
+      },
+      {
+        "nome": "Cajado",
+        "preco": "2 pp",
+        "dano": "1d6 contundente",
+        "peso": "2 kg",
+        "propriedades": "Versatil (1d8)"
+      }
+    ],
+    "simples_distancia": [
+      {
+        "nome": "Arco Curto",
+        "preco": "25 po",
+        "dano": "1d6 perfurante",
+        "peso": "1 kg",
+        "propriedades": "Municao (24/96), duas maos"
+      },
+      {
+        "nome": "Besta Leve",
+        "preco": "25 po",
+        "dano": "1d8 perfurante",
+        "peso": "2,5 kg",
+        "propriedades": "Municao (24/96), recarga, duas maos"
+      },
+      {
+        "nome": "Dardo",
+        "preco": "5 pc",
+        "dano": "1d4 perfurante",
+        "peso": "0,1 kg",
+        "propriedades": "Arremesso (6/18), delicado"
+      },
+      {
+        "nome": "Funda",
+        "preco": "1 pp",
+        "dano": "1d4 contundente",
+        "peso": "-",
+        "propriedades": "Municao (9/36)"
+      }
+    ],
+    "marciais_corpo_a_corpo": [
+      {
+        "nome": "Alabarda",
+        "preco": "20 po",
+        "dano": "1d10 cortante",
+        "peso": "3 kg",
+        "propriedades": "Pesada, alcance, duas maos"
+      },
+      {
+        "nome": "Espada Curta",
+        "preco": "10 po",
+        "dano": "1d6 perfurante",
+        "peso": "1 kg",
+        "propriedades": "Leve, delicada"
+      },
+      {
+        "nome": "Espada Longa",
+        "preco": "15 po",
+        "dano": "1d8 cortante",
+        "peso": "1,5 kg",
+        "propriedades": "Versatil (1d10)"
+      },
+      {
+        "nome": "Espada Grande",
+        "preco": "50 po",
+        "dano": "2d6 cortante",
+        "peso": "3 kg",
+        "propriedades": "Pesada, duas maos"
+      },
+      {
+        "nome": "Machado de Batalha",
+        "preco": "10 po",
+        "dano": "1d8 cortante",
+        "peso": "2 kg",
+        "propriedades": "Versatil (1d10)"
+      },
+      {
+        "nome": "Machado Grande",
+        "preco": "30 po",
+        "dano": "1d12 cortante",
+        "peso": "3,5 kg",
+        "propriedades": "Pesada, duas maos"
+      },
+      {
+        "nome": "Maca de Guerra",
+        "preco": "15 po",
+        "dano": "1d8 contundente",
+        "peso": "2 kg",
+        "propriedades": "Versatil (1d10)"
+      },
+      {
+        "nome": "Martelo de Guerra",
+        "preco": "15 po",
+        "dano": "1d8 contundente",
+        "peso": "1 kg",
+        "propriedades": "Versatil (1d10)"
+      },
+      {
+        "nome": "Rapieira",
+        "preco": "25 po",
+        "dano": "1d8 perfurante",
+        "peso": "1 kg",
+        "propriedades": "Delicada"
+      },
+      {
+        "nome": "Tridente",
+        "preco": "5 po",
+        "dano": "1d6 perfurante",
+        "peso": "2 kg",
+        "propriedades": "Arremesso (6/18), versatil (1d8)"
+      },
+      {
+        "nome": "Lanca de Guerra",
+        "preco": "5 po",
+        "dano": "1d12 perfurante",
+        "peso": "3 kg",
+        "propriedades": "Alcance, duas maos"
+      },
+      {
+        "nome": "Chicote",
+        "preco": "2 po",
+        "dano": "1d4 cortante",
+        "peso": "1,5 kg",
+        "propriedades": "Delicada, alcance"
+      },
+      {
+        "nome": "Mangual",
+        "preco": "10 po",
+        "dano": "1d8 contundente",
+        "peso": "1 kg",
+        "propriedades": "-"
+      },
+      {
+        "nome": "Picareta de Guerra",
+        "preco": "5 po",
+        "dano": "1d8 perfurante",
+        "peso": "1 kg",
+        "propriedades": "-"
+      },
+      {
+        "nome": "Lanca Curta",
+        "preco": "1 po",
+        "dano": "1d6 perfurante",
+        "peso": "1 kg",
+        "propriedades": "Leve, arremesso (6/18)"
+      }
+    ],
+    "marciais_distancia": [
+      {
+        "nome": "Arco Longo",
+        "preco": "50 po",
+        "dano": "1d8 perfurante",
+        "peso": "1 kg",
+        "propriedades": "Municao (45/180), pesada, duas maos"
+      },
+      {
+        "nome": "Besta de Mao",
+        "preco": "75 po",
+        "dano": "1d6 perfurante",
+        "peso": "1,5 kg",
+        "propriedades": "Municao (9/36), leve, recarga"
+      },
+      {
+        "nome": "Besta Pesada",
+        "preco": "50 po",
+        "dano": "1d10 perfurante",
+        "peso": "4,5 kg",
+        "propriedades": "Municao (30/120), pesada, recarga, duas maos"
+      },
+      {
+        "nome": "Zarabatana",
+        "preco": "10 po",
+        "dano": "1 perfurante",
+        "peso": "0,5 kg",
+        "propriedades": "Municao (7,5/30), recarga"
+      }
+    ]
+  },
+  "equipamentos_aventura": [
+    {
+      "nome": "Abaco",
+      "custo": "2 po",
+      "peso": "1 kg"
+    },
+    {
+      "nome": "Acido (vidro)",
+      "custo": "25 po",
+      "peso": "0,5 kg"
+    },
+    {
+      "nome": "Agua benta (frasco)",
+      "custo": "25 po",
+      "peso": "0,5 kg"
+    },
+    {
+      "nome": "Algemas",
+      "custo": "2 po",
+      "peso": "2 kg"
+    },
+    {
+      "nome": "Algibeira",
+      "custo": "5 po",
+      "peso": "0,5 kg"
+    },
+    {
+      "nome": "Aljava",
+      "custo": "1 po",
+      "peso": "0,5 kg"
+    },
+    {
+      "nome": "Ampulheta",
+      "custo": "25 po",
+      "peso": "0,5 kg"
+    },
+    {
+      "nome": "Antidoto (vidro)",
+      "custo": "50 po",
+      "peso": "0,5 kg"
+    },
+    {
+      "nome": "Ariete portátil",
+      "custo": "4 po",
+      "peso": "17 kg"
+    },
+    {
+      "nome": "Armadilha de caca",
+      "custo": "5 po",
+      "peso": "11 kg"
+    },
+    {
+      "nome": "Arpeu",
+      "custo": "2 po",
+      "peso": "2 kg"
+    },
+    {
+      "nome": "Balanca de mercador",
+      "custo": "5 po",
+      "peso": "1,5 kg"
+    },
+    {
+      "nome": "Bolsa de componentes",
+      "custo": "25 po",
+      "peso": "1 kg"
+    },
+    {
+      "nome": "Caixa de fogo",
+      "custo": "5 pp",
+      "peso": "1 kg"
+    },
+    {
+      "nome": "Cantil",
+      "custo": "2 pp",
+      "peso": "2,5 kg"
+    },
+    {
+      "nome": "Cobertor de inverno",
+      "custo": "5 pp",
+      "peso": "1,5 kg"
+    },
+    {
+      "nome": "Corda de canhamo (15 m)",
+      "custo": "1 po",
+      "peso": "5 kg"
+    },
+    {
+      "nome": "Corda de seda (15 m)",
+      "custo": "10 po",
+      "peso": "2,5 kg"
+    },
+    {
+      "nome": "Corrente (3 m)",
+      "custo": "5 po",
+      "peso": "5 kg"
+    },
+    {
+      "nome": "Espelho de aco",
+      "custo": "5 po",
+      "peso": "0,25 kg"
+    },
+    {
+      "nome": "Estrepes (bolsa 20)",
+      "custo": "1 po",
+      "peso": "1 kg"
+    },
+    {
+      "nome": "Fechadura",
+      "custo": "10 po",
+      "peso": "0,5 kg"
+    },
+    {
+      "nome": "Fogo alquimico (frasco)",
+      "custo": "50 po",
+      "peso": "0,5 kg"
+    },
+    {
+      "nome": "Grimorio",
+      "custo": "50 po",
+      "peso": "1,5 kg"
+    },
+    {
+      "nome": "Kit de escalada",
+      "custo": "25 po",
+      "peso": "6 kg"
+    },
+    {
+      "nome": "Kit de primeiros-socorros",
+      "custo": "5 po",
+      "peso": "1,5 kg"
+    },
+    {
+      "nome": "Lanterna de capuz",
+      "custo": "5 po",
+      "peso": "1 kg"
+    },
+    {
+      "nome": "Lanterna de furna",
+      "custo": "10 po",
+      "peso": "1 kg"
+    },
+    {
+      "nome": "Lupa",
+      "custo": "100 po",
+      "peso": "-"
+    },
+    {
+      "nome": "Mochila",
+      "custo": "2 po",
+      "peso": "2,5 kg"
+    },
+    {
+      "nome": "Oleo (frasco)",
+      "custo": "1 pp",
+      "peso": "0,5 kg"
+    },
+    {
+      "nome": "Pe de cabra",
+      "custo": "2 po",
+      "peso": "2,5 kg"
+    },
+    {
+      "nome": "Picareta de mineiro",
+      "custo": "2 po",
+      "peso": "5 kg"
+    },
+    {
+      "nome": "Racoes (1 dia)",
+      "custo": "5 pp",
+      "peso": "1 kg"
+    },
+    {
+      "nome": "Saco de dormir",
+      "custo": "1 po",
+      "peso": "3,5 kg"
+    },
+    {
+      "nome": "Simbolo sagrado",
+      "custo": "5 po",
+      "peso": "1 kg"
+    },
+    {
+      "nome": "Tenda (2 pessoas)",
+      "custo": "2 po",
+      "peso": "10 kg"
+    },
+    {
+      "nome": "Tocha",
+      "custo": "1 pc",
+      "peso": "0,5 kg"
+    },
+    {
+      "nome": "Veneno basico (vidro)",
+      "custo": "100 po",
+      "peso": "0,5 kg"
+    }
+  ],
+  "ferramentas": [
+    {
+      "nome": "Ferramentas de carpinteiro",
+      "custo": "8 po"
+    },
+    {
+      "nome": "Ferramentas de cartografo",
+      "custo": "15 po"
+    },
+    {
+      "nome": "Ferramentas de costureiro",
+      "custo": "1 po"
+    },
+    {
+      "nome": "Ferramentas de coureiro",
+      "custo": "5 po"
+    },
+    {
+      "nome": "Ferramentas de entalhador",
+      "custo": "1 po"
+    },
+    {
+      "nome": "Ferramentas de ferreiro",
+      "custo": "20 po"
+    },
+    {
+      "nome": "Ferramentas de funileiro",
+      "custo": "50 po"
+    },
+    {
+      "nome": "Ferramentas de joalheiro",
+      "custo": "25 po"
+    },
+    {
+      "nome": "Ferramentas de oleiro",
+      "custo": "10 po"
+    },
+    {
+      "nome": "Ferramentas de pedreiro",
+      "custo": "10 po"
+    },
+    {
+      "nome": "Ferramentas de pintor",
+      "custo": "10 po"
+    },
+    {
+      "nome": "Ferramentas de sapateiro",
+      "custo": "5 po"
+    },
+    {
+      "nome": "Ferramentas de vidreiro",
+      "custo": "30 po"
+    },
+    {
+      "nome": "Ferramentas de alquimista",
+      "custo": "50 po"
+    },
+    {
+      "nome": "Ferramentas de ladrao",
+      "custo": "25 po"
+    },
+    {
+      "nome": "Instrumentos de navegacao",
+      "custo": "25 po"
+    },
+    {
+      "nome": "Suprimentos de envenenamento",
+      "custo": "50 po"
+    },
+    {
+      "nome": "Suprimentos de herborismo",
+      "custo": "5 po"
+    },
+    {
+      "nome": "Utensilios de culinaria",
+      "custo": "1 po"
+    },
+    {
+      "nome": "Kit de disfarca",
+      "custo": "25 po"
+    },
+    {
+      "nome": "Kit de falsificacao",
+      "custo": "15 po"
+    },
+    {
+      "nome": "Instrumento musical",
+      "custo": "variado"
+    }
+  ]
+}

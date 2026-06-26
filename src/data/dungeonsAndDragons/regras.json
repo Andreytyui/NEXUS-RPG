@@ -1,0 +1,286 @@
+{
+  "habilidades": [
+    {
+      "nome": "Forca",
+      "abreviacao": "FOR",
+      "descricao": "Poder fisico, treinamento atletico e proficiencia com armas",
+      "usos": [
+        "Atletismo",
+        "Ataques corpo a corpo",
+        "Carregar/empurrar/arrastar"
+      ],
+      "teste_resistencia": "Resistir a ser empurrado, forcas fisicas"
+    },
+    {
+      "nome": "Destreza",
+      "abreviacao": "DES",
+      "descricao": "Agilidade, reflexos e equilibrio",
+      "usos": [
+        "Acrobacia",
+        "Furtividade",
+        "Prestidigitacao",
+        "Ataques a distancia",
+        "Iniciativa"
+      ],
+      "teste_resistencia": "Esquivar de armadilhas, explosoes, ataques de area"
+    },
+    {
+      "nome": "Constituicao",
+      "abreviacao": "CON",
+      "descricao": "Saude, vigor e forca vital",
+      "usos": [
+        "Pontos de vida",
+        "Concentracao de magia"
+      ],
+      "teste_resistencia": "Resistir a venenos, doencas, exaustao"
+    },
+    {
+      "nome": "Inteligencia",
+      "abreviacao": "INT",
+      "descricao": "Acuidade mental, lembranca de informacoes e raciocinio analitico",
+      "usos": [
+        "Arcanismo",
+        "Historia",
+        "Investigacao",
+        "Natureza",
+        "Religiao"
+      ],
+      "teste_resistencia": "Resistir a ilusoes"
+    },
+    {
+      "nome": "Sabedoria",
+      "abreviacao": "SAB",
+      "descricao": "Percepcao e intuicao",
+      "usos": [
+        "Adestrar animais",
+        "Intuicao",
+        "Medicina",
+        "Percepcao",
+        "Sobrevivencia"
+      ],
+      "teste_resistencia": "Resistir a encantamentos, magias de charme"
+    },
+    {
+      "nome": "Carisma",
+      "abreviacao": "CAR",
+      "descricao": "Forca de personalidade, persuasao e lideranca",
+      "usos": [
+        "Enganacao",
+        "Intimidacao",
+        "Atuacao",
+        "Persuasao"
+      ],
+      "teste_resistencia": "Resistir a possessao, expulsao"
+    }
+  ],
+  "pericias": [
+    {
+      "nome": "Acrobacia",
+      "habilidade": "Destreza"
+    },
+    {
+      "nome": "Adestrar animais",
+      "habilidade": "Sabedoria"
+    },
+    {
+      "nome": "Arcanismo",
+      "habilidade": "Inteligencia"
+    },
+    {
+      "nome": "Atletismo",
+      "habilidade": "Forca"
+    },
+    {
+      "nome": "Atuacao",
+      "habilidade": "Carisma"
+    },
+    {
+      "nome": "Enganacao",
+      "habilidade": "Carisma"
+    },
+    {
+      "nome": "Furtividade",
+      "habilidade": "Destreza"
+    },
+    {
+      "nome": "Historia",
+      "habilidade": "Inteligencia"
+    },
+    {
+      "nome": "Intimidacao",
+      "habilidade": "Carisma"
+    },
+    {
+      "nome": "Intuicao",
+      "habilidade": "Sabedoria"
+    },
+    {
+      "nome": "Investigacao",
+      "habilidade": "Inteligencia"
+    },
+    {
+      "nome": "Medicina",
+      "habilidade": "Sabedoria"
+    },
+    {
+      "nome": "Natureza",
+      "habilidade": "Inteligencia"
+    },
+    {
+      "nome": "Percepcao",
+      "habilidade": "Sabedoria"
+    },
+    {
+      "nome": "Persuasao",
+      "habilidade": "Carisma"
+    },
+    {
+      "nome": "Prestidigitacao",
+      "habilidade": "Destreza"
+    },
+    {
+      "nome": "Religiao",
+      "habilidade": "Inteligencia"
+    },
+    {
+      "nome": "Sobrevivencia",
+      "habilidade": "Sabedoria"
+    }
+  ],
+  "acoes_combate": [
+    {
+      "acao": "Atacar",
+      "descricao": "Realize um ataque com arma ou desarmado"
+    },
+    {
+      "acao": "Conjurar Magia",
+      "descricao": "Lance uma magia com tempo de conjuracao de 1 acao"
+    },
+    {
+      "acao": "Correr",
+      "descricao": "Ganhe movimento extra igual ao seu deslocamento neste turno"
+    },
+    {
+      "acao": "Desengajar",
+      "descricao": "Seu movimento nao provoca ataques de oportunidade pelo resto do turno"
+    },
+    {
+      "acao": "Desviar",
+      "descricao": "Ate o inicio do seu proximo turno, todo ataque contra voce tem desvantagem se voce puder ver o atacante"
+    },
+    {
+      "acao": "Empurrar",
+      "descricao": "Derrube ou empurre uma criatura. Teste de Atletismo vs Atletismo/Acrobacia"
+    },
+    {
+      "acao": "Esconder",
+      "descricao": "Tente se esconder. Teste de Furtividade CD determinado pelo Mestre"
+    },
+    {
+      "acao": "Preparar",
+      "descricao": "Prepare uma acao para ser ativada por um gatilho especifico"
+    },
+    {
+      "acao": "Ajudar",
+      "descricao": "Conceda vantagem a um aliado em seu proximo teste ou ataque"
+    },
+    {
+      "acao": "Procurar",
+      "descricao": "Dedique sua atencao para encontrar algo"
+    },
+    {
+      "acao": "Usar objeto",
+      "descricao": "Use um item que requer mais do que interacao com objeto"
+    }
+  ],
+  "condicoes": [
+    {
+      "nome": "Agarrado",
+      "efeito": "Velocidade 0. Termina se o agarrador ficar incapacitado ou se for removido."
+    },
+    {
+      "nome": "Amedrontado",
+      "efeito": "Desvantagem em testes e ataques enquanto a fonte do medo estiver visivel. Nao pode se mover voluntariamente em direcao a ela."
+    },
+    {
+      "nome": "Atordoado",
+      "efeito": "Incapacitado, nao pode se mover, fala com dificuldade. Automaticamente falha em FOR e DES. Ataques contra a criatura tem vantagem."
+    },
+    {
+      "nome": "Caido",
+      "efeito": "Ataques corpo a corpo tem vantagem contra a criatura, a distancia tem desvantagem. Movimento custa o dobro para se levantar."
+    },
+    {
+      "nome": "Cego",
+      "efeito": "Falha automaticamente em testes que requerem visao. Ataques contra cegos tem vantagem, ataques do cego tem desvantagem."
+    },
+    {
+      "nome": "Enfeiticado",
+      "efeito": "Nao pode atacar ou afetar negativamente o feiticeiro. O feiticeiro tem vantagem em testes sociais contra a criatura."
+    },
+    {
+      "nome": "Envenenado",
+      "efeito": "Desvantagem em testes de ataque e testes de habilidade."
+    },
+    {
+      "nome": "Exausto",
+      "efeito": "6 niveis. Nivel 1: desvantagem em testes. Nivel 2: velocidade pela metade. Nivel 3: desvantagem em ataques e testes de resistencia. Nivel 4: max PV pela metade. Nivel 5: velocidade 0. Nivel 6: morte."
+    },
+    {
+      "nome": "Incapacitado",
+      "efeito": "Nao pode realizar acoes nem reacoes."
+    },
+    {
+      "nome": "Inconsciente",
+      "efeito": "Incapacitado, nao pode se mover ou falar. Cai no chao. Falha automaticamente em FOR e DES. Ataques tem vantagem; ataques corpo a corpo a 1,5 metro sao criticos."
+    },
+    {
+      "nome": "Invisivel",
+      "efeito": "Impossivel de ver sem magia. Ataques contra o invisivel tem desvantagem; ataques do invisivel tem vantagem."
+    },
+    {
+      "nome": "Paralisado",
+      "efeito": "Incapacitado, nao pode se mover ou falar. Falha automaticamente em FOR e DES. Ataques tem vantagem; ataques corpo a corpo a 1,5 metro sao criticos."
+    },
+    {
+      "nome": "Petrificado",
+      "efeito": "Transformado em pedra. Incapacitado. Resistente a todos os danos. Imune a veneno e doencas."
+    },
+    {
+      "nome": "Surdo",
+      "efeito": "Nao ouve. Falha automaticamente em testes que requerem audicao."
+    }
+  ],
+  "tipos_de_dano": [
+    "Acido",
+    "Contundente",
+    "Cortante",
+    "Eletricidade",
+    "Flamejante",
+    "Forca",
+    "Frio",
+    "Mental",
+    "Necrotico",
+    "Perfurante",
+    "Psiquico",
+    "Radiante",
+    "Trovao",
+    "Veneno"
+  ],
+  "regras_basicas": {
+    "vantagem": "Role 2d20 e use o maior resultado",
+    "desvantagem": "Role 2d20 e use o menor resultado",
+    "critico": "No ataque, role 20 natural. Role os dados de dano em dobro",
+    "morte": "Ao chegar a 0 PV, role 1d20. 10+: sucesso. 9-: falha. 3 falhas = morte. 3 sucessos = estavel. 1 natural = 2 falhas. 20 natural = recupera 1 PV",
+    "bonus_proficiencia": {
+      "1-4": "+2",
+      "5-8": "+3",
+      "9-12": "+4",
+      "13-16": "+5",
+      "17-20": "+6"
+    },
+    "modificador_habilidade": "Modificador = (valor - 10) / 2, arredondado para baixo",
+    "iniciativa": "Teste de Destreza no inicio do combate",
+    "ataque_surpresa": "Se o atacante nao foi detectado, a criatura alvo nao pode agir no primeiro turno"
+  }
+}

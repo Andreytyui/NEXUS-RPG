@@ -1,0 +1,387 @@
+[
+  {
+    "nome": "Bárbaro",
+    "dado_de_vida": "d12",
+    "habilidade_principal": "Força",
+    "proficiencias_resistencia": [
+      "Força",
+      "Constituição"
+    ],
+    "armaduras": "Armaduras leves, armaduras médias e",
+    "armas": "Armas simples, armas marciais",
+    "tem_magia": false,
+    "subclasses": [
+      "Guerreiro Totêmico é uma jornada",
+      "Primitivo",
+      "Furioso ou o",
+      "Guerreiro Totêmico",
+      "Furioso é um"
+    ],
+    "caracteristicas_notaveis": [
+      "INSTINTO PRIMITIVO",
+      "UMA VIDA DE PERIGO",
+      "Bônus de",
+      "Nível Proficiência Características",
+      "Campeão Primitivo",
+      "CONSTRUÇÃO RÁPIDA",
+      "Dado de Vida: 1d12 por nível de bárbaro",
+      "Constituição",
+      "Armas: Armas simples, armas marciais",
+      "CARACTERÍSTICAS DE CLASSE",
+      "Testes de Resistência: Força, Constituição",
+      "Atletismo, Intimidação, Natureza, Percepção e"
+    ],
+    "descricao": "inha em meio a uma nevasca, coberto por peles e empunhando seu machado. Ele gargalha à medida que avança em direção do gigante do gelo que ousou caçar os alces que o seu povo arrebanhava. Uma meio-orc rosna para o último que ousou desafiar sua autoridade sobre a tribo selvagem, pronta para quebrar s"
+  },
+  {
+    "nome": "Bardo",
+    "dado_de_vida": "d8",
+    "habilidade_principal": "Carisma",
+    "proficiencias_resistencia": [
+      "Destreza",
+      "Carisma"
+    ],
+    "armaduras": "de couro e uma adaga",
+    "armas": "Armas simples, bestas de mão, espadas longas,",
+    "tem_magia": true,
+    "subclasses": [
+      "Bravura são escaldos destemidos",
+      "Conhecimento conhecem algo sobre",
+      "Bardo",
+      "Conhecimento no 3°",
+      "Bravura no 3° nível",
+      "Conhecimento ou o Colégio da Bravura"
+    ],
+    "caracteristicas_notaveis": [
+      "MÚSICA E MAGIA",
+      "A maior força dos bardos é sua completa versatilidade.",
+      "APRENDENDO COM A EXPERIÊNCIA",
+      "CARACTERÍSTICAS DE CLASSE",
+      "CRIANDO UM BARDO",
+      "Dado de Vida: 1d8 por nível de bardo",
+      "Constituição",
+      "PROFICIÊNCIAS",
+      "Ferramentas: Três instrumentos musicais, à sua escolha",
+      "EQUIPAMENTO",
+      "CONJURAÇÃO",
+      "TRUQUES"
+    ],
+    "descricao": "os em volta de um monumento antigo em uma ruina a muito esquecida, uma meio-elfa vestida em couros gastos encontra o conhecimento que brota de sua mente, conjurado através da magia de sua música – conhecimento do povo que construiu o monumento e a saga mística é descrita. Um austero guerreiro humano"
+  },
+  {
+    "nome": "Bruxo",
+    "dado_de_vida": "d8",
+    "habilidade_principal": "Carisma",
+    "proficiencias_resistencia": [
+      "Sabedoria",
+      "Carisma"
+    ],
+    "armaduras": "leves e sabem usar armas simples.",
+    "armas": "Armas simples",
+    "tem_magia": true,
+    "subclasses": [],
+    "caracteristicas_notaveis": [
+      "JURAMENTO E DÍVIDA",
+      "ESCAVANDO SEGREDOS",
+      "Bônus de",
+      "Características",
+      "Invocações Místicas",
+      "Característica de Patrono Transcendental",
+      "Incremento no Valor de Habilidade",
+      "Característica de Patrono Transcendental",
+      "Incremento no Valor de Habilidade",
+      "Incremento no Valor de Habilidade",
+      "Truques",
+      "Magias"
+    ],
+    "descricao": "m jovem elfo vestindo robes dourados sorri calorosamente, tecendo um charme mágico através de suas doces palavras e dobrando a sentinela do palácio como deseja. A medida que chamas ganham vida em suas mãos, um mirrado humanos sussurra o nome secreto do seu patrono demoníaco, infundindo sua magia com"
+  },
+  {
+    "nome": "Clérigo",
+    "dado_de_vida": "d8",
+    "habilidade_principal": "Sabedoria",
+    "proficiencias_resistencia": [
+      "Sabedoria",
+      "Carisma"
+    ],
+    "armaduras": "Armaduras leves, armaduras médias,",
+    "armas": "Todas as armas simples",
+    "tem_magia": true,
+    "subclasses": [
+      "Divino"
+    ],
+    "caracteristicas_notaveis": [
+      "CLÉRIGO",
+      "CURANDEIROS E COMBATENTES",
+      "AGENTES DIVINOS",
+      "Bônus de",
+      "Canalizar Divindade (1/descanso),",
+      "Canalizar Divindade (2/descanso),",
+      "Destruir Mortos-Vivos (ND 4),",
+      "CRIANDO UM CLÉRIGO",
+      "CONSTRUÇÃO RÁPIDA",
+      "Truques",
+      "CARACTERÍSTICAS DE CLASSE",
+      "PONTOS DE VIDA"
+    ],
+    "descricao": "sol e com uma prece em seus lábios, um elfo começa a brilhar com luz própria, que irradia para curar seus surrados companheiros em batalha. Com um cântico de batalha, um anão golpeia com seu machado por todos os lados, abrindo caminho em meio às linhas de orcs posicionadas contra ele, louvando os de"
+  },
+  {
+    "nome": "Druida",
+    "dado_de_vida": "d8",
+    "habilidade_principal": "Sabedoria",
+    "proficiencias_resistencia": [
+      "Inteligência",
+      "Sabedoria"
+    ],
+    "armaduras": "Armaduras leves, armaduras médias,",
+    "armas": "Clavas, adagas, dardos, azagaias, maças,",
+    "tem_magia": true,
+    "subclasses": [
+      "Terra é constituído por místicos e sábios",
+      "Druídico",
+      "Terra ou o Círculo da",
+      "Lua são ferrenhos guardiões na"
+    ],
+    "caracteristicas_notaveis": [
+      "DRUIDA",
+      "FORÇA DA NATUREZA",
+      "Bônus de Proficiência",
+      "Características",
+      "Aprimoramento de Forma Selvagem,",
+      "Aprimoramento de Forma Selvagem,",
+      "Corpo Atemporal, Magias da Besta",
+      "PRESERVAÇÃO DO EQUILÍBRIO",
+      "CRIANDO UM DRUIDA",
+      "CONSTRUÇÃO RÁPIDA",
+      "CARACTERÍSTICAS DE CLASSE",
+      "PONTOS DE VIDA"
+    ],
+    "descricao": "vinho, uma elfa invoca a fúria da tempestade e convoca raios explosivos de eletricidade para destruir os orcs carregando tochas que ameaçam sua floresta. Se esgueirando, fora da vista, no alto da copa das árvores na forma de um leopardo, um humano espreita para fora da selva, em direção da estranha"
+  },
+  {
+    "nome": "Feiticeiro",
+    "dado_de_vida": "d6",
+    "habilidade_principal": "Carisma",
+    "proficiencias_resistencia": [
+      "Constituição",
+      "Carisma"
+    ],
+    "armaduras": "",
+    "armas": "Adagas, dardos, fundas, bordões e bestas leves",
+    "tem_magia": true,
+    "subclasses": [
+      "Feitiçaria"
+    ],
+    "caracteristicas_notaveis": [
+      "PODERES INEXPLICÁVEIS",
+      "Bônus de Pontos de",
+      "Truques",
+      "Conhecidos",
+      "CONSTRUÇÃO RÁPIDA",
+      "CARACTERÍSTICAS DE CLASSE",
+      "PONTOS DE VIDA",
+      "Pontos de Vida no 1° Nível: 6 + seu modificador de",
+      "PROFICIÊNCIAS",
+      "Armas: Adagas, dardos, fundas, bordões e bestas leves",
+      "Testes de Resistência: Constituição, Carisma",
+      "EQUIPAMENTO"
+    ],
+    "descricao": "a estica suas mãos e libera o fogo dracônico que queima em suas veias. A medida que um inferno consome seus oponentes, asas de couro surgem nas suas costas e ela ergue-se no ar. Os longos cabelos balançam com a conjuração do vento, um meio elfo abre seus braços totalmente e joga a cabeça para trás."
+  },
+  {
+    "nome": "Guerreiro",
+    "dado_de_vida": "d10",
+    "habilidade_principal": "Força ou Destreza",
+    "proficiencias_resistencia": [
+      "Força",
+      "Constituição"
+    ],
+    "armaduras": "de placas empunha seu",
+    "armas": "e armaduras",
+    "tem_magia": true,
+    "subclasses": [
+      "Marcial"
+    ],
+    "caracteristicas_notaveis": [
+      "GUERREIRO",
+      "ESPECIALISTAS BEM-SUPRIDOS",
+      "TREINADO PARA O PERIGO",
+      "Bônus de",
+      "Características",
+      "Surto de Ação (um uso)",
+      "Incremento no Valor de Habilidade",
+      "Incremento no Valor de Habilidade",
+      "Incremento no Valor de Habilidade",
+      "Característica de Arquétipo Marcial",
+      "Incremento no Valor de Habilidade",
+      "Incremento no Valor de Habilidade"
+    ],
+    "descricao": "unha seu escudo antes de ir ao encontro de um bando de goblins. Um elfo atrás dela, em seu corselete de couro batido, salpica os goblins com flechas atiradas de seu primoroso arco. O meio-orc próximo, dá ordens visando coordenar os ataques dos dois combatentes para obter a melhor vantagem. Um anão e"
+  },
+  {
+    "nome": "Ladino",
+    "dado_de_vida": "d8",
+    "habilidade_principal": "Destreza",
+    "proficiencias_resistencia": [
+      "Destreza",
+      "Inteligência"
+    ],
+    "armaduras": "de couro, duas adagas e ferramentas de",
+    "armas": "Armas simples, bestas de mão, espadas longas,",
+    "tem_magia": true,
+    "subclasses": [
+      "Ladino"
+    ],
+    "caracteristicas_notaveis": [
+      "LADINO",
+      "PERÍCIA E PRECISÃO",
+      "VIVENDO ÀS SOMBRAS",
+      "Bônusde Ataque",
+      "Dado de Vida: 1d8 por nível de ladino",
+      "Constituição",
+      "Armaduras: Armaduras leves",
+      "Ferramentas: Ferramentas de ladrão",
+      "Perícias: Escolha quatro dentre Acrobacia, Atletismo,",
+      "Intuição, Investigação, Percepção, Persuasão e",
+      "EQUIPAMENTO",
+      "ESPECIALIZAÇÃO"
+    ],
+    "descricao": "m, uma halfling esgueira-se à frente pelo corredor da masmorra. Ela encosta seus ouvidos na porta, puxa suas ferramentas e abre a fechadura em um piscar de olhos. Ela então desaparece nas sombras, ao mesmo tempo em que seu companheiro guerreiro se move para abrir a porta com um chute. Uma humana esp"
+  },
+  {
+    "nome": "Mago",
+    "dado_de_vida": "d6",
+    "habilidade_principal": "Inteligência",
+    "proficiencias_resistencia": [
+      "Inteligência",
+      "Sabedoria"
+    ],
+    "armaduras": "",
+    "armas": "Adagas, dardos, fundas, bordões, bestas leves",
+    "tem_magia": true,
+    "subclasses": [
+      "Arcana"
+    ],
+    "caracteristicas_notaveis": [
+      "ESTUDIOSOS DO ARCANISMO",
+      "Bônus de",
+      "Truques",
+      "CRIANDO UM MAGO",
+      "CONSTRUÇÃO RÁPIDA",
+      "CARACTERÍSTICAS DE CLASSE",
+      "PONTOS DE VIDA",
+      "Pontos de Vida no 1° Nível: 6 + seu modificador de",
+      "PROFICIÊNCIAS",
+      "Armas: Adagas, dardos, fundas, bordões, bestas leves",
+      "Testes de Resistência: Inteligência, Sabedoria",
+      "EQUIPAMENTO"
+    ],
+    "descricao": "osto, uma elfa fecha seus olhos para distanciar-se das distrações do campo de batalha e entoa o seu canto sereno. Dedos se agitam à sua frente, ela completa sua magia e lança uma pequena centelha de fogo em direção dos inimigos, explodindo em chamas o incêndio que engolfa os soldados. Verificando ma"
+  },
+  {
+    "nome": "Monge",
+    "dado_de_vida": "d8",
+    "habilidade_principal": "Força ou Destreza",
+    "proficiencias_resistencia": [
+      "Força",
+      "Destreza"
+    ],
+    "armaduras": "Tradição Monástica, Defletir Projéteis",
+    "armas": "Armas simples, espadas curtas",
+    "tem_magia": false,
+    "subclasses": [
+      "Sombrio e o Caminho dos Quatro Elementos",
+      "Monástica",
+      "Mão Aberta",
+      "Sombra seguem uma tradição que",
+      "Mão Aberta são os mestres"
+    ],
+    "caracteristicas_notaveis": [
+      "A MAGIA DO CHI",
+      "TREINAMENTO E ASCETICISMO",
+      "Bônus de",
+      "Características",
+      "Chi, Movimento sem Armadura",
+      "Incremento no Valor de Habilidade, Queda Lenta",
+      "Golpes de Chi, Característica de Tradição Monástica",
+      "Incremento no Valor de Habilidade",
+      "Pureza Corporal",
+      "Incremento no Valor de Habilidade",
+      "Alma de Diamante",
+      "Incremento no Valor de Habilidade"
+    ],
+    "descricao": "em uma revoada de flechas que vem vindo, uma meio-elfa corre sobre uma barricada e se arremessa nas maciças fileiras de hobgoblins do outro lado. Ela gira entre eles, distribuindo seus golpes e enviando-os para o chão, até que, finalmente, apenas ela está de pé. Respirando profundamente, um humano c"
+  },
+  {
+    "nome": "Paladino",
+    "dado_de_vida": "d10",
+    "habilidade_principal": "Força e Carisma",
+    "proficiencias_resistencia": [
+      "Sabedoria",
+      "Carisma"
+    ],
+    "armaduras": "de placas que reluz a luz do",
+    "armas": "e armaduras. Mesmo assim, suas perícias marciais são",
+    "tem_magia": true,
+    "subclasses": [
+      "Vingança variam de",
+      "Devoção vincula um paladino aos mais",
+      "Devoção",
+      "Vingança é um comprometimento solene",
+      "Vingança para tornar certo o que",
+      "Vingança",
+      "Devoção variem",
+      "Sagrado"
+    ],
+    "caracteristicas_notaveis": [
+      "A CAUSA DA JUSTIÇA",
+      "ALÉM DA VIDA MUNDANA",
+      "Características",
+      "Estilo de Luta, Conjuração, Destruição Divina",
+      "Incremento no Valor de Habilidade",
+      "Aura de Proteção",
+      "Aura da Coragem",
+      "Toque Purificador",
+      "Aprimoramentos de Aura",
+      "Tyr, Heironeous, Paladine, Kiri-Jolith, Dol Arrah, o",
+      "Heimdall.",
+      "Dado de Vida: 1d10 por nível de paladino"
+    ],
+    "descricao": "luz a luz do sol, a despeito da poeira e sujeira de uma longa viagem, um humano larga sua espada e escudo e coloca suas mãos em um homem fatalmente ferido. Radiação divina brilha de suas mãos, o ferimento do homem se fecha e seus olhos se arregalam com espanto. Um anão se esgueira por detrás de um a"
+  },
+  {
+    "nome": "Patrulheiro",
+    "dado_de_vida": "d10",
+    "habilidade_principal": "Força ou Destreza",
+    "proficiencias_resistencia": [
+      "Força",
+      "Destreza"
+    ],
+    "armaduras": "Armaduras leves, armaduras médias,",
+    "armas": "deixam a Força maior que a Destreza.) Segundo,",
+    "tem_magia": true,
+    "subclasses": [
+      "Caçador ou o Conclave do Rastreador",
+      "Caçador aprendem",
+      "Patrulheiro",
+      "Besta desenvolvem um vínculo poderoso",
+      "Besta"
+    ],
+    "caracteristicas_notaveis": [
+      "PATRULHEIRO",
+      "CAÇADORES MORTAIS",
+      "AVENTUREIROS INDEPENDENTES",
+      "Bônusde",
+      "Magias",
+      "Dado de Vida: 1d10 por nível de patrulheiro",
+      "Constituição",
+      "Armas: Armas simples, armas marciais",
+      "Perícias: Escolha três dentre Adestrar Animais,",
+      "EXPLORADOR NATURAL",
+      "Você ignora terreno difícil.",
+      "COMBATE COM DUAS ARMAS"
+    ],
+    "descricao": "ano espreita sozinho através das sombras das árvores, caçando os orcs que ele sabe estarem planejando um assalto a uma fazenda próxima. Segurando uma espada curta em cada mão, ele se transforma em um vendaval de aço, talando um inimigo após o outro. Após se evadir de um cone de ar congelante, uma el"
+  }
+]

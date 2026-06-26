@@ -1,0 +1,127 @@
+[
+  {
+    "nome": "Atirador",
+    "requisito": null,
+    "beneficio": "Sem penalidade por combate a longa distancia. Sem desvantagem em alvos proximo de inimigos. Bônus +1 em DES."
+  },
+  {
+    "nome": "Atletico",
+    "requisito": null,
+    "beneficio": "+1 FOR ou DES. Escalar, nadar, pular nao custam movimento extra."
+  },
+  {
+    "nome": "Ator",
+    "requisito": null,
+    "beneficio": "+1 CAR. Vantagem em Enganacao e Atuacao ao tentar se passar por outra pessoa."
+  },
+  {
+    "nome": "Chanceler de Magias",
+    "requisito": "Capacidade de conjurar pelo menos uma magia",
+    "beneficio": "Aprenda um truque de qualquer classe. +1 INT, SAB ou CAR."
+  },
+  {
+    "nome": "Combatente",
+    "requisito": null,
+    "beneficio": "+1 FOR. Proficiencia em armaduras pesadas. Proficiencia em uma arma marcial."
+  },
+  {
+    "nome": "Conjurador de Guerra",
+    "requisito": "Capacidade de conjurar pelo menos uma magia",
+    "beneficio": "Vantagem em CON para manter concentracao. Pode conjurar truques como reacao. Acoes sobrepostas com conjuracao permitem movimento."
+  },
+  {
+    "nome": "Demolidor",
+    "requisito": null,
+    "beneficio": "+1 FOR. Critico em 19-20 com armas pesadas. Sem desvantagem em ataques contra criaturas adjacentes com armas pesadas."
+  },
+  {
+    "nome": "Duracao",
+    "requisito": null,
+    "beneficio": "+1 CON. +2 PV. +2 PV a cada nivel subsequente."
+  },
+  {
+    "nome": "Espadachim Agil",
+    "requisito": "Proficiencia em espadas",
+    "beneficio": "+1 DES ou INT. Quando usa DES para atacar com rapieira ou espada curta, pode usar INT em vez de FOR ou DES."
+  },
+  {
+    "nome": "Especialista em Armas",
+    "requisito": "Proficiencia em pelo menos uma arma",
+    "beneficio": "Pode escolher um estilo de combate adicional."
+  },
+  {
+    "nome": "Furtivo",
+    "requisito": null,
+    "beneficio": "+1 DES. Sem penalidade de velocidade ao se mover furtivamente. Pode esconder quando em penumbra."
+  },
+  {
+    "nome": "Iniciativa Alerta",
+    "requisito": null,
+    "beneficio": "+5 em iniciativa. Nao pode ser surpreendido enquanto consciente. Criaturas invisiveis nao ganham vantagem contra voce na iniciativa."
+  },
+  {
+    "nome": "Inspirador",
+    "requisito": null,
+    "beneficio": "+1 CAR. Pode usar Acao Bonus para dar dados de Inspiracao Bardica."
+  },
+  {
+    "nome": "Linguista",
+    "requisito": null,
+    "beneficio": "+1 INT. Aprende 3 idiomas. Pode criar cifras."
+  },
+  {
+    "nome": "Lutador",
+    "requisito": null,
+    "beneficio": "+1 FOR ou DES. Dano desarmado aumenta: 1d4 (pequeno), 1d6 (medio). Pode puxar arma como parte do ataque."
+  },
+  {
+    "nome": "Magico de Batalha",
+    "requisito": "Capacidade de conjurar pelo menos uma magia",
+    "beneficio": "Quando faz ataque bonus, pode usar Acao para conjurar um truque."
+  },
+  {
+    "nome": "Medico",
+    "requisito": null,
+    "beneficio": "Proficiencia em kit de primeiros-socorros. Pode gastar 1 uso para remover veneno/doenca. Paciente recupera +1d6+5 PV (max 10) ao usar kit."
+  },
+  {
+    "nome": "Mimico",
+    "requisito": null,
+    "beneficio": "+1 DES ou CAR. Pode copiar vozes e sons. Vantagem em Enganacao para imitar."
+  },
+  {
+    "nome": "Observador",
+    "requisito": null,
+    "beneficio": "+1 INT ou SAB. Pode ler labios. +5 em Percepcao passiva."
+  },
+  {
+    "nome": "Polivalente",
+    "requisito": "Nao ter Especializacao",
+    "beneficio": "Proficiencia em 4 pericias a sua escolha."
+  },
+  {
+    "nome": "Resistente",
+    "requisito": null,
+    "beneficio": "+1 em qualquer habilidade. Proficiencia em testes de resistencia dessa habilidade."
+  },
+  {
+    "nome": "Sentidos Aguçados",
+    "requisito": null,
+    "beneficio": "+1 SAB. Proficiencia em Percepcao."
+  },
+  {
+    "nome": "Sortudo",
+    "requisito": null,
+    "beneficio": "3 pontos de sorte/dia. Gaste 1 para rolar 1d20 adicional em ataque, teste ou TR."
+  },
+  {
+    "nome": "Taverneiro",
+    "requisito": null,
+    "beneficio": "+1 CAR. Profficiencia em kit de venenos. Pode identificar venenos."
+  },
+  {
+    "nome": "Vidente",
+    "requisito": null,
+    "beneficio": "+1 INT ou SAB. Aprenda o truque Deteccao de Magia e Identificar (uma vez por dia sem gastar espaco)."
+  }
+]
