@@ -3984,10 +3984,34 @@ function MestrePanel({ campaign, uid, userName, userPhoto }) {
   const [narrTargetIds, setNarrTargetIds] = useState(new Set());
   const [narrImage, setNarrImage] = useState(""); // base64
   const narrImageInputRef = useRef(null);
+  const [flashedIds, setFlashedIds] = useState(new Set());
+  const prevSheetsRef = useRef({});
 
   useEffect(() => {
     const qy = query(collection(db, "campaigns", campaign.id, "sharedSheets"));
-    return onSnapshot(qy, snap => setSheets(snap.docs.map(d => ({ id: d.id, ...d.data() }))), () => {});
+    return onSnapshot(qy, snap => {
+      const newSheets = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      const changed = new Set();
+      newSheets.forEach(s => {
+        const cd = s.characterData || {};
+        const prev = prevSheetsRef.current[s.id];
+        const cur = { pv: cd.pv, san: cd.san, pe: cd.pe, avatar: cd.form?.avatar, name: cd.form?.personagem };
+        if (prev && (prev.pv !== cur.pv || prev.san !== cur.san || prev.pe !== cur.pe ||
+            prev.avatar !== cur.avatar || prev.name !== cur.name)) {
+          changed.add(s.id);
+        }
+        prevSheetsRef.current[s.id] = cur;
+      });
+      if (changed.size > 0) {
+        setFlashedIds(prev => new Set([...prev, ...changed]));
+        setTimeout(() => setFlashedIds(prev => {
+          const next = new Set(prev);
+          changed.forEach(id => next.delete(id));
+          return next;
+        }), 1500);
+      }
+      setSheets(newSheets);
+    }, () => {});
   }, [campaign.id]);
 
   const applyElement = async (sheetId, el) => {
@@ -4067,7 +4091,7 @@ function MestrePanel({ campaign, uid, userName, userPhoto }) {
               animation:"op-flat-blink 1.5s ease-in-out infinite" }}>● AO VIVO</span>
             <span style={{ ...lbl, marginLeft:"auto" }}>{liveSheets.length} agente{liveSheets.length!==1?"s":""}</span>
           </div>
-          <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(210px,1fr))", gap:10 }}>
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(230px,1fr))", gap:10 }}>
             {liveSheets.map(s => {
               const cd = s.characterData || {};
               const pv = Number(cd.pv ?? cd.pvMax ?? 0), pvMax = Number(cd.pvMax ?? 1);
@@ -4080,20 +4104,42 @@ function MestrePanel({ campaign, uid, userName, userPhoto }) {
               const pvCol = pvPct > 0.6 ? "#43a047" : pvPct > 0.3 ? "#fbc02d" : "#e53935";
               const status = pv<=0 ? {l:"INCONSCIENTE",c:"#888"} : pvPct<0.3 ? {l:"CRÍTICO",c:"#e08030"} : {l:"ESTÁVEL",c:"#4caf7d"};
               const name = cd.form?.personagem || s.characterName || "Agente";
+              const isFlashing = flashedIds.has(s.id);
+              const classe = cd.classe?.name || cd.classe?.id || null;
               return (
-                <div key={s.id} style={{ background:"rgba(0,0,0,0.4)", border:`1px solid ${accent}30`, borderRadius:8, padding:"10px 12px", display:"flex", flexDirection:"column", gap:7 }}>
-                  <div style={{ display:"flex", alignItems:"center", gap:8 }}>
-                    <div style={{ width:34, height:34, borderRadius:6, border:`1.5px solid ${accent}60`, overflow:"hidden", flexShrink:0,
-                      background:`${accent}12`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:16 }}>
-                      {cd.form?.avatar ? <img src={cd.form.avatar} alt="" style={{ width:"100%", height:"100%", objectFit:"cover" }}/> : "🕵️"}
+                <div key={s.id} style={{
+                  background:"rgba(0,0,0,0.45)",
+                  border:`1px solid ${isFlashing ? "#4ade80" : accent+"30"}`,
+                  borderRadius:8, padding:"10px 12px", display:"flex", flexDirection:"column", gap:8,
+                  transition:"border-color 0.4s ease, box-shadow 0.4s ease",
+                  boxShadow: isFlashing ? `0 0 14px rgba(74,222,128,0.35)` : "none",
+                }}>
+                  {/* header: avatar + nome + status */}
+                  <div style={{ display:"flex", alignItems:"center", gap:9 }}>
+                    <div style={{ position:"relative", flexShrink:0 }}>
+                      <div style={{ width:44, height:44, borderRadius:7, border:`2px solid ${accent}70`, overflow:"hidden",
+                        background:`${accent}12`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:22,
+                        transition:"border-color 0.4s ease" }}>
+                        {cd.form?.avatar
+                          ? <img key={cd.form.avatar} src={cd.form.avatar} alt="" style={{ width:"100%", height:"100%", objectFit:"cover" }}/>
+                          : "🕵️"}
+                      </div>
+                      {isFlashing && (
+                        <div style={{ position:"absolute", inset:-2, borderRadius:9,
+                          border:"2px solid #4ade80", animation:"op-flat-blink 0.6s ease-in-out 2", pointerEvents:"none" }}/>
+                      )}
                     </div>
                     <div style={{ flex:1, minWidth:0 }}>
                       <div style={{ fontFamily:"Cinzel,serif", fontSize:11, color:"#eee", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{name}</div>
-                      <div style={{ fontFamily:"Cinzel,serif", fontSize:8, color:"rgba(255,255,255,0.4)", letterSpacing:"0.06em" }}>{s.ownerName}</div>
+                      <div style={{ fontFamily:"Cinzel,serif", fontSize:8, color:"rgba(255,255,255,0.35)", letterSpacing:"0.05em", whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>
+                        {s.ownerName}{classe ? ` · ${classe}` : ""}
+                      </div>
                     </div>
                     <span style={{ fontFamily:"Cinzel,serif", fontSize:7, letterSpacing:"0.1em", padding:"2px 6px", borderRadius:20,
-                      border:`1px solid ${status.c}60`, color:status.c, background:`${status.c}15`, whiteSpace:"nowrap" }}>{status.l}</span>
+                      border:`1px solid ${status.c}60`, color:status.c, background:`${status.c}15`, whiteSpace:"nowrap",
+                      transition:"color 0.4s, border-color 0.4s" }}>{status.l}</span>
                   </div>
+                  {/* barras de vida */}
                   {[
                     {lbl:"PV", val:pv, max:pvMax, pct:pvPct, col:pvCol},
                     {lbl:"SAN", val:san, max:sanMax, pct:sanMax>0?san/sanMax:1, col:el?elT.accent:"#7b1fa2"},
@@ -4102,15 +4148,20 @@ function MestrePanel({ campaign, uid, userName, userPhoto }) {
                     <div key={bl}>
                       <div style={{ display:"flex", justifyContent:"space-between", marginBottom:2 }}>
                         <span style={{ fontFamily:"Cinzel,serif", fontSize:7, letterSpacing:"0.1em", color:"rgba(255,255,255,0.35)", textTransform:"uppercase" }}>{bl}</span>
-                        <span style={{ fontFamily:"'Share Tech Mono',monospace", fontSize:9, color:col }}>{val}/{max}</span>
+                        <span style={{ fontFamily:"'Share Tech Mono',monospace", fontSize:9, color:col, transition:"color 0.3s" }}>{val}/{max}</span>
                       </div>
                       <div style={{ height:4, background:"rgba(255,255,255,0.06)", borderRadius:2, overflow:"hidden" }}>
                         <div style={{ height:"100%", width:`${Math.max(0,Math.min(100,pct*100))}%`,
                           background:`linear-gradient(90deg,${col}88,${col})`, boxShadow:`0 0 5px ${col}50`,
-                          transition:"width 0.5s ease", borderRadius:2 }}/>
+                          transition:"width 0.6s ease", borderRadius:2 }}/>
                       </div>
                     </div>
                   ))}
+                  {/* indicador de atualização recente */}
+                  {isFlashing && (
+                    <div style={{ fontFamily:"Cinzel,serif", fontSize:7, color:"#4ade80", letterSpacing:"0.1em",
+                      textAlign:"right", opacity:0.8 }}>● atualizado agora</div>
+                  )}
                 </div>
               );
             })}
