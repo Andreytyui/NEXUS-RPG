@@ -355,6 +355,8 @@ const G = () => (
     @keyframes critPopupGlow{0%,100%{box-shadow:0 0 0 1px rgba(255,200,0,0.6),0 6px 32px rgba(0,0,0,0.9),0 0 20px rgba(255,180,0,0.25)}50%{box-shadow:0 0 0 1px rgba(255,215,0,0.9),0 6px 32px rgba(0,0,0,0.9),0 0 40px rgba(255,180,0,0.55),0 0 80px rgba(201,168,76,0.2)}}
     @keyframes statCardIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
     @keyframes skeletonPulse{0%,100%{opacity:0.35}50%{opacity:0.6}}
+    @keyframes live-dot{0%,49%{opacity:1;text-shadow:0 0 6px #4ade80}50%,100%{opacity:0;text-shadow:none}}
+    @keyframes live-badge-glow{0%,100%{box-shadow:0 0 0 rgba(74,222,128,0)}50%{box-shadow:0 0 10px rgba(74,222,128,0.5),0 0 20px rgba(74,222,128,0.15)}}
     .logo-float{animation:float 4s ease-in-out infinite}
     .stat-card{cursor:pointer;transition:all 0.2s ease}
     .stat-card:hover{box-shadow:0 0 18px rgba(142,109,191,0.28),0 4px 14px rgba(0,0,0,0.35);border-color:rgba(142,109,191,0.45)!important}
@@ -4086,9 +4088,12 @@ function MestrePanel({ campaign, uid, userName, userPhoto }) {
         <div style={{ ...card, borderColor: "rgba(74,222,128,0.25)", background: "rgba(0,20,10,0.5)" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
             <span style={{ ...lbl, color: "#4ade80", fontSize: 11 }}>Mesa ao Vivo</span>
-            <span style={{ fontFamily:"Cinzel,serif", fontSize:8, letterSpacing:"0.12em", color:"#4ade80",
-              padding:"2px 8px", borderRadius:20, background:"rgba(74,222,128,0.1)", border:"1px solid rgba(74,222,128,0.3)",
-              animation:"op-flat-blink 1.5s ease-in-out infinite" }}>● AO VIVO</span>
+            <span style={{ display:"inline-flex", alignItems:"center", gap:5, fontFamily:"Cinzel,serif", fontSize:8, letterSpacing:"0.12em", color:"#4ade80",
+              padding:"2px 10px 2px 8px", borderRadius:20, background:"rgba(74,222,128,0.08)", border:"1px solid rgba(74,222,128,0.35)",
+              animation:"live-badge-glow 2s ease-in-out infinite" }}>
+              <span style={{ animation:"live-dot 1s step-end infinite", fontSize:9 }}>●</span>
+              AO VIVO
+            </span>
             <span style={{ ...lbl, marginLeft:"auto" }}>{liveSheets.length} agente{liveSheets.length!==1?"s":""}</span>
           </div>
           <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(230px,1fr))", gap:10 }}>
