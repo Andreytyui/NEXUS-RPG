@@ -239,30 +239,48 @@ export const CLASS_POWERS = {
 
 /* ── Trilhas por classe ── */
 export const CLASS_TRAILS = {
-  combatente:  [{id:"atirador_c",name:"Atirador"},{id:"chefe",name:"Chefe"},{id:"guerreiro",name:"Guerreiro"}],
+  combatente:  [
+    {id:"aniquilador",  name:"Aniquilador"},
+    {id:"comandante",   name:"Comandante de Campo"},
+    {id:"guerreiro",    name:"Guerreiro"},
+    {id:"op_especiais", name:"Operações Especiais"},
+    {id:"tropa_choque", name:"Tropa de Choque"},
+  ],
   especialista:[{id:"atirador_e",name:"Atirador de Elite"},{id:"medico",name:"Médico de Campo"},{id:"negociador",name:"Negociador"}],
   ocultista:   [{id:"iluminado",name:"Iluminado"},{id:"graduado",name:"Graduado"},{id:"intuitivo",name:"Intuitivo"}],
 };
 
 /* ── Poderes de Trilha (NEX 10/40/65/99) ── */
 export const TRAIL_ABILITIES = {
-  atirador_c:{
-    10:{name:"Tiro Preciso",     cost:"—",          desc:"Você ignora bônus de cobertura em seus ataques com armas de disparo e pode atacar além do alcance normal sem penalidade."},
-    40:{name:"Ponto Fraco",      cost:"2 PE",        desc:"Uma vez por rodada, ao acertar com arma de disparo, gaste 2 PE para causar dano adicional igual ao seu valor de Agilidade."},
-    65:{name:"Tiro Mortal",      cost:"—",           desc:"Seus ataques com armas de disparo ignoram resistência a dano físico dos alvos."},
-    99:{name:"Bala de Prata",    cost:"5 PE",        desc:"Uma vez por cena, faça um ataque com arma de disparo com vantagem. Se acertar, causa o dano máximo possível."},
+  aniquilador:{
+    10:{name:"Ataque Poderoso",  cost:"—",    desc:"Você pode aceitar −2 no teste de ataque para receber +1d10 na rolagem de dano com armas corpo a corpo ou pesadas."},
+    40:{name:"Destruidor",       cost:"2 PE", desc:"Ao acertar um ataque, gaste 2 PE para ignorar a resistência a dano físico do alvo. O dano não pode ser reduzido por nenhum meio."},
+    65:{name:"Incontível",       cost:"—",    desc:"Você não pode ser imobilizado, agarrado ou derrubado involuntariamente. Se sofrer essas condições, remove-as como ação livre."},
+    99:{name:"Força Bruta",      cost:"5 PE", desc:"Uma vez por cena, declare Força Bruta antes de atacar. O ataque acerta automaticamente e causa o dano máximo possível, ignorando todas as resistências."},
   },
-  chefe:{
-    10:{name:"Inspirar Confiança",cost:"2 PE (reação)",desc:"Faça um aliado em alcance curto rolar novamente um teste recém realizado."},
-    40:{name:"Estrategista",      cost:"1 PE/aliado", desc:"Use uma ação padrão para direcionar aliados (limitado pelo INT). No próximo turno deles, ganham uma ação de movimento adicional."},
-    65:{name:"Brecha na Guarda",  cost:"2 PE (reação)",desc:"Quando um aliado causar dano em um inimigo no alcance curto, você ou outro aliado pode fazer um ataque adicional contra o mesmo inimigo."},
-    99:{name:"Oficial Comandante",cost:"5 PE",        desc:"Cada aliado em alcance médio recebe uma ação padrão adicional no próximo turno."},
+  comandante:{
+    10:{name:"Inspirar Confiança",cost:"2 PE (reação)",desc:"Faça um aliado em alcance curto rolar novamente um teste recém realizado, usando o melhor resultado."},
+    40:{name:"Estrategista",      cost:"1 PE/aliado",  desc:"Use uma ação padrão para coordenar aliados (máximo INT). No próximo turno, cada aliado coordenado ganha uma ação de movimento adicional."},
+    65:{name:"Brecha na Guarda",  cost:"2 PE (reação)",desc:"Quando um aliado acerta um inimigo em alcance curto, você ou outro aliado pode imediatamente fazer um ataque gratuito contra esse mesmo inimigo."},
+    99:{name:"Oficial Comandante",cost:"5 PE",         desc:"Cada aliado em alcance médio recebe uma ação padrão adicional no próximo turno. Eles podem usá-la apenas para atacar ou se mover."},
   },
   guerreiro:{
-    10:{name:"Técnica Letal",   cost:"—",           desc:"+2 na margem de ameaça com todos os ataques corpo a corpo."},
-    40:{name:"Revidar",         cost:"2 PE (reação)",desc:"Sempre que bloquear um ataque, faça um ataque corpo a corpo no inimigo que o atacou."},
-    65:{name:"Força Opressora", cost:"1 PE",         desc:"Quando acerta um ataque corpo a corpo, realize uma manobra derrubar ou empurrar como ação livre."},
-    99:{name:"Potência Máxima", cost:"—",            desc:"Quando usa Ataque Especial com armas corpo a corpo, todos os dados de dano são considerados o resultado máximo."},
+    10:{name:"Técnica Letal",   cost:"—",            desc:"+2 na margem de ameaça com todos os ataques corpo a corpo. Quando ameaça crítico, rola dano duas vezes e escolhe o maior."},
+    40:{name:"Revidar",         cost:"2 PE (reação)", desc:"Sempre que bloquear ou esquivar de um ataque com sucesso, faça imediatamente um ataque corpo a corpo no inimigo que o atacou."},
+    65:{name:"Força Opressora", cost:"1 PE",          desc:"Quando acerta um ataque corpo a corpo, realize uma manobra derrubar ou empurrar como ação livre sem teste oposto."},
+    99:{name:"Potência Máxima", cost:"—",             desc:"Quando usa Ataque Especial com armas corpo a corpo, todos os dados de dano são considerados o resultado máximo possível."},
+  },
+  op_especiais:{
+    10:{name:"Furtividade Tática", cost:"—",    desc:"Você pode se mover à velocidade total sem penalidade em testes de Furtividade. Quando ataca de surpresa, causa +2d6 de dano."},
+    40:{name:"Ponto Fraco",        cost:"2 PE", desc:"Uma vez por rodada, ao acertar um ataque, gaste 2 PE para causar dano adicional igual ao seu valor de Agilidade e reduzir a Defesa do alvo em 2 até o fim da rodada."},
+    65:{name:"Execução",           cost:"3 PE", desc:"Contra um alvo com metade ou menos de seus PV máximos, gaste 3 PE para que seu ataque cause o dobro do dano total."},
+    99:{name:"Fantasma",           cost:"5 PE", desc:"Uma vez por cena, torne-se invisível por até 1 minuto. Ataques enquanto invisível acertam automaticamente e causam dano máximo."},
+  },
+  tropa_choque:{
+    10:{name:"Resistência Tática", cost:"—",            desc:"Você recebe resistência a dano físico (balístico, cortante, contundente) igual à metade do seu valor de Vigor (mínimo 1)."},
+    40:{name:"Escudo Humano",      cost:"2 PE (reação)", desc:"Quando um aliado adjacente for alvo de um ataque, use sua reação para interpor-se. Você recebe o dano no lugar do aliado."},
+    65:{name:"Obstáculo",          cost:"1 PE",          desc:"Inimigos que se movam através do seu alcance corpo a corpo devem passar em Atletismo (DT 10 + seu VIG) ou param o movimento."},
+    99:{name:"Fortaleza",          cost:"—",             desc:"Seu valor máximo de PV aumenta em 20. Quando reduzido a 0 PV, você pode, uma vez por cena, continuar agindo com 1 PV por mais uma rodada."},
   },
   atirador_e:{
     10:{name:"Foco Total",       cost:"—",     desc:"Quando usa a ação mirar, você recebe +5 no teste de ataque e +1d6 na rolagem de dano."},
