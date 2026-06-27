@@ -6111,7 +6111,15 @@ function MapEditor() { // eslint-disable-line
   const [savedMaps,   setSavedMaps]   = useState(() => { try { return JSON.parse(localStorage.getItem('nexus_maps_v2')||'[]'); } catch { return []; } });
   const [showMaps,    setShowMaps]    = useState(false);
 
-  stateRef.current = { pan, scale, gridSize, fogCells, tool, tokens };
+  /* ─── selection & token states ─── */
+  const [selectedToken, setSelectedToken] = useState(null);
+  const [lockedToks,    setLockedToks]    = useState(new Set());
+  const [hiddenToks,    setHiddenToks]    = useState(new Set());
+  const [spectreToks,   setSpectreToks]   = useState(new Set());
+  const [ctxMenu,       setCtxMenu]       = useState(null);
+  const [weather,       setWeather]       = useState(null);
+
+  stateRef.current = { pan, scale, gridSize, fogCells, tool, tokens, selectedToken };
 
   const mapW = bgSize.w, mapH = bgSize.h;
 
@@ -6168,16 +6176,70 @@ function MapEditor() { // eslint-disable-line
     setShowMaps(false);
   }
 
+  /* ─── token actions ─── */
+  function toggleHide(id) { setHiddenToks(prev=>{const n=new Set(prev);n.has(id)?n.delete(id):n.add(id);return n;}); }
+  function toggleLock(id) { setLockedToks(prev=>{const n=new Set(prev);n.has(id)?n.delete(id):n.add(id);return n;}); }
+  function toggleSpectre(id) { setSpectreToks(prev=>{const n=new Set(prev);n.has(id)?n.delete(id):n.add(id);return n;}); }
+  function duplicateToken(id) {
+    const t = stateRef.current.tokens.find(tk=>tk.id===id);
+    if (t) setTokens(p=>[...p,{...t,id:Date.now(),x:t.x+30,y:t.y+30}]);
+  }
+  function editTokenLabel(id) {
+    const t = stateRef.current.tokens.find(tk=>tk.id===id);
+    const nl = window.prompt('Rótulo do token:', t?.label||'');
+    if (nl !== null) setTokens(p=>p.map(tk=>tk.id===id?{...tk,label:nl||'?'}:tk));
+  }
+  function deleteToken(id) {
+    setTokens(p=>p.filter(tk=>tk.id!==id));
+    if (stateRef.current.selectedToken===id) setSelectedToken(null);
+  }
+  function convertToFogMap() {
+    const s=new Set();
+    for(let r=0;r<Math.ceil(mapH/gridSize);r++)
+      for(let c=0;c<Math.ceil(mapW/gridSize);c++) s.add(`${c},${r}`);
+    setFogCells(s);
+  }
+  function autoFogMap() {
+    const s=new Set(fogCells);
+    const cols=Math.ceil(mapW/gridSize), rows=Math.ceil(mapH/gridSize);
+    for(let r=0;r<rows;r++) for(let c=0;c<cols;c++) {
+      if(r<2||c<2||r>=rows-2||c>=cols-2) s.add(`${c},${r}`);
+    }
+    setFogCells(s);
+  }
+
+  /* ─── keyboard shortcuts ─── */
+  useEffect(()=>{
+    function onKey(e) {
+      const sel = stateRef.current.selectedToken;
+      if (!sel) return;
+      if (e.key==='Delete'||e.key==='Backspace') { e.preventDefault(); deleteToken(sel); }
+      if (e.key==='h'||e.key==='H') toggleHide(sel);
+      if (e.key==='l'||e.key==='L') toggleLock(sel);
+      if ((e.ctrlKey||e.metaKey)&&e.key==='d') { e.preventDefault(); duplicateToken(sel); }
+      if (e.key==='Escape') setSelectedToken(null);
+    }
+    window.addEventListener('keydown', onKey);
+    return ()=>window.removeEventListener('keydown', onKey);
+  }, []); // eslint-disable-line
+
   /* ─── mouse handlers ─── */
   function onDown(e) {
+    setCtxMenu(null);
     const {tool} = stateRef.current;
     const {x:sx,y:sy} = clientXY(e);
     const wp = screenToWorld(sx,sy);
+    if (e.button===2) {
+      e.preventDefault();
+      setCtxMenu({x:e.clientX, y:e.clientY, type:'map'});
+      return;
+    }
     if (e.button===1 || tool==='pan' || (e.button===0&&e.altKey)) {
       panStartRef.current = {mx:e.clientX,my:e.clientY,ox:stateRef.current.pan.x,oy:stateRef.current.pan.y};
       return;
     }
     if (e.button!==0) return;
+    if (tool==='select') { setSelectedToken(null); return; }
     if (tool==='fog'||tool==='reveal') {
       fogPaintRef.current = true; fogModeRef.current = tool==='fog'?'add':'del';
       const k=fogKey(wp.x,wp.y);
@@ -6256,8 +6318,16 @@ function MapEditor() { // eslint-disable-line
   ];
   const COLORS = ['#4ade80','#60a5fa','#f87171','#fbbf24','#c084fc','#f472b6','#34d399','#fb923c','#e2e8f0','#a3e635'];
 
+  const selTok = selectedToken ? tokens.find(t=>t.id===selectedToken) : null;
+
   return (
-    <div style={{position:'fixed',inset:0,zIndex:500,background:'#14141f',display:'flex',flexDirection:'column',userSelect:'none',fontFamily:'Inter,system-ui,sans-serif'}}>
+    <div style={{position:'fixed',inset:0,zIndex:500,background:'#14141f',display:'flex',flexDirection:'column',userSelect:'none',fontFamily:'Inter,system-ui,sans-serif'}}
+      onClick={()=>setCtxMenu(null)}>
+      <style>{`
+        @keyframes rain{0%{transform:translateY(-10px) rotate(15deg);opacity:0}10%{opacity:0.7}90%{opacity:0.7}100%{transform:translateY(110vh) rotate(15deg);opacity:0}}
+        @keyframes snow{0%{transform:translateY(-10px) translateX(0);opacity:0}10%{opacity:0.85}50%{transform:translateY(50vh) translateX(20px)}90%{opacity:0.85}100%{transform:translateY(110vh) translateX(-10px);opacity:0}}
+        @keyframes fogDrift{0%{transform:translateX(-5%)}50%{transform:translateX(5%)}100%{transform:translateX(-5%)}}
+      `}</style>
 
       {/* ── TOP BAR ── */}
       <div style={{height:48,background:'#0d0d18',borderBottom:'1px solid rgba(255,255,255,0.07)',display:'flex',alignItems:'center',gap:8,padding:'0 14px',flexShrink:0,zIndex:10}}>
@@ -6300,6 +6370,7 @@ function MapEditor() { // eslint-disable-line
           style={{flex:1,position:'relative',overflow:'hidden',cursor}}
           onMouseDown={onDown} onMouseMove={onMove} onMouseUp={onUp} onMouseLeave={onUp}
           onWheel={onWheel}
+          onContextMenu={e=>e.preventDefault()}
           onDrop={e=>{e.preventDefault();loadImage(e.dataTransfer.files?.[0]);}}
           onDragOver={e=>e.preventDefault()}
         >
@@ -6344,29 +6415,48 @@ function MapEditor() { // eslint-disable-line
             )}
 
             {/* Tokens */}
-            {tokens.map(t => (
-              <div key={t.id} style={{
-                position:'absolute',left:t.x-t.size/2,top:t.y-t.size/2,
-                width:t.size,height:t.size,borderRadius:'50%',
-                background:t.color,border:'2.5px solid rgba(255,255,255,0.85)',
-                boxShadow:`0 0 14px ${t.color}99,0 2px 8px rgba(0,0,0,0.5)`,
-                display:'flex',alignItems:'center',justifyContent:'center',
-                fontSize:12,fontWeight:700,color:'#fff',
-                cursor:tool==='select'?'grab':'default',zIndex:10,
-                textShadow:'0 1px 3px rgba(0,0,0,0.8)',
-              }}
-              onMouseDown={e=>{
-                if(tool!=='select') return;
-                e.stopPropagation();
-                dragTokenRef.current=t.id;
-                const {x:sx,y:sy}=clientXY(e); const wp=screenToWorld(sx,sy);
-                dragOffRef.current={x:wp.x-t.x,y:wp.y-t.y};
-              }}
-              onContextMenu={e=>{e.preventDefault();setTokens(p=>p.filter(tk=>tk.id!==t.id));}}
-              >
-                {(t.label||'?').charAt(0).toUpperCase()}
-              </div>
-            ))}
+            {tokens.map(t => {
+              const isSelected = selectedToken===t.id;
+              const isLocked   = lockedToks.has(t.id);
+              const isHidden   = hiddenToks.has(t.id);
+              const isSpectre  = spectreToks.has(t.id);
+              return (
+                <div key={t.id} style={{
+                  position:'absolute',left:t.x-t.size/2,top:t.y-t.size/2,
+                  width:t.size,height:t.size,borderRadius:'50%',
+                  background:t.color,
+                  border:isSelected?'2.5px solid #a855f7':'2.5px solid rgba(255,255,255,0.85)',
+                  boxShadow:isSelected?`0 0 0 3px rgba(168,85,247,0.5),0 0 14px ${t.color}99`:`0 0 14px ${t.color}99,0 2px 8px rgba(0,0,0,0.5)`,
+                  display:'flex',alignItems:'center',justifyContent:'center',
+                  fontSize:12,fontWeight:700,color:'#fff',
+                  opacity:isHidden?0.25:isSpectre?0.45:1,
+                  filter:isSpectre?'blur(1.5px)':'none',
+                  cursor:tool==='select'?(isLocked?'not-allowed':'grab'):'default',zIndex:10,
+                  textShadow:'0 1px 3px rgba(0,0,0,0.8)',
+                  transition:'opacity 0.2s,box-shadow 0.15s',
+                }}
+                onMouseDown={e=>{
+                  if(tool!=='select') return;
+                  e.stopPropagation();
+                  if (e.button===2) return;
+                  setSelectedToken(t.id);
+                  if (!isLocked) {
+                    dragTokenRef.current=t.id;
+                    const {x:sx,y:sy}=clientXY(e); const wp=screenToWorld(sx,sy);
+                    dragOffRef.current={x:wp.x-t.x,y:wp.y-t.y};
+                  }
+                }}
+                onContextMenu={e=>{
+                  e.preventDefault(); e.stopPropagation();
+                  setSelectedToken(t.id);
+                  setCtxMenu({x:e.clientX,y:e.clientY,type:'token',tokenId:t.id});
+                }}
+                >
+                  {(t.label||'?').charAt(0).toUpperCase()}
+                  {isLocked && <span style={{position:'absolute',top:-5,right:-5,fontSize:9,background:'rgba(0,0,0,0.75)',borderRadius:'50%',width:14,height:14,display:'flex',alignItems:'center',justifyContent:'center'}}>🔒</span>}
+                </div>
+              );
+            })}
 
             {/* Notes */}
             {notes.map(n => (
@@ -6394,9 +6484,33 @@ function MapEditor() { // eslint-disable-line
             )}
           </div>
 
+          {/* ── WEATHER OVERLAY ── */}
+          {weather==='rain' && (
+            <div style={{position:'absolute',inset:0,overflow:'hidden',pointerEvents:'none',zIndex:25}}>
+              {Array.from({length:80},(_,i)=>(
+                <div key={i} style={{position:'absolute',left:`${(i*13)%100}%`,top:`${-10-(i*7)%20}%`,width:1.5,height:`${10+(i*3)%15}px`,background:`rgba(174,214,241,${0.3+(i%5)*0.08})`,animation:`rain ${0.5+(i%6)*0.1}s linear ${(i%10)*0.2}s infinite`}}/>
+              ))}
+            </div>
+          )}
+          {weather==='snow' && (
+            <div style={{position:'absolute',inset:0,overflow:'hidden',pointerEvents:'none',zIndex:25}}>
+              {Array.from({length:60},(_,i)=>(
+                <div key={i} style={{position:'absolute',left:`${(i*17)%100}%`,top:`${-(i*3)%10}%`,width:`${3+(i%4)}px`,height:`${3+(i%4)}px`,borderRadius:'50%',background:`rgba(255,255,255,${0.5+(i%5)*0.1})`,animation:`snow ${2+(i%6)*0.5}s ease-in-out ${(i%8)*0.5}s infinite`}}/>
+              ))}
+            </div>
+          )}
+          {weather==='fog' && (
+            <div style={{position:'absolute',inset:0,overflow:'hidden',pointerEvents:'none',zIndex:25}}>
+              {[0,1,2].map(i=>(
+                <div key={i} style={{position:'absolute',inset:0,background:`radial-gradient(ellipse ${150+i*60}% ${80+i*30}% at ${20+i*30}% ${30+i*20}%, rgba(180,190,200,0.18) 0%, transparent 70%)`,animation:`fogDrift ${8+i*4}s ease-in-out ${i*3}s infinite`}}/>
+              ))}
+              <div style={{position:'absolute',inset:0,background:'rgba(150,170,190,0.08)'}}/>
+            </div>
+          )}
+
           {/* Status bar */}
           <div style={{position:'absolute',bottom:10,left:10,fontSize:10,color:'rgba(255,255,255,0.2)',fontFamily:'monospace',pointerEvents:'none'}}>
-            {Math.round(scale*100)}% · grade {gridSize}px
+            {Math.round(scale*100)}% · grade {gridSize}px{weather?` · ${weather==='rain'?'🌧 Chuva':weather==='snow'?'❄ Neve':'🌫 Névoa'}`:'' }
           </div>
         </div>
 
@@ -6411,7 +6525,7 @@ function MapEditor() { // eslint-disable-line
           <div style={{height:1,background:'rgba(255,255,255,0.08)',margin:'4px 0'}}/>
           <button title="Grade"          onClick={()=>setShowGrid(g=>!g)} style={TB(showGrid)}>⊞</button>
           <button title="Revelar tudo"   onClick={()=>setFogCells(new Set())} style={TB(false)}>☀</button>
-          <button title="Cobrir tudo"    onClick={()=>{const s=new Set();for(let r=0;r<Math.ceil(mapH/gridSize);r++)for(let c=0;c<Math.ceil(mapW/gridSize);c++)s.add(`${c},${r}`);setFogCells(s);}} style={TB(false)}>🌑</button>
+          <button title="Cobrir tudo"    onClick={convertToFogMap} style={TB(false)}>🌑</button>
           <button title="Jogadores"      onClick={()=>setShowPlayers(p=>!p)} style={TB(showPlayers)}>👥</button>
         </div>
 
@@ -6446,6 +6560,87 @@ function MapEditor() { // eslint-disable-line
         {measureLine && measureDist>0 && (
           <div style={{position:'absolute',bottom:16,left:'50%',transform:'translateX(-50%)',zIndex:30,background:'rgba(251,191,36,0.12)',border:'1px solid rgba(251,191,36,0.35)',borderRadius:10,padding:'8px 18px',fontSize:13,color:'#fbbf24',fontFamily:'monospace'}}>
             📏 {measureDist} células ({Math.round(measureDist*1.5*10)/10} m)
+          </div>
+        )}
+
+        {/* ── SELECTION TOOLBAR ── */}
+        {selTok && !measureLine && tool!=='token' && tool!=='fog' && tool!=='reveal' && (
+          <div style={{position:'absolute',bottom:16,left:'50%',transform:'translateX(-50%)',zIndex:40,background:'rgba(13,13,24,0.95)',backdropFilter:'blur(20px)',border:'1px solid rgba(255,255,255,0.12)',borderRadius:14,padding:'8px 12px',display:'flex',alignItems:'center',gap:4}}
+            onClick={e=>e.stopPropagation()}>
+            {[
+              {label:'👁',title:hiddenToks.has(selTok.id)?'Mostrar':'Ocultar',action:()=>toggleHide(selTok.id),active:hiddenToks.has(selTok.id)},
+              {label:'🔒',title:lockedToks.has(selTok.id)?'Destravar':'Travar',action:()=>toggleLock(selTok.id),active:lockedToks.has(selTok.id)},
+              {label:'⬚',title:'Duplicar (Ctrl+D)',action:()=>duplicateToken(selTok.id)},
+              {label:'Tt',title:'Editar Rótulo',action:()=>editTokenLabel(selTok.id)},
+              {label:'👻',title:spectreToks.has(selTok.id)?'Remover Espectro':'Espectro',action:()=>toggleSpectre(selTok.id),active:spectreToks.has(selTok.id)},
+              {label:'🗑',title:'Deletar (Del)',action:()=>deleteToken(selTok.id),danger:true},
+            ].map((btn,i)=>(
+              <button key={i} title={btn.title} onClick={btn.action} style={{width:40,height:40,borderRadius:10,border:'none',cursor:'pointer',fontSize:btn.label==='Tt'?13:18,fontWeight:btn.label==='Tt'?700:'normal',display:'flex',alignItems:'center',justifyContent:'center',background:btn.active?'rgba(168,85,247,0.2)':'rgba(255,255,255,0.04)',color:btn.active?'#a855f7':btn.danger?'rgba(248,113,113,0.75)':'rgba(255,255,255,0.6)',transition:'all 0.12s'}}>{btn.label}</button>
+            ))}
+            <div style={{width:1,height:24,background:'rgba(255,255,255,0.1)',margin:'0 4px'}}/>
+            <div style={{display:'flex',alignItems:'center',gap:6}}>
+              <div style={{width:18,height:18,borderRadius:'50%',background:selTok.color,border:'2px solid rgba(255,255,255,0.5)'}}/>
+              <span style={{fontSize:11,color:'rgba(255,255,255,0.45)',maxWidth:80,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{selTok.label}</span>
+            </div>
+          </div>
+        )}
+
+        {/* ── CONTEXT MENU ── */}
+        {ctxMenu && (
+          <div style={{position:'fixed',left:ctxMenu.x,top:ctxMenu.y,zIndex:1000,background:'rgba(13,13,24,0.97)',backdropFilter:'blur(20px)',border:'1px solid rgba(255,255,255,0.12)',borderRadius:10,padding:'6px 0',minWidth:210,boxShadow:'0 8px 32px rgba(0,0,0,0.6)',fontFamily:'Inter,system-ui,sans-serif'}}
+            onClick={e=>e.stopPropagation()}>
+            {ctxMenu.type==='token' ? (<>
+              {[
+                {label:hiddenToks.has(ctxMenu.tokenId)?'👁 Mostrar Token':'👁 Ocultar Token',action:()=>{toggleHide(ctxMenu.tokenId);setCtxMenu(null);}},
+                {label:lockedToks.has(ctxMenu.tokenId)?'🔓 Destravar':'🔒 Travar',action:()=>{toggleLock(ctxMenu.tokenId);setCtxMenu(null);}},
+                {label:'⬚ Duplicar',action:()=>{duplicateToken(ctxMenu.tokenId);setCtxMenu(null);}},
+                {label:'Tt Editar Rótulo',action:()=>{editTokenLabel(ctxMenu.tokenId);setCtxMenu(null);}},
+                {label:spectreToks.has(ctxMenu.tokenId)?'👻 Remover Espectro':'👻 Espectro',action:()=>{toggleSpectre(ctxMenu.tokenId);setCtxMenu(null);}},
+              ].map((item,i)=>(
+                <button key={i} onClick={item.action} style={{display:'block',width:'100%',textAlign:'left',padding:'8px 16px',background:'none',border:'none',color:'rgba(255,255,255,0.8)',cursor:'pointer',fontSize:13}}
+                  onMouseEnter={e=>{e.currentTarget.style.background='rgba(255,255,255,0.06)';}}
+                  onMouseLeave={e=>{e.currentTarget.style.background='none';}}
+                >{item.label}</button>
+              ))}
+              <div style={{height:1,background:'rgba(255,255,255,0.08)',margin:'4px 0'}}/>
+              <button onClick={()=>{deleteToken(ctxMenu.tokenId);setCtxMenu(null);}} style={{display:'block',width:'100%',textAlign:'left',padding:'8px 16px',background:'none',border:'none',color:'rgba(248,113,113,0.85)',cursor:'pointer',fontSize:13}}
+                onMouseEnter={e=>{e.currentTarget.style.background='rgba(248,113,113,0.08)';}}
+                onMouseLeave={e=>{e.currentTarget.style.background='none';}}
+              >🗑 Deletar Token</button>
+            </>) : (<>
+              <div style={{padding:'6px 16px 2px',fontSize:10,color:'rgba(255,255,255,0.3)',letterSpacing:1,textTransform:'uppercase'}}>Mapa</div>
+              {[
+                {label:'🖼 Substituir Imagem',action:()=>{fileInputRef.current?.click();setCtxMenu(null);}},
+                {label:'⊞ Mostrar/Ocultar Grade',action:()=>{setShowGrid(g=>!g);setCtxMenu(null);}},
+              ].map((item,i)=>(
+                <button key={i} onClick={item.action} style={{display:'block',width:'100%',textAlign:'left',padding:'8px 16px',background:'none',border:'none',color:'rgba(255,255,255,0.8)',cursor:'pointer',fontSize:13}}
+                  onMouseEnter={e=>{e.currentTarget.style.background='rgba(255,255,255,0.06)';}}
+                  onMouseLeave={e=>{e.currentTarget.style.background='none';}}
+                >{item.label}</button>
+              ))}
+              <div style={{height:1,background:'rgba(255,255,255,0.08)',margin:'4px 0'}}/>
+              <div style={{padding:'6px 16px 2px',fontSize:10,color:'rgba(255,255,255,0.3)',letterSpacing:1,textTransform:'uppercase'}}>Clima</div>
+              {[
+                {label:'🌧 Chuva',val:'rain'},{label:'❄ Neve',val:'snow'},{label:'🌫 Névoa Densa',val:'fog'},{label:'✕ Limpar Clima',val:null},
+              ].map((item,i)=>(
+                <button key={i} onClick={()=>{setWeather(w=>w===item.val?null:item.val);setCtxMenu(null);}} style={{display:'block',width:'100%',textAlign:'left',padding:'8px 16px',background:weather===item.val&&item.val?'rgba(168,85,247,0.1)':'none',border:'none',color:weather===item.val&&item.val?'#a855f7':'rgba(255,255,255,0.8)',cursor:'pointer',fontSize:13}}
+                  onMouseEnter={e=>{e.currentTarget.style.background='rgba(255,255,255,0.06)';}}
+                  onMouseLeave={e=>{e.currentTarget.style.background=weather===item.val&&item.val?'rgba(168,85,247,0.1)':'none';}}
+                >{item.label}</button>
+              ))}
+              <div style={{height:1,background:'rgba(255,255,255,0.08)',margin:'4px 0'}}/>
+              <div style={{padding:'6px 16px 2px',fontSize:10,color:'rgba(255,255,255,0.3)',letterSpacing:1,textTransform:'uppercase'}}>Névoa de Guerra</div>
+              {[
+                {label:'🌑 Cobrir com Névoa',action:()=>{convertToFogMap();setCtxMenu(null);}},
+                {label:'🌒 Auto Névoa (bordas)',action:()=>{autoFogMap();setCtxMenu(null);}},
+                {label:'☀ Revelar Tudo',action:()=>{setFogCells(new Set());setCtxMenu(null);}},
+              ].map((item,i)=>(
+                <button key={i} onClick={item.action} style={{display:'block',width:'100%',textAlign:'left',padding:'8px 16px',background:'none',border:'none',color:'rgba(255,255,255,0.8)',cursor:'pointer',fontSize:13}}
+                  onMouseEnter={e=>{e.currentTarget.style.background='rgba(255,255,255,0.06)';}}
+                  onMouseLeave={e=>{e.currentTarget.style.background='none';}}
+                >{item.label}</button>
+              ))}
+            </>)}
           </div>
         )}
       </div>
