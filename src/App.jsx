@@ -6239,7 +6239,11 @@ function MapEditor() { // eslint-disable-line
       return;
     }
     if (e.button!==0) return;
-    if (tool==='select') { setSelectedToken(null); return; }
+    if (tool==='select') {
+      setSelectedToken(null);
+      panStartRef.current = {mx:e.clientX,my:e.clientY,ox:stateRef.current.pan.x,oy:stateRef.current.pan.y};
+      return;
+    }
     if (tool==='fog'||tool==='reveal') {
       fogPaintRef.current = true; fogModeRef.current = tool==='fog'?'add':'del';
       const k=fogKey(wp.x,wp.y);
@@ -6436,11 +6440,10 @@ function MapEditor() { // eslint-disable-line
                   transition:'opacity 0.2s,box-shadow 0.15s',
                 }}
                 onMouseDown={e=>{
-                  if(tool!=='select') return;
                   e.stopPropagation();
                   if (e.button===2) return;
                   setSelectedToken(t.id);
-                  if (!isLocked) {
+                  if (tool==='select' && !isLocked) {
                     dragTokenRef.current=t.id;
                     const {x:sx,y:sy}=clientXY(e); const wp=screenToWorld(sx,sy);
                     dragOffRef.current={x:wp.x-t.x,y:wp.y-t.y};
@@ -6564,7 +6567,7 @@ function MapEditor() { // eslint-disable-line
         )}
 
         {/* ── SELECTION TOOLBAR ── */}
-        {selTok && !measureLine && tool!=='token' && tool!=='fog' && tool!=='reveal' && (
+        {selTok && !measureLine && (
           <div style={{position:'absolute',bottom:16,left:'50%',transform:'translateX(-50%)',zIndex:40,background:'rgba(13,13,24,0.95)',backdropFilter:'blur(20px)',border:'1px solid rgba(255,255,255,0.12)',borderRadius:14,padding:'8px 12px',display:'flex',alignItems:'center',gap:4}}
             onClick={e=>e.stopPropagation()}>
             {[
