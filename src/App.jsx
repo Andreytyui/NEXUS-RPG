@@ -6321,7 +6321,7 @@ function MapEditor() { // eslint-disable-line
   const selTok = selectedToken ? tokens.find(t=>t.id===selectedToken) : null;
 
   return (
-    <div style={{position:'fixed',inset:0,zIndex:500,background:'#14141f',display:'flex',flexDirection:'column',userSelect:'none',fontFamily:'Inter,system-ui,sans-serif'}}
+    <div style={{position:'fixed',inset:0,zIndex:500,background:'#23233a',display:'flex',flexDirection:'column',userSelect:'none',fontFamily:'Inter,system-ui,sans-serif'}}
       onClick={()=>setCtxMenu(null)}>
       <style>{`
         @keyframes rain{0%{transform:translateY(-10px) rotate(15deg);opacity:0}10%{opacity:0.7}90%{opacity:0.7}100%{transform:translateY(110vh) rotate(15deg);opacity:0}}
@@ -6330,7 +6330,7 @@ function MapEditor() { // eslint-disable-line
       `}</style>
 
       {/* ── TOP BAR ── */}
-      <div style={{height:48,background:'#0d0d18',borderBottom:'1px solid rgba(255,255,255,0.07)',display:'flex',alignItems:'center',gap:8,padding:'0 14px',flexShrink:0,zIndex:10}}>
+      <div style={{height:48,background:'#16162e',borderBottom:'1px solid rgba(255,255,255,0.12)',display:'flex',alignItems:'center',gap:8,padding:'0 14px',flexShrink:0,zIndex:10}}>
         <span style={{fontFamily:'Cinzel Decorative,serif',fontSize:11,color:'#c9a84c',letterSpacing:2,whiteSpace:'nowrap'}}>⚔ NEXUS</span>
         <div style={{width:1,height:20,background:'rgba(255,255,255,0.08)'}}/>
         <span style={{fontSize:11,color:'rgba(255,255,255,0.3)',whiteSpace:'nowrap'}}>Editor de Mapas</span>
@@ -6351,7 +6351,7 @@ function MapEditor() { // eslint-disable-line
 
         {/* ── PLAYERS PANEL (floating top-left) ── */}
         {showPlayers && (
-          <div style={{position:'absolute',left:14,top:14,zIndex:30,background:'rgba(13,13,24,0.9)',backdropFilter:'blur(16px)',border:'1px solid rgba(255,255,255,0.09)',borderRadius:14,width:220,overflow:'hidden'}}>
+          <div style={{position:'absolute',left:14,top:14,zIndex:30,background:'rgba(22,22,46,0.92)',backdropFilter:'blur(16px)',border:'1px solid rgba(255,255,255,0.14)',borderRadius:14,width:220,overflow:'hidden'}}>
             <div style={{padding:'10px 14px',borderBottom:'1px solid rgba(255,255,255,0.07)',display:'flex',alignItems:'center',gap:8}}>
               <span style={{fontFamily:'Cinzel,serif',fontSize:11,color:'rgba(255,255,255,0.65)',letterSpacing:1,flex:1}}>Jogadores</span>
               <button style={{background:'none',border:'none',color:'rgba(255,255,255,0.3)',cursor:'pointer',fontSize:14,lineHeight:1}} title="Adicionar">+</button>
@@ -6377,7 +6377,7 @@ function MapEditor() { // eslint-disable-line
           {/* Empty state */}
           {!bgUrl && (
             <div style={{position:'absolute',inset:0,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:16,pointerEvents:'none'}}>
-              <svg style={{position:'absolute',inset:0,width:'100%',height:'100%',opacity:0.04}} xmlns="http://www.w3.org/2000/svg">
+              <svg style={{position:'absolute',inset:0,width:'100%',height:'100%',opacity:0.14}} xmlns="http://www.w3.org/2000/svg">
                 <defs><pattern id="dots" x="0" y="0" width="40" height="40" patternUnits="userSpaceOnUse"><circle cx="20" cy="20" r="1.2" fill="#fff"/></pattern></defs>
                 <rect width="100%" height="100%" fill="url(#dots)"/>
               </svg>
@@ -6398,7 +6398,7 @@ function MapEditor() { // eslint-disable-line
               <svg style={{position:'absolute',top:0,left:0,width:mapW,height:mapH,pointerEvents:'none'}} xmlns="http://www.w3.org/2000/svg">
                 <defs>
                   <pattern id="mapgrid" width={gridSize} height={gridSize} patternUnits="userSpaceOnUse">
-                    <path d={`M ${gridSize} 0 L 0 0 0 ${gridSize}`} fill="none" stroke="rgba(255,255,255,0.18)" strokeWidth="0.6"/>
+                    <path d={`M ${gridSize} 0 L 0 0 0 ${gridSize}`} fill="none" stroke="rgba(255,255,255,0.32)" strokeWidth="0.8"/>
                   </pattern>
                 </defs>
                 <rect width="100%" height="100%" fill="url(#mapgrid)"/>
@@ -6515,7 +6515,7 @@ function MapEditor() { // eslint-disable-line
         </div>
 
         {/* ── RIGHT TOOLBAR (Owlbear-style) ── */}
-        <div style={{position:'absolute',right:14,top:'50%',transform:'translateY(-50%)',zIndex:30,display:'flex',flexDirection:'column',gap:2,background:'rgba(13,13,24,0.9)',backdropFilter:'blur(16px)',border:'1px solid rgba(255,255,255,0.09)',borderRadius:14,padding:6}}>
+        <div style={{position:'absolute',right:14,top:'50%',transform:'translateY(-50%)',zIndex:30,display:'flex',flexDirection:'column',gap:2,background:'rgba(22,22,46,0.92)',backdropFilter:'blur(16px)',border:'1px solid rgba(255,255,255,0.14)',borderRadius:14,padding:6}}>
           {TOOLS.map(t=>(
             <button key={t.id} title={t.label} onClick={()=>setTool(t.id)} style={TB(tool===t.id)}>{t.ch}</button>
           ))}
@@ -6531,7 +6531,7 @@ function MapEditor() { // eslint-disable-line
 
         {/* ── TOKEN COLOR PANEL (bottom center when tool=token) ── */}
         {tool==='token' && (
-          <div style={{position:'absolute',bottom:16,left:'50%',transform:'translateX(-50%)',zIndex:30,background:'rgba(13,13,24,0.92)',backdropFilter:'blur(16px)',border:'1px solid rgba(255,255,255,0.1)',borderRadius:14,padding:'12px 18px',display:'flex',alignItems:'center',gap:12,flexWrap:'wrap'}}>
+          <div style={{position:'absolute',bottom:16,left:'50%',transform:'translateX(-50%)',zIndex:30,background:'rgba(22,22,46,0.95)',backdropFilter:'blur(16px)',border:'1px solid rgba(255,255,255,0.14)',borderRadius:14,padding:'12px 18px',display:'flex',alignItems:'center',gap:12,flexWrap:'wrap'}}>
             <span style={{fontSize:11,color:'rgba(255,255,255,0.4)'}}>Cor:</span>
             <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
               {COLORS.map(c=>(
@@ -6548,7 +6548,7 @@ function MapEditor() { // eslint-disable-line
 
         {/* ── GRID SIZE (bottom center when tool=fog/reveal) ── */}
         {(tool==='fog'||tool==='reveal') && (
-          <div style={{position:'absolute',bottom:16,left:'50%',transform:'translateX(-50%)',zIndex:30,background:'rgba(13,13,24,0.92)',backdropFilter:'blur(16px)',border:'1px solid rgba(255,255,255,0.1)',borderRadius:14,padding:'10px 18px',display:'flex',alignItems:'center',gap:10}}>
+          <div style={{position:'absolute',bottom:16,left:'50%',transform:'translateX(-50%)',zIndex:30,background:'rgba(22,22,46,0.95)',backdropFilter:'blur(16px)',border:'1px solid rgba(255,255,255,0.14)',borderRadius:14,padding:'10px 18px',display:'flex',alignItems:'center',gap:10}}>
             <span style={{fontSize:11,color:'rgba(255,255,255,0.4)'}}>Tamanho da célula:</span>
             <button onClick={()=>setGridSize(s=>Math.max(20,s-10))} style={{...TB(false),width:28,height:28,borderRadius:6,fontSize:14}}>−</button>
             <span style={{fontSize:13,color:'#fff',fontFamily:'monospace',minWidth:32,textAlign:'center'}}>{gridSize}</span>
@@ -6648,7 +6648,7 @@ function MapEditor() { // eslint-disable-line
       {/* ── SAVED MAPS MODAL ── */}
       {showMaps && (
         <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.75)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:1000}} onClick={()=>setShowMaps(false)}>
-          <div onClick={e=>e.stopPropagation()} style={{background:'#0d0d18',border:'1px solid rgba(255,255,255,0.1)',borderRadius:16,padding:24,width:380,maxHeight:'70vh',display:'flex',flexDirection:'column',gap:14}}>
+          <div onClick={e=>e.stopPropagation()} style={{background:'#1a1a30',border:'1px solid rgba(255,255,255,0.14)',borderRadius:16,padding:24,width:380,maxHeight:'70vh',display:'flex',flexDirection:'column',gap:14}}>
             <div style={{fontFamily:'Cinzel Decorative,serif',fontSize:16,color:'#c9a84c'}}>Mapas Salvos</div>
             <div style={{flex:1,overflowY:'auto',display:'flex',flexDirection:'column',gap:6}}>
               {savedMaps.length===0
