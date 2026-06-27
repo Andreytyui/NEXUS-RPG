@@ -6069,359 +6069,405 @@ const MAP_TILES = {
 };
 
 function MapEditor() { // eslint-disable-line
-  const canvasRef    = useRef(null);
+  /* ─── refs ─── */
   const containerRef = useRef(null);
-  const isDownRef    = useRef(false);
+  const fileInputRef = useRef(null);
   const panStartRef  = useRef(null);
+  const dragTokenRef = useRef(null);
+  const dragOffRef   = useRef({x:0,y:0});
+  const fogPaintRef  = useRef(false);
+  const fogModeRef   = useRef('add');
+  const measureRef   = useRef(null);
   const stateRef     = useRef({});
 
-  const [cols,       setCols]       = useState(20);
-  const [rows,       setRows]       = useState(15);
-  const [tiles,      setTiles]      = useState(() => Array(15*20).fill(null));
-  const [fog,        setFog]        = useState(() => Array(15*20).fill(true));
-  const [tool,       setTool]       = useState('paint');
-  const [selTile,    setSelTile]    = useState('grass');
-  const [master,     setMaster]     = useState(true);
-  const [cellSize,   setCellSize]   = useState(40);
-  const [pan,        setPan]        = useState({ x:20, y:20 });
-  const [hovered,    setHovered]    = useState(null);
-  const [mapName,    setMapName]    = useState('Novo Mapa');
-  const [savedMaps,  setSavedMaps]  = useState(() => { try { return JSON.parse(localStorage.getItem('nexus_maps')||'[]'); } catch { return []; } });
-  const [loadModal,  setLoadModal]  = useState(false);
-  const [newModal,   setNewModal]   = useState(false);
-  const [nCols,      setNCols]      = useState('20');
-  const [nRows,      setNRows]      = useState('15');
+  /* ─── background image ─── */
+  const [bgUrl,  setBgUrl]  = useState(null);
+  const [bgSize, setBgSize] = useState({w:2400,h:1600});
 
-  stateRef.current = { cols, rows, tiles, fog, tool, selTile, master, cellSize, pan, hovered };
+  /* ─── map objects ─── */
+  const [tokens,   setTokens]   = useState([]);
+  const [notes,    setNotes]    = useState([]);
+  const [fogCells, setFogCells] = useState(new Set());
 
-  // ── canvas resize
-  useEffect(() => {
-    const container = containerRef.current;
-    const canvas    = canvasRef.current;
-    if (!container || !canvas) return;
-    const ro = new ResizeObserver(() => {
-      canvas.width  = container.clientWidth;
-      canvas.height = container.clientHeight;
-      draw();
-    });
-    ro.observe(container);
-    return () => ro.disconnect();
-  }, []);
+  /* ─── view ─── */
+  const [pan,   setPan]   = useState({x:60,y:60});
+  const [scale, setScale] = useState(1);
 
-  // ── redraw on state change
-  useEffect(() => { draw(); }, [tiles, fog, cellSize, pan, hovered, master]);
+  /* ─── grid ─── */
+  const [showGrid, setShowGrid] = useState(true);
+  const [gridSize, setGridSize] = useState(70);
 
-  function draw() {
-    const canvas = canvasRef.current;
-    if (!canvas || canvas.width === 0) return;
-    const ctx = canvas.getContext('2d');
-    const { cols, rows, tiles, fog, cellSize: cs, pan: { x:ox, y:oy }, hovered, master } = stateRef.current;
+  /* ─── tool ─── */
+  const [tool,     setTool]     = useState('select');
+  const [tokColor, setTokColor] = useState('#4ade80');
+  const [tokLabel, setTokLabel] = useState('');
 
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
+  /* ─── measure ─── */
+  const [measureLine, setMeasureLine] = useState(null);
 
-    // background
-    ctx.fillStyle = '#0e0e16';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
+  /* ─── ui ─── */
+  const [showPlayers, setShowPlayers] = useState(true);
+  const [mapName,     setMapName]     = useState('Novo Mapa');
+  const [savedMaps,   setSavedMaps]   = useState(() => { try { return JSON.parse(localStorage.getItem('nexus_maps_v2')||'[]'); } catch { return []; } });
+  const [showMaps,    setShowMaps]    = useState(false);
 
-    // subtle dot grid behind map
-    ctx.fillStyle = 'rgba(255,255,255,0.04)';
-    for (let gx = ((ox % 40) + 40) % 40; gx < canvas.width; gx += 40)
-      for (let gy = ((oy % 40) + 40) % 40; gy < canvas.height; gy += 40)
-        ctx.fillRect(gx, gy, 2, 2);
+  stateRef.current = { pan, scale, gridSize, fogCells, tool, tokens };
 
-    // cells
-    for (let r = 0; r < rows; r++) {
-      for (let c = 0; c < cols; c++) {
-        const idx = r * cols + c;
-        const x = c * cs + ox;
-        const y = r * cs + oy;
-        if (x + cs < 0 || y + cs < 0 || x > canvas.width || y > canvas.height) continue;
+  const mapW = bgSize.w, mapH = bgSize.h;
 
-        const tk   = tiles[idx];
-        const tile = tk ? MAP_TILES[tk] : null;
-        const fogged = fog[idx];
-
-        // tile fill
-        ctx.fillStyle = tile ? tile.color : '#1a1a26';
-        ctx.fillRect(x, y, cs, cs);
-
-        // grid line
-        ctx.strokeStyle = 'rgba(255,255,255,0.06)';
-        ctx.lineWidth = 1;
-        ctx.strokeRect(x + 0.5, y + 0.5, cs - 1, cs - 1);
-
-        // fog overlay
-        if (fogged) {
-          ctx.fillStyle = master ? 'rgba(0,0,0,0.52)' : '#090910';
-          ctx.fillRect(x, y, cs, cs);
-          if (master && cs >= 24) {
-            // fog hatch lines for master
-            ctx.strokeStyle = 'rgba(80,80,140,0.25)';
-            ctx.lineWidth = 1;
-            for (let d = -cs; d < cs * 2; d += 8) {
-              ctx.beginPath();
-              ctx.moveTo(x + d, y);
-              ctx.lineTo(x + d + cs, y + cs);
-              ctx.stroke();
-            }
-          }
-        }
-
-        // hover highlight
-        if (hovered && hovered.r === r && hovered.c === c) {
-          ctx.fillStyle = 'rgba(255,255,255,0.15)';
-          ctx.fillRect(x, y, cs, cs);
-          ctx.strokeStyle = 'rgba(200,168,76,0.9)';
-          ctx.lineWidth = 2;
-          ctx.strokeRect(x + 1, y + 1, cs - 2, cs - 2);
-        }
-      }
-    }
-
-    // map border
-    ctx.strokeStyle = 'rgba(200,168,76,0.35)';
-    ctx.lineWidth = 2;
-    ctx.strokeRect(ox, oy, cols * cs, rows * cs);
+  /* ─── helpers ─── */
+  function screenToWorld(sx, sy) {
+    const {pan:p, scale:s} = stateRef.current;
+    return {x:(sx-p.x)/s, y:(sy-p.y)/s};
+  }
+  function clientXY(e) {
+    const r = containerRef.current.getBoundingClientRect();
+    return {x:e.clientX-r.left, y:e.clientY-r.top};
+  }
+  function fogKey(wx, wy) {
+    const gs = stateRef.current.gridSize;
+    return `${Math.floor(wx/gs)},${Math.floor(wy/gs)}`;
   }
 
-  function cellAt(e) {
-    const canvas = canvasRef.current;
-    if (!canvas) return null;
-    const rect = canvas.getBoundingClientRect();
-    const { cols, rows, cellSize: cs, pan: { x:ox, y:oy } } = stateRef.current;
-    const c = Math.floor((e.clientX - rect.left - ox) / cs);
-    const r = Math.floor((e.clientY - rect.top  - oy) / cs);
-    if (c < 0 || r < 0 || c >= cols || r >= rows) return null;
-    return { r, c, idx: r * cols + c };
+  /* ─── load image ─── */
+  function loadImage(file) {
+    if (!file?.type.startsWith('image/')) return;
+    const reader = new FileReader();
+    reader.onload = e => {
+      const img = new Image();
+      img.onload = () => {
+        setBgSize({w:img.width,h:img.height});
+        setBgUrl(e.target.result);
+        const maxW = (containerRef.current?.clientWidth  || window.innerWidth-80)*0.9;
+        const maxH = (containerRef.current?.clientHeight || window.innerHeight-120)*0.9;
+        const s = Math.min(1, maxW/img.width, maxH/img.height);
+        setScale(s); setPan({x:30,y:30});
+      };
+      img.src = e.target.result;
+    };
+    reader.readAsDataURL(file);
   }
 
-  function applyTool(cell) {
-    if (!cell) return;
-    const { tool, selTile } = stateRef.current;
-    const { idx } = cell;
-    if      (tool === 'paint')  setTiles(p => { const n=[...p]; n[idx]=selTile; return n; });
-    else if (tool === 'erase')  setTiles(p => { const n=[...p]; n[idx]=null;    return n; });
-    else if (tool === 'fog')    setFog(p   => { const n=[...p]; n[idx]=true;    return n; });
-    else if (tool === 'reveal') setFog(p   => { const n=[...p]; n[idx]=false;   return n; });
+  /* ─── save / load ─── */
+  function saveMap() {
+    const map = {
+      id:Date.now(), name:mapName,
+      tokens:stateRef.current.tokens,
+      notes,
+      fogCells:[...stateRef.current.fogCells],
+      gridSize:stateRef.current.gridSize,
+      savedAt:new Date().toLocaleDateString('pt-BR'),
+    };
+    const updated = [map,...savedMaps.filter(m=>m.name!==mapName)].slice(0,20);
+    setSavedMaps(updated);
+    localStorage.setItem('nexus_maps_v2', JSON.stringify(updated));
+  }
+  function loadSavedMap(m) {
+    setMapName(m.name); setTokens(m.tokens||[]); setNotes(m.notes||[]);
+    setFogCells(new Set(m.fogCells||[])); setGridSize(m.gridSize||70);
+    setShowMaps(false);
   }
 
+  /* ─── mouse handlers ─── */
   function onDown(e) {
-    isDownRef.current = true;
-    const { tool } = stateRef.current;
-    if (tool === 'pan' || e.button === 1) {
-      panStartRef.current = { mx: e.clientX, my: e.clientY, ox: stateRef.current.pan.x, oy: stateRef.current.pan.y };
+    const {tool} = stateRef.current;
+    const {x:sx,y:sy} = clientXY(e);
+    const wp = screenToWorld(sx,sy);
+    if (e.button===1 || tool==='pan' || (e.button===0&&e.altKey)) {
+      panStartRef.current = {mx:e.clientX,my:e.clientY,ox:stateRef.current.pan.x,oy:stateRef.current.pan.y};
       return;
     }
-    if (e.button !== 0) return;
-    applyTool(cellAt(e));
+    if (e.button!==0) return;
+    if (tool==='fog'||tool==='reveal') {
+      fogPaintRef.current = true; fogModeRef.current = tool==='fog'?'add':'del';
+      const k=fogKey(wp.x,wp.y);
+      setFogCells(prev=>{const n=new Set(prev);fogModeRef.current==='add'?n.add(k):n.delete(k);return n;});
+    } else if (tool==='token') {
+      setTokens(p=>[...p,{id:Date.now(),x:wp.x,y:wp.y,color:tokColor,label:tokLabel||'?',size:36}]);
+    } else if (tool==='note') {
+      const txt=window.prompt('Texto da nota:');
+      if (txt?.trim()) setNotes(p=>[...p,{id:Date.now(),x:wp.x,y:wp.y,text:txt.trim()}]);
+    } else if (tool==='measure') {
+      measureRef.current={x1:wp.x,y1:wp.y};
+      setMeasureLine({x1:wp.x,y1:wp.y,x2:wp.x,y2:wp.y});
+    }
   }
-
   function onMove(e) {
-    const cell = cellAt(e);
-    setHovered(cell ? { r: cell.r, c: cell.c } : null);
-    if (!isDownRef.current) return;
     if (panStartRef.current) {
-      const { mx, my, ox, oy } = panStartRef.current;
-      setPan({ x: ox + e.clientX - mx, y: oy + e.clientY - my });
-      return;
+      const {mx,my,ox,oy}=panStartRef.current;
+      setPan({x:ox+e.clientX-mx,y:oy+e.clientY-my}); return;
     }
-    applyTool(cell);
+    if (dragTokenRef.current) {
+      const {x:sx,y:sy}=clientXY(e); const wp=screenToWorld(sx,sy);
+      setTokens(prev=>prev.map(t=>t.id===dragTokenRef.current?{...t,x:wp.x-dragOffRef.current.x,y:wp.y-dragOffRef.current.y}:t)); return;
+    }
+    if (fogPaintRef.current) {
+      const {x:sx,y:sy}=clientXY(e); const wp=screenToWorld(sx,sy);
+      const k=fogKey(wp.x,wp.y);
+      setFogCells(prev=>{const n=new Set(prev);fogModeRef.current==='add'?n.add(k):n.delete(k);return n;}); return;
+    }
+    if (measureRef.current) {
+      const {x:sx,y:sy}=clientXY(e); const wp=screenToWorld(sx,sy);
+      setMeasureLine({...measureRef.current,x2:wp.x,y2:wp.y});
+    }
   }
-
-  function onUp() { isDownRef.current = false; panStartRef.current = null; }
-
+  function onUp() { panStartRef.current=null; dragTokenRef.current=null; fogPaintRef.current=false; measureRef.current=null; }
   function onWheel(e) {
     e.preventDefault();
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const rect = canvas.getBoundingClientRect();
-    const mx = e.clientX - rect.left;
-    const my = e.clientY - rect.top;
-    const { cellSize: cs, pan: { x:ox, y:oy } } = stateRef.current;
-    const newCs = Math.max(12, Math.min(80, cs + (e.deltaY < 0 ? 4 : -4)));
-    const ratio = newCs / cs;
-    setCellSize(newCs);
-    setPan({ x: mx - (mx - ox) * ratio, y: my - (my - oy) * ratio });
+    const r=containerRef.current.getBoundingClientRect();
+    const sx=e.clientX-r.left, sy=e.clientY-r.top;
+    const {pan:p,scale:s}=stateRef.current;
+    const ns=Math.max(0.08,Math.min(6,s*(e.deltaY<0?1.12:0.89)));
+    const rt=ns/s;
+    setPan({x:sx-(sx-p.x)*rt,y:sy-(sy-p.y)*rt}); setScale(ns);
   }
 
-  function saveMap() {
-    const { tiles, fog, cols, rows } = stateRef.current;
-    const map = { id: Date.now(), name: mapName, cols, rows, tiles: [...tiles], fog: [...fog], savedAt: new Date().toLocaleDateString('pt-BR') };
-    const updated = [map, ...savedMaps.filter(m => m.name !== mapName)].slice(0, 20);
-    setSavedMaps(updated);
-    localStorage.setItem('nexus_maps', JSON.stringify(updated));
-  }
+  /* ─── computed ─── */
+  const measureDist = measureLine
+    ? Math.round(Math.hypot(measureLine.x2-measureLine.x1,measureLine.y2-measureLine.y1)/gridSize*10)/10
+    : 0;
+  const fogRects = [...fogCells].map(k=>{const[c,r]=k.split(',').map(Number);return{x:c*gridSize,y:r*gridSize};});
+  const cursor = panStartRef.current?'grabbing':tool==='pan'?'grab':tool==='fog'||tool==='reveal'?'cell':tool==='token'||tool==='note'||tool==='measure'?'crosshair':'default';
 
-  function loadMap(map) {
-    setMapName(map.name); setCols(map.cols); setRows(map.rows);
-    setTiles(map.tiles); setFog(map.fog);
-    setPan({ x:20, y:20 }); setLoadModal(false);
-  }
-
-  function createNew() {
-    const c = Math.max(5, Math.min(99, parseInt(nCols) || 20));
-    const r = Math.max(5, Math.min(99, parseInt(nRows) || 15));
-    setCols(c); setRows(r);
-    setTiles(Array(r * c).fill(null));
-    setFog(Array(r * c).fill(true));
-    setPan({ x:20, y:20 }); setMapName('Novo Mapa'); setNewModal(false);
-  }
+  /* ─── style helpers ─── */
+  const TB = (active) => ({
+    width:44,height:44,borderRadius:10,border:'none',cursor:'pointer',
+    fontSize:18,display:'flex',alignItems:'center',justifyContent:'center',
+    background:active?'rgba(168,85,247,0.2)':'transparent',
+    color:active?'#a855f7':'rgba(255,255,255,0.5)',
+    boxShadow:active?'inset 0 0 0 1px rgba(168,85,247,0.5)':'none',
+    transition:'all 0.12s',
+  });
+  const topBtn = {
+    padding:'5px 12px',borderRadius:6,border:'1px solid rgba(255,255,255,0.1)',
+    background:'rgba(255,255,255,0.05)',color:'rgba(255,255,255,0.65)',
+    cursor:'pointer',fontFamily:'Inter,system-ui,sans-serif',fontSize:11,
+    display:'flex',alignItems:'center',gap:5,whiteSpace:'nowrap',
+  };
 
   const TOOLS = [
-    { id:'paint',  icon:'🖌️', label:'Pintar'  },
-    { id:'erase',  icon:'⬜',  label:'Apagar'  },
-    { id:'fog',    icon:'🌫️', label:'Névoa'   },
-    { id:'reveal', icon:'👁️', label:'Revelar' },
-    { id:'pan',    icon:'✋',  label:'Mover'   },
+    {id:'select', label:'Selecionar', ch:'↖'},
+    {id:'pan',    label:'Mover Mapa', ch:'✋'},
+    {id:'token',  label:'Token',      ch:'⬤'},
+    {id:'fog',    label:'Névoa',      ch:'☁'},
+    {id:'reveal', label:'Revelar',    ch:'👁'},
+    {id:'note',   label:'Nota',       ch:'📝'},
+    {id:'measure',label:'Medir',      ch:'📏'},
   ];
-
-  const cursor = { paint:'crosshair', erase:'crosshair', fog:'cell', reveal:'cell', pan: panStartRef.current ? 'grabbing' : 'grab' }[tool] || 'crosshair';
-
-  const btnStyle = (active, accent) => ({
-    padding:'5px 10px', borderRadius:6, cursor:'pointer', fontSize:11,
-    fontFamily:'Cinzel,serif', letterSpacing:1, transition:'all .15s',
-    border:`1px solid ${active ? (accent||'#c9a84c') : 'var(--border)'}`,
-    background: active ? `${(accent||'#c9a84c')}22` : 'transparent',
-    color: active ? (accent||'#c9a84c') : 'var(--muted)',
-  });
+  const COLORS = ['#4ade80','#60a5fa','#f87171','#fbbf24','#c084fc','#f472b6','#34d399','#fb923c','#e2e8f0','#a3e635'];
 
   return (
-    <div className="fade" style={{ display:'flex', flexDirection:'column', height:'calc(100vh - 110px)', userSelect:'none' }}>
+    <div style={{position:'fixed',inset:0,zIndex:500,background:'#14141f',display:'flex',flexDirection:'column',userSelect:'none',fontFamily:'Inter,system-ui,sans-serif'}}>
 
-      {/* ── TOOLBAR ── */}
-      <div style={{ display:'flex', alignItems:'center', gap:8, padding:'7px 12px', background:'var(--card)', borderBottom:'1px solid var(--border)', flexWrap:'wrap' }}>
-        <input value={mapName} onChange={e => setMapName(e.target.value)}
-          style={{ background:'transparent', border:'1px solid var(--border)', borderRadius:6, padding:'4px 10px', color:'var(--gold)', fontFamily:'Cinzel,serif', fontSize:13, width:160 }} />
-
-        <div style={{ width:1, height:24, background:'var(--border)' }} />
-
-        {TOOLS.map(t => (
-          <button key={t.id} onClick={() => setTool(t.id)} title={t.label}
-            style={{ padding:'5px 8px', borderRadius:6, fontSize:16, cursor:'pointer', transition:'all .15s',
-              border:`1px solid ${tool===t.id ? '#c9a84c' : 'var(--border)'}`,
-              background: tool===t.id ? '#c9a84c22' : 'transparent' }}>
-            {t.icon}
-          </button>
-        ))}
-
-        <div style={{ width:1, height:24, background:'var(--border)' }} />
-
-        <span style={{ color:'var(--muted)', fontSize:11 }}>Zoom</span>
-        <button onClick={() => setCellSize(s => Math.min(80, s+4))} style={{ padding:'3px 8px', borderRadius:6, border:'1px solid var(--border)', background:'transparent', color:'var(--muted)', cursor:'pointer' }}>+</button>
-        <span style={{ color:'var(--gold)', fontSize:12, minWidth:28, textAlign:'center' }}>{cellSize}</span>
-        <button onClick={() => setCellSize(s => Math.max(12, s-4))} style={{ padding:'3px 8px', borderRadius:6, border:'1px solid var(--border)', background:'transparent', color:'var(--muted)', cursor:'pointer' }}>−</button>
-
-        <div style={{ width:1, height:24, background:'var(--border)' }} />
-
-        <button onClick={() => setMaster(m => !m)} style={btnStyle(true, master ? '#c9a84c' : '#5a8acc')}>
-          {master ? '👑 Mestre' : '🎲 Jogador'}
-        </button>
-
-        <div style={{ flex:1 }} />
-
-        <button onClick={() => setNewModal(true)}  style={btnStyle(false)}>+ Novo</button>
-        <button onClick={() => setLoadModal(true)} style={btnStyle(false)}>📂 Carregar</button>
-        <button onClick={saveMap} style={btnStyle(true)}>💾 Salvar</button>
+      {/* ── TOP BAR ── */}
+      <div style={{height:48,background:'#0d0d18',borderBottom:'1px solid rgba(255,255,255,0.07)',display:'flex',alignItems:'center',gap:8,padding:'0 14px',flexShrink:0,zIndex:10}}>
+        <span style={{fontFamily:'Cinzel Decorative,serif',fontSize:11,color:'#c9a84c',letterSpacing:2,whiteSpace:'nowrap'}}>⚔ NEXUS</span>
+        <div style={{width:1,height:20,background:'rgba(255,255,255,0.08)'}}/>
+        <span style={{fontSize:11,color:'rgba(255,255,255,0.3)',whiteSpace:'nowrap'}}>Editor de Mapas</span>
+        <div style={{width:1,height:20,background:'rgba(255,255,255,0.08)'}}/>
+        <input value={mapName} onChange={e=>setMapName(e.target.value)}
+          style={{background:'transparent',border:'none',color:'rgba(255,255,255,0.85)',fontFamily:'Inter,system-ui,sans-serif',fontSize:13,outline:'none',width:180}}/>
+        <div style={{flex:1}}/>
+        <button style={topBtn} onClick={()=>fileInputRef.current?.click()}>🗺 Carregar Mapa</button>
+        <input ref={fileInputRef} type="file" accept="image/*" style={{display:'none'}} onChange={e=>loadImage(e.target.files?.[0])}/>
+        <button style={topBtn} onClick={saveMap}>💾 Salvar</button>
+        <button style={topBtn} onClick={()=>setShowMaps(true)}>📂 Mapas ({savedMaps.length})</button>
+        <div style={{width:1,height:20,background:'rgba(255,255,255,0.08)'}}/>
+        <button style={{...topBtn,padding:'5px 8px'}} onClick={()=>{setScale(1);setPan({x:60,y:60});}}>⌂</button>
+        <span style={{fontSize:10,color:'rgba(255,255,255,0.25)',fontFamily:'monospace',minWidth:36}}>{Math.round(scale*100)}%</span>
       </div>
 
-      <div style={{ display:'flex', flex:1, overflow:'hidden' }}>
+      <div style={{flex:1,display:'flex',overflow:'hidden',position:'relative'}}>
 
-        {/* ── PALETTE ── */}
-        <div style={{ width:155, background:'var(--card)', borderRight:'1px solid var(--border)', padding:'10px 8px', overflowY:'auto', display:'flex', flexDirection:'column', gap:3 }}>
-          <div style={{ fontFamily:'Cinzel,serif', fontSize:9, letterSpacing:2, color:'var(--muted)', textTransform:'uppercase', marginBottom:4 }}>Tiles</div>
-          {Object.entries(MAP_TILES).map(([key, tile]) => {
-            const active = selTile===key && tool==='paint';
-            return (
-              <button key={key} onClick={() => { setSelTile(key); setTool('paint'); }}
-                style={{ display:'flex', alignItems:'center', gap:8, padding:'5px 8px', borderRadius:6, cursor:'pointer', transition:'all .15s', width:'100%', textAlign:'left',
-                  border:`1px solid ${active ? '#c9a84c' : 'var(--border)'}`,
-                  background: active ? '#c9a84c12' : 'transparent' }}>
-                <div style={{ width:16, height:16, borderRadius:3, background:tile.color, border:`1px solid ${tile.border}`, flexShrink:0 }} />
-                <span style={{ fontSize:10, color: active ? '#c9a84c' : 'var(--muted)', fontFamily:'Cinzel,serif' }}>{tile.label}</span>
-              </button>
-            );
-          })}
-
-          <div style={{ height:1, background:'var(--border)', margin:'6px 0' }} />
-
-          <div style={{ fontFamily:'Cinzel,serif', fontSize:9, letterSpacing:2, color:'var(--muted)', textTransform:'uppercase', marginBottom:4 }}>Névoa</div>
-          <button onClick={() => setFog(Array(rows*cols).fill(false))} style={{ padding:'5px 8px', borderRadius:6, border:'1px solid var(--border)', background:'transparent', color:'var(--muted)', cursor:'pointer', fontSize:10, fontFamily:'Cinzel,serif', textAlign:'left' }}>👁 Revelar tudo</button>
-          <button onClick={() => setFog(Array(rows*cols).fill(true))}  style={{ padding:'5px 8px', borderRadius:6, border:'1px solid var(--border)', background:'transparent', color:'var(--muted)', cursor:'pointer', fontSize:10, fontFamily:'Cinzel,serif', textAlign:'left' }}>🌫 Cobrir tudo</button>
-
-          <div style={{ height:1, background:'var(--border)', margin:'6px 0' }} />
-
-          <div style={{ fontFamily:'Cinzel,serif', fontSize:9, letterSpacing:2, color:'var(--muted)', textTransform:'uppercase', marginBottom:4 }}>Mapa</div>
-          <button onClick={() => setTiles(Array(rows*cols).fill(selTile))} style={{ padding:'5px 8px', borderRadius:6, border:'1px solid var(--border)', background:'transparent', color:'var(--muted)', cursor:'pointer', fontSize:10, fontFamily:'Cinzel,serif', textAlign:'left' }}>🎨 Preencher</button>
-          <button onClick={() => setTiles(Array(rows*cols).fill(null))}    style={{ padding:'5px 8px', borderRadius:6, border:'1px solid var(--border)', background:'transparent', color:'#cc4444',    cursor:'pointer', fontSize:10, fontFamily:'Cinzel,serif', textAlign:'left' }}>🗑 Limpar</button>
-
-          <div style={{ flex:1 }} />
-
-          <div style={{ fontSize:9, color:'var(--muted)', fontFamily:'Crimson Pro,serif', lineHeight:1.7, marginTop:8 }}>
-            🖌 Pintar<br/>
-            ⬜ Apagar<br/>
-            🌫 Névoa<br/>
-            👁 Revelar<br/>
-            ✋ Mover<br/>
-            🖱 Scroll = Zoom
-          </div>
-        </div>
-
-        {/* ── CANVAS ── */}
-        <div ref={containerRef} style={{ flex:1, overflow:'hidden', position:'relative', background:'#0e0e16', cursor }}>
-          <canvas ref={canvasRef} style={{ display:'block' }}
-            onMouseDown={onDown} onMouseMove={onMove}
-            onMouseUp={onUp}     onMouseLeave={onUp}
-            onWheel={onWheel}    onContextMenu={e => e.preventDefault()} />
-
-          <div style={{ position:'absolute', bottom:8, right:10, fontSize:10, color:'rgba(255,255,255,0.25)', fontFamily:'Cinzel,serif', pointerEvents:'none' }}>
-            {cols} × {rows}{hovered ? ` · (${hovered.c+1}, ${hovered.r+1})` : ''}
-          </div>
-          <div style={{ position:'absolute', bottom:8, left:10, fontSize:10, color:'rgba(200,168,76,0.45)', fontFamily:'Cinzel,serif', pointerEvents:'none' }}>
-            {TOOLS.find(t=>t.id===tool)?.icon} {TOOLS.find(t=>t.id===tool)?.label}
-          </div>
-        </div>
-      </div>
-
-      {/* ── NEW MAP MODAL ── */}
-      {newModal && (
-        <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.75)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:1000 }}>
-          <div style={{ background:'var(--card)', border:'1px solid var(--border)', borderRadius:12, padding:28, width:280, display:'flex', flexDirection:'column', gap:14 }}>
-            <div style={{ fontFamily:'Cinzel Decorative,serif', fontSize:16, color:'var(--gold)' }}>Novo Mapa</div>
-            {[['Colunas (5–99)', nCols, setNCols], ['Linhas (5–99)', nRows, setNRows]].map(([label, val, set]) => (
-              <div key={label} style={{ display:'flex', flexDirection:'column', gap:4 }}>
-                <span style={{ fontSize:11, color:'var(--muted)', fontFamily:'Cinzel,serif' }}>{label}</span>
-                <input type="number" value={val} min={5} max={99}
-                  onChange={e => set(e.target.value)}
-                  onBlur={e => { const n = parseInt(e.target.value)||20; set(String(Math.max(5, Math.min(99, n)))); }}
-                  style={{ background:'var(--bg)', border:'1px solid var(--border)', borderRadius:6, padding:'6px 10px', color:'var(--text)', fontSize:13 }} />
-              </div>
-            ))}
-            <div style={{ display:'flex', gap:8, justifyContent:'flex-end' }}>
-              <button onClick={() => setNewModal(false)} style={btnStyle(false)}>Cancelar</button>
-              <button onClick={createNew}                style={btnStyle(true)}>Criar</button>
+        {/* ── PLAYERS PANEL (floating top-left) ── */}
+        {showPlayers && (
+          <div style={{position:'absolute',left:14,top:14,zIndex:30,background:'rgba(13,13,24,0.9)',backdropFilter:'blur(16px)',border:'1px solid rgba(255,255,255,0.09)',borderRadius:14,width:220,overflow:'hidden'}}>
+            <div style={{padding:'10px 14px',borderBottom:'1px solid rgba(255,255,255,0.07)',display:'flex',alignItems:'center',gap:8}}>
+              <span style={{fontFamily:'Cinzel,serif',fontSize:11,color:'rgba(255,255,255,0.65)',letterSpacing:1,flex:1}}>Jogadores</span>
+              <button style={{background:'none',border:'none',color:'rgba(255,255,255,0.3)',cursor:'pointer',fontSize:14,lineHeight:1}} title="Adicionar">+</button>
+              <button style={{background:'none',border:'none',color:'rgba(255,255,255,0.3)',cursor:'pointer',fontSize:14,lineHeight:1}} onClick={()=>setShowPlayers(false)}>×</button>
+            </div>
+            <div style={{padding:'8px 12px',display:'flex',alignItems:'center',gap:10}}>
+              <div style={{width:30,height:30,borderRadius:'50%',background:'rgba(255,255,255,0.05)',border:'2px solid rgba(255,255,255,0.15)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:11,color:'rgba(255,255,255,0.3)'}}>GM</div>
+              <div style={{fontSize:13,color:'rgba(255,255,255,0.85)'}}>Mestre <span style={{color:'rgba(255,255,255,0.3)',fontSize:11}}>(você)</span></div>
+              <span style={{marginLeft:'auto',fontSize:9,background:'rgba(255,255,255,0.08)',color:'rgba(255,255,255,0.35)',padding:'2px 7px',borderRadius:4,fontFamily:'monospace'}}>GM</span>
             </div>
           </div>
-        </div>
-      )}
+        )}
 
-      {/* ── LOAD MAP MODAL ── */}
-      {loadModal && (
-        <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.75)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:1000 }}>
-          <div style={{ background:'var(--card)', border:'1px solid var(--border)', borderRadius:12, padding:28, width:380, maxHeight:'70vh', display:'flex', flexDirection:'column', gap:14 }}>
-            <div style={{ fontFamily:'Cinzel Decorative,serif', fontSize:16, color:'var(--gold)' }}>Mapas Salvos</div>
-            <div style={{ overflowY:'auto', display:'flex', flexDirection:'column', gap:6 }}>
-              {savedMaps.length === 0
-                ? <div style={{ color:'var(--muted)', fontSize:13, textAlign:'center', padding:24 }}>Nenhum mapa salvo.</div>
-                : savedMaps.map(m => (
-                  <button key={m.id} onClick={() => loadMap(m)}
-                    style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'8px 12px', borderRadius:8, border:'1px solid var(--border)', background:'transparent', color:'var(--text)', cursor:'pointer', textAlign:'left' }}>
-                    <span style={{ fontFamily:'Cinzel,serif', fontSize:13 }}>🗺️ {m.name}</span>
-                    <span style={{ fontSize:10, color:'var(--muted)' }}>{m.cols}×{m.rows} · {m.savedAt}</span>
+        {/* ── MAP CANVAS ── */}
+        <div ref={containerRef}
+          style={{flex:1,position:'relative',overflow:'hidden',cursor}}
+          onMouseDown={onDown} onMouseMove={onMove} onMouseUp={onUp} onMouseLeave={onUp}
+          onWheel={onWheel}
+          onDrop={e=>{e.preventDefault();loadImage(e.dataTransfer.files?.[0]);}}
+          onDragOver={e=>e.preventDefault()}
+        >
+          {/* Empty state */}
+          {!bgUrl && (
+            <div style={{position:'absolute',inset:0,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:16,pointerEvents:'none'}}>
+              <svg style={{position:'absolute',inset:0,width:'100%',height:'100%',opacity:0.04}} xmlns="http://www.w3.org/2000/svg">
+                <defs><pattern id="dots" x="0" y="0" width="40" height="40" patternUnits="userSpaceOnUse"><circle cx="20" cy="20" r="1.2" fill="#fff"/></pattern></defs>
+                <rect width="100%" height="100%" fill="url(#dots)"/>
+              </svg>
+              <div style={{fontSize:56,opacity:0.15}}>🗺️</div>
+              <div style={{fontFamily:'Cinzel,serif',fontSize:13,letterSpacing:3,color:'rgba(255,255,255,0.12)'}}>ARRASTE UMA IMAGEM DE MAPA AQUI</div>
+              <div style={{fontSize:11,color:'rgba(255,255,255,0.08)'}}>ou clique em "Carregar Mapa" acima</div>
+            </div>
+          )}
+
+          {/* Transformable world */}
+          <div style={{position:'absolute',top:0,left:0,transform:`translate(${pan.x}px,${pan.y}px) scale(${scale})`,transformOrigin:'0 0',width:mapW,height:mapH}}>
+
+            {/* Background image */}
+            {bgUrl && <img src={bgUrl} alt="mapa" draggable={false} style={{position:'absolute',top:0,left:0,width:mapW,height:mapH,display:'block'}}/>}
+
+            {/* Grid */}
+            {showGrid && (
+              <svg style={{position:'absolute',top:0,left:0,width:mapW,height:mapH,pointerEvents:'none'}} xmlns="http://www.w3.org/2000/svg">
+                <defs>
+                  <pattern id="mapgrid" width={gridSize} height={gridSize} patternUnits="userSpaceOnUse">
+                    <path d={`M ${gridSize} 0 L 0 0 0 ${gridSize}`} fill="none" stroke="rgba(255,255,255,0.18)" strokeWidth="0.6"/>
+                  </pattern>
+                </defs>
+                <rect width="100%" height="100%" fill="url(#mapgrid)"/>
+              </svg>
+            )}
+
+            {/* Fog of War */}
+            {fogRects.length > 0 && (
+              <svg style={{position:'absolute',top:0,left:0,width:mapW,height:mapH,pointerEvents:'none'}} xmlns="http://www.w3.org/2000/svg">
+                {fogRects.map(({x,y},i)=>(
+                  <rect key={i} x={x} y={y} width={gridSize} height={gridSize} fill="rgba(0,0,0,0.88)"/>
+                ))}
+              </svg>
+            )}
+
+            {/* Tokens */}
+            {tokens.map(t => (
+              <div key={t.id} style={{
+                position:'absolute',left:t.x-t.size/2,top:t.y-t.size/2,
+                width:t.size,height:t.size,borderRadius:'50%',
+                background:t.color,border:'2.5px solid rgba(255,255,255,0.85)',
+                boxShadow:`0 0 14px ${t.color}99,0 2px 8px rgba(0,0,0,0.5)`,
+                display:'flex',alignItems:'center',justifyContent:'center',
+                fontSize:12,fontWeight:700,color:'#fff',
+                cursor:tool==='select'?'grab':'default',zIndex:10,
+                textShadow:'0 1px 3px rgba(0,0,0,0.8)',
+              }}
+              onMouseDown={e=>{
+                if(tool!=='select') return;
+                e.stopPropagation();
+                dragTokenRef.current=t.id;
+                const {x:sx,y:sy}=clientXY(e); const wp=screenToWorld(sx,sy);
+                dragOffRef.current={x:wp.x-t.x,y:wp.y-t.y};
+              }}
+              onContextMenu={e=>{e.preventDefault();setTokens(p=>p.filter(tk=>tk.id!==t.id));}}
+              >
+                {(t.label||'?').charAt(0).toUpperCase()}
+              </div>
+            ))}
+
+            {/* Notes */}
+            {notes.map(n => (
+              <div key={n.id} style={{position:'absolute',left:n.x,top:n.y,background:'#fbbf24',color:'#1a1500',padding:'8px 10px',borderRadius:4,fontSize:12,maxWidth:160,wordBreak:'break-word',boxShadow:'3px 4px 12px rgba(0,0,0,0.5)',zIndex:10}}>
+                {n.text}
+                <button onClick={()=>setNotes(p=>p.filter(nt=>nt.id!==n.id))}
+                  style={{position:'absolute',top:-7,right:-7,width:17,height:17,borderRadius:'50%',background:'#222',border:'none',color:'#fff',fontSize:10,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',zIndex:11}}>×</button>
+              </div>
+            ))}
+
+            {/* Measure line */}
+            {measureLine && (
+              <svg style={{position:'absolute',top:0,left:0,width:mapW,height:mapH,pointerEvents:'none',zIndex:20}} xmlns="http://www.w3.org/2000/svg">
+                <line x1={measureLine.x1} y1={measureLine.y1} x2={measureLine.x2} y2={measureLine.y2}
+                  stroke="#fbbf24" strokeWidth={2/scale} strokeDasharray={`${6/scale},${4/scale}`}/>
+                <circle cx={measureLine.x1} cy={measureLine.y1} r={5/scale} fill="#fbbf24"/>
+                <circle cx={measureLine.x2} cy={measureLine.y2} r={5/scale} fill="#fbbf24"/>
+                {measureDist>0 && (
+                  <text x={(measureLine.x1+measureLine.x2)/2} y={(measureLine.y1+measureLine.y2)/2-10/scale}
+                    fill="#fbbf24" fontSize={13/scale} textAnchor="middle" fontFamily="Inter,system-ui,sans-serif" fontWeight="700">
+                    {measureDist} cel
+                  </text>
+                )}
+              </svg>
+            )}
+          </div>
+
+          {/* Status bar */}
+          <div style={{position:'absolute',bottom:10,left:10,fontSize:10,color:'rgba(255,255,255,0.2)',fontFamily:'monospace',pointerEvents:'none'}}>
+            {Math.round(scale*100)}% · grade {gridSize}px
+          </div>
+        </div>
+
+        {/* ── RIGHT TOOLBAR (Owlbear-style) ── */}
+        <div style={{position:'absolute',right:14,top:'50%',transform:'translateY(-50%)',zIndex:30,display:'flex',flexDirection:'column',gap:2,background:'rgba(13,13,24,0.9)',backdropFilter:'blur(16px)',border:'1px solid rgba(255,255,255,0.09)',borderRadius:14,padding:6}}>
+          {TOOLS.map(t=>(
+            <button key={t.id} title={t.label} onClick={()=>setTool(t.id)} style={TB(tool===t.id)}>{t.ch}</button>
+          ))}
+          <div style={{height:1,background:'rgba(255,255,255,0.08)',margin:'4px 0'}}/>
+          <button title="Zoom +"  onClick={()=>setScale(s=>Math.min(6,s*1.2))} style={TB(false)}>＋</button>
+          <button title="Zoom −"  onClick={()=>setScale(s=>Math.max(0.08,s/1.2))} style={TB(false)}>－</button>
+          <div style={{height:1,background:'rgba(255,255,255,0.08)',margin:'4px 0'}}/>
+          <button title="Grade"          onClick={()=>setShowGrid(g=>!g)} style={TB(showGrid)}>⊞</button>
+          <button title="Revelar tudo"   onClick={()=>setFogCells(new Set())} style={TB(false)}>☀</button>
+          <button title="Cobrir tudo"    onClick={()=>{const s=new Set();for(let r=0;r<Math.ceil(mapH/gridSize);r++)for(let c=0;c<Math.ceil(mapW/gridSize);c++)s.add(`${c},${r}`);setFogCells(s);}} style={TB(false)}>🌑</button>
+          <button title="Jogadores"      onClick={()=>setShowPlayers(p=>!p)} style={TB(showPlayers)}>👥</button>
+        </div>
+
+        {/* ── TOKEN COLOR PANEL (bottom center when tool=token) ── */}
+        {tool==='token' && (
+          <div style={{position:'absolute',bottom:16,left:'50%',transform:'translateX(-50%)',zIndex:30,background:'rgba(13,13,24,0.92)',backdropFilter:'blur(16px)',border:'1px solid rgba(255,255,255,0.1)',borderRadius:14,padding:'12px 18px',display:'flex',alignItems:'center',gap:12,flexWrap:'wrap'}}>
+            <span style={{fontSize:11,color:'rgba(255,255,255,0.4)'}}>Cor:</span>
+            <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
+              {COLORS.map(c=>(
+                <button key={c} onClick={()=>setTokColor(c)} style={{width:22,height:22,borderRadius:'50%',background:c,border:tokColor===c?'2px solid #fff':'2px solid transparent',cursor:'pointer',transition:'transform 0.1s'}}/>
+              ))}
+            </div>
+            <div style={{width:1,height:20,background:'rgba(255,255,255,0.1)'}}/>
+            <input value={tokLabel} onChange={e=>setTokLabel(e.target.value)} placeholder="Rótulo"
+              style={{background:'rgba(255,255,255,0.06)',border:'1px solid rgba(255,255,255,0.1)',borderRadius:8,padding:'5px 12px',color:'#fff',fontSize:12,width:100,outline:'none'}}/>
+            <div style={{width:22,height:22,borderRadius:'50%',background:tokColor,border:'2px solid rgba(255,255,255,0.7)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:11,fontWeight:700,color:'#fff'}}>{(tokLabel||'?').charAt(0).toUpperCase()}</div>
+            <span style={{fontSize:10,color:'rgba(255,255,255,0.2)'}}>clique no mapa · direito remove</span>
+          </div>
+        )}
+
+        {/* ── GRID SIZE (bottom center when tool=fog/reveal) ── */}
+        {(tool==='fog'||tool==='reveal') && (
+          <div style={{position:'absolute',bottom:16,left:'50%',transform:'translateX(-50%)',zIndex:30,background:'rgba(13,13,24,0.92)',backdropFilter:'blur(16px)',border:'1px solid rgba(255,255,255,0.1)',borderRadius:14,padding:'10px 18px',display:'flex',alignItems:'center',gap:10}}>
+            <span style={{fontSize:11,color:'rgba(255,255,255,0.4)'}}>Tamanho da célula:</span>
+            <button onClick={()=>setGridSize(s=>Math.max(20,s-10))} style={{...TB(false),width:28,height:28,borderRadius:6,fontSize:14}}>−</button>
+            <span style={{fontSize:13,color:'#fff',fontFamily:'monospace',minWidth:32,textAlign:'center'}}>{gridSize}</span>
+            <button onClick={()=>setGridSize(s=>Math.min(200,s+10))} style={{...TB(false),width:28,height:28,borderRadius:6,fontSize:14}}>+</button>
+          </div>
+        )}
+
+        {/* ── MEASURE READOUT ── */}
+        {measureLine && measureDist>0 && (
+          <div style={{position:'absolute',bottom:16,left:'50%',transform:'translateX(-50%)',zIndex:30,background:'rgba(251,191,36,0.12)',border:'1px solid rgba(251,191,36,0.35)',borderRadius:10,padding:'8px 18px',fontSize:13,color:'#fbbf24',fontFamily:'monospace'}}>
+            📏 {measureDist} células ({Math.round(measureDist*1.5*10)/10} m)
+          </div>
+        )}
+      </div>
+
+      {/* ── SAVED MAPS MODAL ── */}
+      {showMaps && (
+        <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.75)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:1000}} onClick={()=>setShowMaps(false)}>
+          <div onClick={e=>e.stopPropagation()} style={{background:'#0d0d18',border:'1px solid rgba(255,255,255,0.1)',borderRadius:16,padding:24,width:380,maxHeight:'70vh',display:'flex',flexDirection:'column',gap:14}}>
+            <div style={{fontFamily:'Cinzel Decorative,serif',fontSize:16,color:'#c9a84c'}}>Mapas Salvos</div>
+            <div style={{flex:1,overflowY:'auto',display:'flex',flexDirection:'column',gap:6}}>
+              {savedMaps.length===0
+                ? <div style={{color:'rgba(255,255,255,0.25)',fontSize:13,textAlign:'center',padding:32}}>Nenhum mapa salvo.</div>
+                : savedMaps.map(m=>(
+                  <button key={m.id} onClick={()=>loadSavedMap(m)}
+                    style={{display:'flex',justifyContent:'space-between',padding:'10px 14px',borderRadius:8,border:'1px solid rgba(255,255,255,0.08)',background:'rgba(255,255,255,0.02)',color:'rgba(255,255,255,0.8)',cursor:'pointer',textAlign:'left',fontFamily:'Inter,system-ui,sans-serif',fontSize:13,gap:10}}>
+                    <span>🗺 {m.name}</span>
+                    <span style={{color:'rgba(255,255,255,0.3)',fontSize:11,flexShrink:0}}>{m.savedAt}</span>
                   </button>
                 ))
               }
             </div>
-            <button onClick={() => setLoadModal(false)} style={{ ...btnStyle(false), alignSelf:'flex-end' }}>Fechar</button>
+            <button onClick={()=>setShowMaps(false)} style={{alignSelf:'flex-end',padding:'7px 18px',borderRadius:8,border:'1px solid rgba(255,255,255,0.1)',background:'rgba(255,255,255,0.04)',color:'rgba(255,255,255,0.5)',cursor:'pointer',fontFamily:'Inter,system-ui,sans-serif',fontSize:11}}>Fechar</button>
           </div>
         </div>
       )}
