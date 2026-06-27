@@ -290,7 +290,7 @@ function AdicionarHabilidadesModal({ onClose, onAdd, habilidades, nex, classe })
                       </div>
                     )}
                     <AbilityRow
-                      name={a.name}
+                      name={a.nexReq ? `NEX ${a.nexReq}% — ${a.name}` : a.name}
                       cost={a.cost}
                       desc={a.desc}
                       added={isAdded(a.name)}
