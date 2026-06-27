@@ -98,22 +98,24 @@ const S = {
   },
   list: { flex: 1, overflowY: "auto", padding: "0 20px 20px" },
   abilityRow: {
-    display: "flex", alignItems: "center", gap: 10,
-    padding: "12px 0", borderBottom: "1px solid rgba(255,255,255,0.06)", cursor: "pointer",
+    display: "flex", alignItems: "center", gap: 12,
+    padding: "14px 4px", borderBottom: "1px solid rgba(255,255,255,0.07)", cursor: "pointer",
+    transition: "background 0.15s",
   },
   abilityName: {
-    fontFamily: "Inter,system-ui,sans-serif", fontSize: 14, fontWeight: 500,
-    color: "#e8e4d9", flex: 1,
+    fontFamily: "Inter,system-ui,sans-serif", fontSize: 14, fontWeight: 600,
+    color: "#e8e4d9", flex: 1, letterSpacing: "0.01em",
   },
   abilityCost: {
     fontFamily: "'Share Tech Mono',monospace", fontSize: 11,
     color: "rgba(168,85,247,0.8)", marginRight: 8,
   },
   addBtn: {
-    width: 32, height: 32, borderRadius: 6, border: "none",
+    width: 38, height: 38, borderRadius: 8, border: "none",
     background: "var(--el-accent,#a855f7)", color: "#fff",
-    fontSize: 20, cursor: "pointer", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
-    transition: "opacity 0.15s",
+    fontSize: 22, fontWeight: 300, cursor: "pointer", flexShrink: 0,
+    display: "flex", alignItems: "center", justifyContent: "center",
+    transition: "opacity 0.15s, transform 0.1s",
   },
   expandDesc: {
     fontFamily: "Inter,system-ui,sans-serif", fontSize: 13, lineHeight: 1.65,
@@ -159,7 +161,7 @@ function AbilityRow({ name, cost, desc, onAdd, added }) {
   return (
     <div ref={rowRef}>
       <div style={S.abilityRow} onClick={() => setOpen(o => !o)}>
-        <span style={{ fontSize: 12, color: "rgba(255,255,255,0.25)", transition:"transform 0.15s", display:"inline-block", transform: open ? "rotate(90deg)" : "rotate(0)" }}>▶</span>
+        <span style={{ fontSize: 12, color: "rgba(255,255,255,0.35)", transition:"transform 0.2s", display:"inline-block", transform: open ? "rotate(180deg)" : "rotate(0)" }}>▼</span>
         <span style={S.abilityName}>{name}</span>
         {cost && cost !== "—" && <span style={S.abilityCost}>{cost}</span>}
         <button
@@ -175,10 +177,11 @@ function AbilityRow({ name, cost, desc, onAdd, added }) {
 
 /* ═══ MAIN MODAL: Adicionar Habilidades ═══ */
 const CATS = [
-  { id: "combatente",   label: "Combatente" },
-  { id: "especialista", label: "Especialista" },
-  { id: "ocultista",    label: "Ocultista" },
-  { id: "origens",      label: "Origens" },
+  { id: "combatente",          label: "Combatente" },
+  { id: "especialista",        label: "Especialista" },
+  { id: "ocultista",           label: "Ocultista" },
+  { id: "origens",             label: "Origens" },
+  { id: "poderes_paranormais", label: "Poderes Paranormais" },
 ];
 
 function AdicionarHabilidadesModal({ onClose, onAdd, habilidades, nex, classe }) {
@@ -196,14 +199,15 @@ function AdicionarHabilidadesModal({ onClose, onAdd, habilidades, nex, classe })
   useEffect(() => { setChip("__base__"); setSearch(""); }, [cat]);
 
   /* build chips for selected category */
-  const trails = cat !== "origens" ? (CLASS_TRAILS[cat] || []) : [];
-  const chips = cat !== "origens"
+  const isSpecial = cat === "origens" || cat === "poderes_paranormais";
+  const trails = !isSpecial ? (CLASS_TRAILS[cat] || []) : [];
+  const chips = !isSpecial
     ? [{ id: "__base__", label: `Poderes de ${CLASSES_OP.find(c => c.id === cat)?.name || cat}` }, ...trails.map(t => ({ id: t.id, label: t.name }))]
     : [];
 
   /* build ability list for selected chip */
   const abilities = (() => {
-    if (cat === "origens") return [];
+    if (isSpecial) return [];
     if (chip === "__base__") return CLASS_POWERS[cat] || [];
     const ta = TRAIL_ABILITIES[chip];
     if (!ta) return [];
@@ -264,6 +268,14 @@ function AdicionarHabilidadesModal({ onClose, onAdd, habilidades, nex, classe })
               {cat === "origens" ? (
                 <div style={{ ...tEmpty, textAlign:"center", padding: "40px 0", fontFamily:"Inter,system-ui,sans-serif", fontSize: 13 }}>
                   Origens são configuradas na aba Descrição.
+                </div>
+              ) : cat === "poderes_paranormais" ? (
+                <div style={{ textAlign:"center", padding: "40px 20px", fontFamily:"Inter,system-ui,sans-serif", fontSize: 13, color:"rgba(168,85,247,0.5)" }}>
+                  <div style={{ fontSize: 32, marginBottom: 12, opacity: 0.4 }}>✦</div>
+                  Poderes Paranormais são desbloqueados conforme o NEX e o Elemento de Afinidade.<br/>
+                  <span style={{ fontSize: 11, color:"rgba(255,255,255,0.25)", marginTop: 8, display:"block" }}>
+                    Adicione via "Nova Habilidade" ou aguarde a expansão do conteúdo oficial.
+                  </span>
                 </div>
               ) : filtered.length === 0 ? (
                 <div style={{ ...tEmpty, textAlign:"center", padding: "40px 0", fontFamily:"Inter,system-ui,sans-serif", fontSize: 13 }}>
