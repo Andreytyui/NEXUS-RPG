@@ -247,7 +247,13 @@ export const CLASS_TRAILS = {
     {id:"tropa_choque", name:"Tropa de Choque"},
   ],
   especialista:[{id:"atirador_e",name:"Atirador de Elite"},{id:"medico",name:"Médico de Campo"},{id:"negociador",name:"Negociador"}],
-  ocultista:   [{id:"iluminado",name:"Iluminado"},{id:"graduado",name:"Graduado"},{id:"intuitivo",name:"Intuitivo"}],
+  ocultista:   [
+    {id:"conduite",    name:"Conduíte"},
+    {id:"flagelador",  name:"Flagelador"},
+    {id:"graduado",    name:"Graduado"},
+    {id:"intuitivo",   name:"Intuitivo"},
+    {id:"lamina_para", name:"Lâmina Paranormal"},
+  ],
 };
 
 /* ── Poderes de Trilha (NEX 10/40/65/99) ── */
@@ -300,11 +306,17 @@ export const TRAIL_ABILITIES = {
     65:{name:"Psicologia Aplicada", cost:"3 PE",    desc:"Uma vez por cena, teste de Intuição (DT 15) para descobrir uma fraqueza ou motivação. Receba +5 em testes de Presença contra esse personagem."},
     99:{name:"Mestre das Palavras", cost:"—",       desc:"Você pode usar Eloquência como ação padrão. Aliados em alcance curto recebem +5 em testes de Presença."},
   },
-  iluminado:{
-    10:{name:"Canalizar Energia", cost:"1 PE",    desc:"Gaste uma ação padrão e 1 PE para canalizar energia paranormal, recebendo PE temporários igual ao círculo do ritual utilizado."},
-    40:{name:"Toque do Outro Lado",cost:"+2 PE",  desc:"Ao lançar um ritual, gaste 2 PE extras para aumentar seu efeito em 50% (dano, cura, duração ou área)."},
-    65:{name:"Transcender a Dor", cost:"1 PE/5dmg",desc:"Quando recebe dano, pode gastar 1 PE por 5 pontos de dano para convertê-lo de PV para Sanidade."},
-    99:{name:"Medo Tangível",     cost:"—",       desc:"Você aprende o ritual Medo Tangível."},
+  conduite:{
+    10:{name:"Ampliar Ritual",    cost:"2 PE",    desc:"Ao lançar um ritual, gaste 2 PE para aumentar seu efeito em 50% — dano, cura, duração ou área afetada."},
+    40:{name:"Acelerar Ritual",   cost:"3 PE",    desc:"Reduza a execução de um ritual em uma categoria (longa→completa→padrão→livre). Gaste 3 PE ao declarar a aceleração."},
+    65:{name:"Anular Ritual",     cost:"4 PE (reação)",desc:"Quando um ritual for lançado em alcance médio, use sua reação e gaste 4 PE para realizar um teste de Ocultismo oposto. Se vencer, o ritual é anulado sem efeito."},
+    99:{name:"Canalizar o Medo", cost:"5 PE",    desc:"Uma vez por cena, canaliza o pavor coletivo em alcance médio. Todos os inimigos que falharem em Vontade (DT 8 + NEX/10) ficam Abalados e sofrem 4d10 de dano paranormal."},
+  },
+  flagelador:{
+    10:{name:"Aura de Sofrimento",cost:"2 PE",   desc:"Ative como ação livre. Inimigos que iniciarem o turno adjacentes a você devem passar em Fortitude (DT 10 + PRE) ou sofrem 1d6 de dano paranormal e ficam com −1 em todos os testes até o fim da rodada."},
+    40:{name:"Açoite Paranormal", cost:"2 PE",   desc:"Ataque paranormal em alcance médio: teste de Ocultismo vs. Reflexos do alvo. Se acertar, causa 2d8 de dano paranormal e o alvo perde sua próxima ação de movimento."},
+    65:{name:"Punição Ritualística",cost:"3 PE", desc:"Ao causar dano paranormal em um alvo, você pode gastar 3 PE para que ele sofra o mesmo valor de dano novamente no início do próximo turno, sem direito a resistência."},
+    99:{name:"Terror Encarnado",  cost:"5 PE",   desc:"Uma vez por cena, manifeste o terror do Outro Lado. Todos os inimigos em alcance curto devem passar em Vontade (DT 8 + PRE) ou ficam Apavorados por 3 rodadas e sofrem 3d10 de dano paranormal."},
   },
   graduado:{
     10:{name:"Saber Ampliado",       cost:"—", desc:"Aprenda um ritual de 1° círculo adicional. Toda vez que ganha acesso a um novo círculo, aprende um ritual adicional daquele círculo."},
@@ -317,6 +329,12 @@ export const TRAIL_ABILITIES = {
     40:{name:"Barreira Mental", cost:"—",   desc:"Quando passa em um teste de resistência contra efeito paranormal, recupera 1d6 de Sanidade."},
     65:{name:"Vontade de Ferro",cost:"2 PE",desc:"Role novamente um teste de resistência contra efeito paranormal. Seu valor máximo de Sanidade aumenta em 10."},
     99:{name:"Além do Alcance", cost:"—",  desc:"Imune a efeitos de medo paranormal e sua Sanidade não pode ser reduzida abaixo de 1 por efeitos paranormais."},
+  },
+  lamina_para:{
+    10:{name:"Lâmina de Éter",      cost:"1 PE",  desc:"Manifeste uma lâmina de energia paranormal. Ela causa 1d8 de dano paranormal, usa PRE no lugar de FOR nos testes de ataque e ignora armaduras não-mágicas."},
+    40:{name:"Golpe Ritual",         cost:"2 PE",  desc:"Ao acertar com a Lâmina de Éter, gaste 2 PE para infundir um ritual de 1° círculo no golpe, aplicando seu efeito ao alvo automaticamente (sem teste oposto)."},
+    65:{name:"Corte Dimensional",    cost:"3 PE",  desc:"Seu ataque com a Lâmina de Éter atravessa dimensões — ignora cobertura, resistência física e pode atingir alvos etéreos ou invisíveis."},
+    99:{name:"Execução Paranormal",  cost:"5 PE",  desc:"Uma vez por cena, declare antes de atacar. Se acertar, o alvo sofre dano máximo da Lâmina de Éter mais 5d10 de dano paranormal e deve passar em Fortitude (DT 8 + PRE) ou cair inconsciente."},
   },
 };
 
