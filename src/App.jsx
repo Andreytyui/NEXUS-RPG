@@ -4098,28 +4098,44 @@ function MestrePanel({ campaign, uid, userName, userPhoto }) {
               const san = Number(cd.san ?? cd.sanMax ?? 0), sanMax = Number(cd.sanMax ?? 1);
               const pe = Number(cd.pe ?? cd.peMax ?? 0), peMax = Number(cd.peMax ?? 1);
               const pvPct = pvMax > 0 ? pv/pvMax : 1;
+              const sanPct = sanMax > 0 ? san/sanMax : 1;
+              const pePct = peMax > 0 ? pe/peMax : 1;
               const el = cd.elementoAfinidade;
               const elT = getElementTheme(el);
               const accent = el ? elT.accent : "var(--gold)";
               const pvCol = pvPct > 0.6 ? "#43a047" : pvPct > 0.3 ? "#fbc02d" : "#e53935";
-              const status = pv<=0 ? {l:"INCONSCIENTE",c:"#888"} : pvPct<0.3 ? {l:"CRÍTICO",c:"#e08030"} : {l:"ESTÁVEL",c:"#4caf7d"};
+              const sanCol = el ? elT.accent : "#7b1fa2";
+              const isUnconscious = pv <= 0;
+              const isCritical   = !isUnconscious && pvPct < 0.3;
+              const isUnstable   = sanPct < 0.3;
+              const isExhausted  = pePct < 0.2;
+              const isStable     = !isUnconscious && !isCritical && !isUnstable && !isExhausted;
+              const isFlashing   = flashedIds.has(s.id);
+              const cardBorderColor = isFlashing ? "#4ade80"
+                : isUnconscious ? "#888"
+                : isCritical ? "#e53935"
+                : isUnstable ? "#7b1fa2"
+                : accent + "30";
+              const cardGlow = isFlashing ? "0 0 14px rgba(74,222,128,0.35)"
+                : isCritical ? "0 0 12px rgba(229,57,53,0.3)"
+                : isUnconscious ? "0 0 8px rgba(136,136,136,0.2)"
+                : "none";
               const name = cd.form?.personagem || s.characterName || "Agente";
-              const isFlashing = flashedIds.has(s.id);
               const classe = cd.classe?.name || cd.classe?.id || null;
               return (
                 <div key={s.id} style={{
                   background:"rgba(0,0,0,0.45)",
-                  border:`1px solid ${isFlashing ? "#4ade80" : accent+"30"}`,
+                  border:`1px solid ${cardBorderColor}`,
                   borderRadius:8, padding:"10px 12px", display:"flex", flexDirection:"column", gap:8,
                   transition:"border-color 0.4s ease, box-shadow 0.4s ease",
-                  boxShadow: isFlashing ? `0 0 14px rgba(74,222,128,0.35)` : "none",
+                  boxShadow: cardGlow,
+                  animation: (isCritical || isUnconscious) ? "op-flat-blink 2s ease-in-out infinite" : "none",
                 }}>
-                  {/* header: avatar + nome + status */}
-                  <div style={{ display:"flex", alignItems:"center", gap:9 }}>
+                  {/* header: avatar + nome + badges */}
+                  <div style={{ display:"flex", alignItems:"flex-start", gap:9 }}>
                     <div style={{ position:"relative", flexShrink:0 }}>
                       <div style={{ width:44, height:44, borderRadius:7, border:`2px solid ${accent}70`, overflow:"hidden",
-                        background:`${accent}12`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:22,
-                        transition:"border-color 0.4s ease" }}>
+                        background:`${accent}12`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:22 }}>
                         {cd.form?.avatar
                           ? <img key={cd.form.avatar} src={cd.form.avatar} alt="" style={{ width:"100%", height:"100%", objectFit:"cover" }}/>
                           : "🕵️"}
@@ -4130,20 +4146,42 @@ function MestrePanel({ campaign, uid, userName, userPhoto }) {
                       )}
                     </div>
                     <div style={{ flex:1, minWidth:0 }}>
-                      <div style={{ fontFamily:"Cinzel,serif", fontSize:11, color:"#eee", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{name}</div>
-                      <div style={{ fontFamily:"Cinzel,serif", fontSize:8, color:"rgba(255,255,255,0.35)", letterSpacing:"0.05em", whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>
+                      <div style={{ fontFamily:"Cinzel,serif", fontSize:11, color:"#eee", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", marginBottom:3 }}>{name}</div>
+                      <div style={{ fontFamily:"Cinzel,serif", fontSize:8, color:"rgba(255,255,255,0.35)", letterSpacing:"0.05em", whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis", marginBottom:5 }}>
                         {s.ownerName}{classe ? ` · ${classe}` : ""}
                       </div>
+                      {/* badges de alerta — múltiplos simultâneos */}
+                      <div style={{ display:"flex", flexWrap:"wrap", gap:3 }}>
+                        {isStable && (
+                          <span style={{ fontFamily:"Cinzel,serif", fontSize:7, letterSpacing:"0.1em", padding:"2px 6px", borderRadius:20,
+                            border:"1px solid rgba(76,175,125,0.5)", color:"#4caf7d", background:"rgba(76,175,125,0.1)" }}>ESTÁVEL</span>
+                        )}
+                        {isUnconscious && (
+                          <span style={{ fontFamily:"Cinzel,serif", fontSize:7, letterSpacing:"0.1em", padding:"2px 6px", borderRadius:20,
+                            border:"1px solid rgba(136,136,136,0.5)", color:"#aaa", background:"rgba(136,136,136,0.12)" }}>INCONSCIENTE</span>
+                        )}
+                        {isCritical && (
+                          <span style={{ fontFamily:"Cinzel,serif", fontSize:7, letterSpacing:"0.1em", padding:"2px 6px", borderRadius:20,
+                            border:"1px solid rgba(229,57,53,0.6)", color:"#ef5350", background:"rgba(229,57,53,0.15)",
+                            animation:"op-flat-blink 1.2s ease-in-out infinite" }}>⚠ CRÍTICO</span>
+                        )}
+                        {isUnstable && (
+                          <span style={{ fontFamily:"Cinzel,serif", fontSize:7, letterSpacing:"0.1em", padding:"2px 6px", borderRadius:20,
+                            border:"1px solid rgba(123,31,162,0.6)", color:"#ce93d8", background:"rgba(123,31,162,0.15)",
+                            animation:"op-flat-blink 1.6s ease-in-out infinite" }}>⚠ INSTÁVEL</span>
+                        )}
+                        {isExhausted && (
+                          <span style={{ fontFamily:"Cinzel,serif", fontSize:7, letterSpacing:"0.1em", padding:"2px 6px", borderRadius:20,
+                            border:"1px solid rgba(0,172,193,0.5)", color:"#80deea", background:"rgba(0,172,193,0.1)" }}>EXAUSTO</span>
+                        )}
+                      </div>
                     </div>
-                    <span style={{ fontFamily:"Cinzel,serif", fontSize:7, letterSpacing:"0.1em", padding:"2px 6px", borderRadius:20,
-                      border:`1px solid ${status.c}60`, color:status.c, background:`${status.c}15`, whiteSpace:"nowrap",
-                      transition:"color 0.4s, border-color 0.4s" }}>{status.l}</span>
                   </div>
                   {/* barras de vida */}
                   {[
                     {lbl:"PV", val:pv, max:pvMax, pct:pvPct, col:pvCol},
-                    {lbl:"SAN", val:san, max:sanMax, pct:sanMax>0?san/sanMax:1, col:el?elT.accent:"#7b1fa2"},
-                    {lbl:"PE", val:pe, max:peMax, pct:peMax>0?pe/peMax:1, col:"#00acc1"},
+                    {lbl:"SAN", val:san, max:sanMax, pct:sanPct, col:sanCol},
+                    {lbl:"PE", val:pe, max:peMax, pct:pePct, col:"#00acc1"},
                   ].map(({lbl:bl,val,max,pct,col})=>(
                     <div key={bl}>
                       <div style={{ display:"flex", justifyContent:"space-between", marginBottom:2 }}>
@@ -4157,7 +4195,6 @@ function MestrePanel({ campaign, uid, userName, userPhoto }) {
                       </div>
                     </div>
                   ))}
-                  {/* indicador de atualização recente */}
                   {isFlashing && (
                     <div style={{ fontFamily:"Cinzel,serif", fontSize:7, color:"#4ade80", letterSpacing:"0.1em",
                       textAlign:"right", opacity:0.8 }}>● atualizado agora</div>
