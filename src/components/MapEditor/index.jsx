@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useReducer } from 'react';
 import { historyReducer, initialHistoryState, DEFAULT_LAYERS } from './reducer.js';
+import { subscribeCampaignMap, saveScene, saveImage } from './campaignSync.js';
 
 const TOOLS = [
   { id: 'select',  label: 'Selecionar', ch: '↖' },
@@ -11,17 +12,22 @@ const TOOLS = [
 ];
 const COLORS = ['#4ade80','#60a5fa','#f87171','#fbbf24','#c084fc','#f472b6','#34d399','#fb923c','#e2e8f0','#a3e635'];
 
-export default function MapEditor({ onBack }) {
-  const [hst, dispatch] = useReducer(historyReducer, null, initialHistoryState);
+export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
+  // Modo campanha (spec 0007): mestre edita a mesa (Firestore), jogador vê ao vivo (read-only).
+  const campaignMode = !!campaignId;
+  const viewer = campaignMode && !isMaster;
+  const [hst, dispatch] = useReducer(historyReducer, campaignMode ? 'campaign' : null, initialHistoryState);
   const scenes  = hst.present;
   const canUndo = hst.past.length > 0;
   const canRedo = hst.future.length > 0;
 
   const [activeScene,     setActiveScene]     = useState(() => scenes[0]?.id || 's1');
   const [bgImages,        setBgImages]        = useState(() => {
+    if (campaignMode) return {};
     try { return JSON.parse(localStorage.getItem('nexus_scene_bgs') || '{}'); } catch { return {}; }
   });
   const [imageStore,      setImageStore]      = useState(() => {
+    if (campaignMode) return {};
     try { return JSON.parse(localStorage.getItem('nexus_image_bgs') || '{}'); } catch { return {}; }
   });
   const [pan,             setPan]             = useState({ x: 60, y: 60 });
@@ -89,13 +95,61 @@ export default function MapEditor({ onBack }) {
   function deleteEl(id)    { dispatch({ type: 'DELETE_ELEMENT', sceneId: stateRef.current.scene.id, id }); }
   function deleteEls(ids)  { dispatch({ type: 'DELETE_ELEMENTS', sceneId: stateRef.current.scene.id, ids }); }
 
-  useEffect(() => { try { localStorage.setItem('nexus_scenes_v1', JSON.stringify(scenes)); } catch {} }, [scenes]);
-  useEffect(() => { try { localStorage.setItem('nexus_scene_bgs', JSON.stringify(bgImages)); } catch {} }, [bgImages]);
-  useEffect(() => { try { localStorage.setItem('nexus_image_bgs', JSON.stringify(imageStore)); } catch {} }, [imageStore]);
+  useEffect(() => { if (campaignMode) return; try { localStorage.setItem('nexus_scenes_v1', JSON.stringify(scenes)); } catch {} }, [scenes, campaignMode]);
+  useEffect(() => { if (campaignMode) return; try { localStorage.setItem('nexus_scene_bgs', JSON.stringify(bgImages)); } catch {} }, [bgImages, campaignMode]);
+  useEffect(() => { if (campaignMode) return; try { localStorage.setItem('nexus_image_bgs', JSON.stringify(imageStore)); } catch {} }, [imageStore, campaignMode]);
+
+  /* ── modo campanha: hidratação + tempo real (spec 0007) ── */
+  const loadedRef   = useRef(false); // 1ª carga concluída (libera autosave do mestre)
+  const uploadedRef = useRef(new Set()); // imagens já persistidas (evita re-upload/eco)
+  useEffect(() => {
+    if (!campaignMode || !db) return;
+    const unsub = subscribeCampaignMap(db, campaignId, {
+      onImages: (imgs, fromSelf) => {
+        Object.keys(imgs).forEach((k) => uploadedRef.current.add(k));
+        if (!fromSelf) setImageStore((prev) => ({ ...prev, ...imgs }));
+      },
+      onScene: (remote, fromSelf) => {
+        if (fromSelf) return;
+        if (!remote) { loadedRef.current = true; return; } // mesa nova: mestre cria no 1º autosave
+        // Mestre aplica só a 1ª carga (não clobbera edição local); jogador aplica tudo.
+        if (isMaster && loadedRef.current) return;
+        dispatch({ type: 'LOAD_SCENES', scenes: [remote] });
+        setActiveScene(remote.id);
+        loadedRef.current = true;
+      },
+    });
+    return () => unsub();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [campaignId]);
+
+  /* mestre: autosave debounced da cena ativa */
+  useEffect(() => {
+    if (!campaignMode || !isMaster || !db || !loadedRef.current) return;
+    const t = setTimeout(() => {
+      const sc = scenes.find((s) => s.id === activeScene) || scenes[0];
+      if (sc) saveScene(db, campaignId, uid, sc);
+    }, 1200);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scenes, activeScene]);
+
+  /* mestre: sobe imagens novas (reduzidas) e alinha o store local ao que foi salvo */
+  useEffect(() => {
+    if (!campaignMode || !isMaster || !db) return;
+    Object.entries(imageStore).forEach(([id, data]) => {
+      if (!id.startsWith('img_') || uploadedRef.current.has(id)) return;
+      uploadedRef.current.add(id);
+      saveImage(db, campaignId, id, data).then((stored) => {
+        if (stored && stored !== data) setImageStore((prev) => ({ ...prev, [id]: stored }));
+      });
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [imageStore]);
 
   /* one-time migration: old single bgImages → image elements */
   useEffect(() => {
-    if (migrationDoneRef.current) return;
+    if (migrationDoneRef.current || campaignMode) return;
     migrationDoneRef.current = true;
     scenes.forEach(sc => {
       const hasBg = bgImages[sc.id];
@@ -430,21 +484,23 @@ export default function MapEditor({ onBack }) {
         {onBack && (
           <button onClick={onBack} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.45)', cursor: 'pointer', fontSize: 13, display: 'flex', alignItems: 'center', gap: 5, padding: '4px 8px', borderRadius: 6, transition: 'color 0.12s' }}
             onMouseEnter={e => { e.currentTarget.style.color = '#fff'; }} onMouseLeave={e => { e.currentTarget.style.color = 'rgba(255,255,255,0.45)'; }}
-            title="Voltar ao Dashboard">← Dashboard</button>
+            title="Voltar">← Voltar</button>
         )}
         <div style={{ width: 1, height: 20, background: 'rgba(255,255,255,0.08)' }} />
         <span style={{ fontFamily: 'Cinzel Decorative,serif', fontSize: 11, color: '#c9a84c', letterSpacing: 2, whiteSpace: 'nowrap' }}>⚔ NEXUS</span>
         <div style={{ width: 1, height: 20, background: 'rgba(255,255,255,0.08)' }} />
-        <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.3)', whiteSpace: 'nowrap' }}>Editor de Mapas</span>
+        <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.3)', whiteSpace: 'nowrap' }}>{campaignMode ? (viewer ? 'Mesa tática · ao vivo' : 'Mesa tática') : 'Editor de Mapas'}</span>
         <div style={{ width: 1, height: 20, background: 'rgba(255,255,255,0.08)' }} />
         <span style={{ fontSize: 13, color: 'rgba(255,255,255,0.85)' }}>{scene.name}</span>
         <div style={{ flex: 1 }} />
+        {!viewer && (<>
         <button disabled={!canUndo} onClick={() => dispatch({ type: 'UNDO' })} style={{ ...topBtn, opacity: canUndo ? 1 : 0.3 }}>↩ Desfazer</button>
         <button disabled={!canRedo} onClick={() => dispatch({ type: 'REDO' })} style={{ ...topBtn, opacity: canRedo ? 1 : 0.3 }}>↪ Refazer</button>
         <div style={{ width: 1, height: 20, background: 'rgba(255,255,255,0.08)' }} />
         <button style={topBtn} onClick={() => bgInputRef.current?.click()}>🖼 Adicionar Imagem</button>
         <input ref={bgInputRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={e => { loadBg(e.target.files?.[0]); e.target.value = ''; }} />
         <div style={{ width: 1, height: 20, background: 'rgba(255,255,255,0.08)' }} />
+        </>)}
         <button style={{ ...topBtn, padding: '5px 8px' }} onClick={() => { setScale(1); setPan({ x: 60, y: 60 }); }}>⌂</button>
         <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.25)', fontFamily: 'monospace', minWidth: 36 }}>{Math.round(scale * 100)}%</span>
       </div>
@@ -452,7 +508,7 @@ export default function MapEditor({ onBack }) {
       <div style={{ flex: 1, display: 'flex', overflow: 'hidden', position: 'relative' }}>
 
         {/* LEFT PANEL */}
-        {showLeft && (
+        {showLeft && !viewer && (
           <div style={{ width: 210, flexShrink: 0, background: '#12121e', borderRight: '1px solid rgba(255,255,255,0.08)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
             <div style={{ padding: '10px 12px 6px', display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
               <span style={{ flex: 1, fontFamily: 'Cinzel,serif', fontSize: 10, color: 'rgba(255,255,255,0.4)', letterSpacing: 1, textTransform: 'uppercase' }}>Cenas</span>
@@ -526,10 +582,11 @@ export default function MapEditor({ onBack }) {
             </div>
           )}
 
-          <div style={{ position: 'absolute', top: 0, left: 0, transform: `translate(${pan.x}px,${pan.y}px) scale(${scale})`, transformOrigin: '0 0', width: mapW, height: mapH }}>
+          {/* viewer: elementos sem pointer-events ⇒ clique cai no container (pan/zoom apenas) */}
+          <div style={{ position: 'absolute', top: 0, left: 0, transform: `translate(${pan.x}px,${pan.y}px) scale(${scale})`, transformOrigin: '0 0', width: mapW, height: mapH, pointerEvents: viewer ? 'none' : undefined }}>
 
             {/* IMAGE ELEMENTS */}
-            {elements.filter(el => el.type === 'image').map(img => {
+            {elements.filter(el => el.type === 'image' && (!viewer || (!el.hidden && !el.spectre))).map(img => {
               const layer = layers.find(l => l.id === img.layerId);
               if (layer && !layer.visible) return null;
               const src = imageStore[img.imageId];
@@ -591,12 +648,12 @@ export default function MapEditor({ onBack }) {
             {/* FOG */}
             {fogRects.length > 0 && (
               <svg style={{ position: 'absolute', top: 0, left: 0, width: mapW, height: mapH, pointerEvents: 'none', zIndex: 200 }} xmlns="http://www.w3.org/2000/svg">
-                {fogRects.map(({ x, y }, i) => <rect key={i} x={x} y={y} width={gridSize} height={gridSize} fill="rgba(0,0,0,0.88)" />)}
+                {fogRects.map(({ x, y }, i) => <rect key={i} x={x} y={y} width={gridSize} height={gridSize} fill={viewer ? 'rgba(0,0,0,0.98)' : 'rgba(0,0,0,0.88)'} />)}
               </svg>
             )}
 
             {/* TOKENS */}
-            {elements.filter(el => el.type === 'token').map(t => {
+            {elements.filter(el => el.type === 'token' && (!viewer || (!el.hidden && !el.spectre))).map(t => {
               const tokLayer = layers.find(l => l.id === t.layerId);
               if (tokLayer && !tokLayer.visible) return null;
               const isSel = selIds.has(t.id);
@@ -623,7 +680,7 @@ export default function MapEditor({ onBack }) {
             })}
 
             {/* NOTES */}
-            {elements.filter(el => el.type === 'note').map(n => {
+            {elements.filter(el => el.type === 'note' && (!viewer || (!el.hidden && !el.spectre))).map(n => {
               const noteLayer = layers.find(l => l.id === n.layerId);
               if (noteLayer && !noteLayer.visible) return null;
               const isSel = selIds.has(n.id);
@@ -668,16 +725,20 @@ export default function MapEditor({ onBack }) {
 
         {/* RIGHT TOOLBAR */}
         <div style={{ position: 'absolute', right: 14, top: '50%', transform: 'translateY(-50%)', zIndex: 30, display: 'flex', flexDirection: 'column', gap: 2, background: 'rgba(22,22,46,0.92)', backdropFilter: 'blur(16px)', border: '1px solid rgba(255,255,255,0.14)', borderRadius: 14, padding: 6 }}>
+          {!viewer && (<>
           {TOOLS.map(t => <button key={t.id} title={t.label} onClick={() => setTool(t.id)} style={TB(tool === t.id)}>{t.ch}</button>)}
           <div style={{ height: 1, background: 'rgba(255,255,255,0.08)', margin: '4px 0' }} />
+          </>)}
           <button title="Zoom +" onClick={() => setScale(s => Math.min(6, s * 1.2))} style={TB(false)}>＋</button>
           <button title="Zoom -" onClick={() => setScale(s => Math.max(0.08, s / 1.2))} style={TB(false)}>－</button>
           <div style={{ height: 1, background: 'rgba(255,255,255,0.08)', margin: '4px 0' }} />
           <button title="Grade" onClick={() => setShowGrid(g => !g)} style={TB(showGrid)}>⊞</button>
+          {!viewer && (<>
           <button title={snapGrid ? 'Snap ativo' : 'Snap à grade'} onClick={() => setSnapGrid(g => !g)} style={TB(snapGrid)}>⊡</button>
           <button title="Revelar tudo" onClick={() => upScene({ fogCells: [] })} style={TB(false)}>☀</button>
           <button title="Cobrir tudo" onClick={coverFog} style={TB(false)}>🌑</button>
           <button title="Painel" onClick={() => setShowLeft(v => !v)} style={TB(showLeft)}>🗂</button>
+          </>)}
         </div>
 
         {tool === 'token' && (

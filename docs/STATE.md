@@ -10,14 +10,22 @@ alwaysApply: true
 > todo. Diferente do **ADR** (decisão durável e imutável). Decisão estrutural → ADR; estado do
 > trabalho → aqui. Atualize ao **pausar/encerrar**; leia ao **retomar**. Use a skill `/handoff`.
 
-**Última atualização:** 2026-07-03 por Claude (F5 — 0006-rules-fiel-ao-oficial)
+**Última atualização:** 2026-07-04 por Claude (F6 — 0007-mapa-mesa-multiplayer + tipografia OP)
 
 ## Em andamento / próximo passo
-- **Missão SaaS — plano F1→F7 (aprovado 2026-07-02):** F1–F5 implementadas
-- **Deploy 2026-07-03:** commit F1–F4 + F5 no GitHub (main); `firebase deploy` feito (firestore:rules + hosting) — **rules da F2 estão em produção**
-- **AINDA PENDENTE (Vercel, manual do Andre):** env vars `FIREBASE_WEB_API_KEY` (obrigatória — sem ela `/api/ai` falha fechado) e `MERCADOPAGO_WEBHOOK_SECRET` (recomendada)
-- **F5 (rules.js fiel ao oficial, spec 0006) concluída 2026-07-03:** ver decisões abaixo. Gate: 6 suítes/39 testes verdes, rules.js 100% linhas (≥80% exigido), build verde
-- **Próximo passo:** F6 — MapEditor novo vira o mapa multiplayer oficial (Firestore sync em `campaigns/{id}/map`, aposentar o tile-based) — exigirá ADR e spec 0007
+- **Missão SaaS — plano F1→F7 (aprovado 2026-07-02):** F1–F6 implementadas
+- **F6 (mesa tática multiplayer, spec 0007 + ADR 0005) implementada 2026-07-04:** MapEditor é o
+  mapa oficial da campanha (mestre edita → `campaigns/{id}/map/scene` + `map/img_*`; jogador vê
+  ao vivo read-only com fog opaca); tile-based REMOVIDO do CampaignMapTab (−16,8KB). Gate:
+  7 suítes/41 testes + build verdes. **Pendências:** (1) validação manual na mesa com 2
+  navegadores (mestre+jogador) — registrar aqui; (2) Andre ratificar ADR 0005
+- **Tipografia OP (AC-6 da 0007, pedido do Andre 2026-07-04):** `--font-body` IM Fell English→Inter,
+  `--font-data` Share Tech Mono→IBM Plex Mono; nome do personagem (Cinzel Decorative) e títulos
+  (Cinzel) intocados
+- **AINDA PENDENTE (Vercel, manual do Andre):** env vars `FIREBASE_WEB_API_KEY` (obrigatória —
+  sem ela `/api/ai` falha fechado) e `MERCADOPAGO_WEBHOOK_SECRET` (recomendada)
+- **Próximo passo:** validação manual da mesa → F7 do plano; backlog: rules mestre-only no mapa
+  (ADR 0005 §4), trilhas de Especialista faltantes
 - `0002-split-app-jsx` parcialmente entregue (hooks useAuth/useCharacter/useCampaign criados, usados pelo App root e testados); Task 4 (App.jsx enxuto) continua na F7 da missão
 
 ## Decisões recentes

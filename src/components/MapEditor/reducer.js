@@ -87,6 +87,10 @@ function coreReducer(scenes, action) {
 const MAX_HISTORY = 50;
 
 export function historyReducer(state, action) {
+  // Carga vinda do Firestore (modo campanha, spec 0007): substitui tudo e zera o histórico.
+  if (action.type === 'LOAD_SCENES') {
+    return { past: [], present: action.scenes.map(migrateScene), future: [] };
+  }
   if (action.type === 'UNDO') {
     if (!state.past.length) return state;
     const past = [...state.past];
@@ -107,9 +111,10 @@ export function historyReducer(state, action) {
   };
 }
 
-export function initialHistoryState() {
+export function initialHistoryState(mode) {
   let scenes;
-  try {
+  // Modo campanha não lê as cenas pessoais do localStorage — hidrata do Firestore depois.
+  if (mode !== 'campaign') try {
     const raw = JSON.parse(localStorage.getItem('nexus_scenes_v1') || 'null');
     if (raw && raw.length) scenes = raw.map(migrateScene);
   } catch {}

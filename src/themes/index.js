@@ -43,13 +43,13 @@ export const SYSTEM_THEMES = {
       muted2: "#c8b48e",
     },
     fonts: {
-      display: "'Cinzel Decorative', serif", // titles
+      display: "'Cinzel Decorative', serif", // nome do personagem / números de destaque — NÃO mexer (aprovado)
       title: "'Cinzel', serif",              // labels / section heads
-      body: "'IM Fell English', serif",      // immersive paragraphs
-      data: "'Share Tech Mono', monospace",  // stats / readouts
+      body: "'Inter', 'Segoe UI', sans-serif",          // parágrafos/inputs — legibilidade (era IM Fell English)
+      data: "'IBM Plex Mono', 'Share Tech Mono', monospace", // stats / readouts — legibilidade
     },
     googleFonts:
-      "family=Cinzel+Decorative:wght@400;700;900&family=Cinzel:wght@400;500;600;700&family=IM+Fell+English:ital@0;1&family=Share+Tech+Mono&family=Crimson+Pro:ital,wght@0,300;0,400;0,600;1,300;1,400",
+      "family=Cinzel+Decorative:wght@400;700;900&family=Cinzel:wght@400;500;600;700&family=Inter:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500;600&family=Share+Tech+Mono&family=Crimson+Pro:ital,wght@0,300;0,400;0,600;1,300;1,400",
   },
 
   /* ── D&D 5e — tavern firelight (placeholder palette) ───────────────────── */

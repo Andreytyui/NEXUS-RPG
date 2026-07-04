@@ -1,4 +1,4 @@
-﻿import { useState, useEffect, useRef, lazy, Suspense } from "react";
+import { useState, useEffect, useRef, lazy, Suspense } from "react";
 import { createPortal } from "react-dom";
 import { ThemeStyles } from "./themes/ThemeProvider";
 import { ELEMENTOS, getElementTheme } from "./components/systems/OrdemParanormal/elementos";
@@ -2618,7 +2618,7 @@ function RollDrawerCard({ r }) {
           <div style={{ marginTop:8, textAlign:"center", fontFamily:"'Share Tech Mono',monospace", fontSize:11, color:"var(--muted2)" }}>[{rd.rolls.join(" · ")}]</div>
         )}
       </div>
-      <div style={{ textAlign:"right", marginTop:4, fontFamily:"'IM Fell English',serif", fontStyle:"italic", fontSize:11, color:"var(--muted)" }}>{fmtRollTime(r.timestamp)}</div>
+      <div style={{ textAlign:"right", marginTop:4, fontFamily:"var(--font-body,'Crimson Pro',serif)", fontStyle:"italic", fontSize:11, color:"var(--muted)" }}>{fmtRollTime(r.timestamp)}</div>
     </div>
   );
 }
@@ -2661,7 +2661,7 @@ function CampaignRollDrawer({ campaign, onClose }) {
         </div>
         <div className="op-roll-drawer-body">
           {rolls.length === 0 ? (
-            <div style={{ textAlign:"center", padding:"40px 14px", color:"rgba(232,228,217,0.4)", fontStyle:"italic", fontFamily:"'IM Fell English',serif", fontSize:14, lineHeight:1.6 }}>
+            <div style={{ textAlign:"center", padding:"40px 14px", color:"rgba(232,228,217,0.4)", fontStyle:"italic", fontFamily:"var(--font-body,'Crimson Pro',serif)", fontSize:14, lineHeight:1.6 }}>
               Nenhuma rolagem registrada ainda.<br/>As rolagens da campanha aparecem aqui em tempo real.
             </div>
           ) : rolls.map(r => <RollDrawerCard key={r.id} r={r} />)}
@@ -2673,378 +2673,32 @@ function CampaignRollDrawer({ campaign, onClose }) {
 }
 
 /* ── CAMPAIGN MAP TAB ── */
+/* ── Mesa tática (spec 0007 / ADR 0005): o MapEditor é o mapa oficial da campanha.
+   O tile-based foi aposentado; o doc legado map/current é ignorado. */
 function CampaignMapTab({ campaignId, uid, isMaster }) {
-  const canvasRef    = useRef(null);
-  const containerRef = useRef(null);
-  const isDownRef    = useRef(false);
-  const panStartRef  = useRef(null);
-  const saveTimer    = useRef(null);
-  const stateRef     = useRef({});
-
-  const [hasMap,     setHasMap]     = useState(false);
-  const [cols,       setCols]       = useState(20);
-  const [rows,       setRows]       = useState(15);
-  const [tiles,      setTiles]      = useState([]);
-  const [fog,        setFog]        = useState([]);
-  const [mapName,    setMapName]    = useState('');
-  const [tool,       setTool]       = useState('reveal');
-  const [selTile,    setSelTile]    = useState('grass');
-  const [cellSize,   setCellSize]   = useState(36);
-  const [pan,        setPan]        = useState({ x:20, y:20 });
-  const [hovered,    setHovered]    = useState(null);
-  const [saving,     setSaving]     = useState(false);
-  const [showImport, setShowImport] = useState(false);
-  const [showTiles,  setShowTiles]  = useState(false);
-  const [savedMaps,  setSavedMaps]  = useState(() => { try { return JSON.parse(localStorage.getItem('nexus_maps')||'[]'); } catch { return []; } });
-
-  stateRef.current = { cols, rows, tiles, fog, tool, selTile, cellSize, pan, hovered, isMaster, mapName };
-
-  // ── Firestore real-time listener
-  useEffect(() => {
-    const ref = doc(db, 'campaigns', campaignId, 'map', 'current');
-    const unsub = onSnapshot(ref, snap => {
-      if (snap.exists()) {
-        const d = snap.data();
-        setHasMap(true);
-        setCols(d.cols || 20);
-        setRows(d.rows || 15);
-        setTiles(d.tiles || []);
-        setFog(d.fog   || []);
-        setMapName(d.name || 'Mapa');
-      } else {
-        setHasMap(false);
-      }
-    });
-    return () => unsub();
-  }, [campaignId]);
-
-  // ── canvas resize observer
-  useEffect(() => {
-    const container = containerRef.current;
-    const canvas    = canvasRef.current;
-    if (!container || !canvas) return;
-    const ro = new ResizeObserver(() => {
-      canvas.width  = container.clientWidth;
-      canvas.height = container.clientHeight;
-      draw();
-    });
-    ro.observe(container);
-    return () => ro.disconnect();
-  }, []);
-
-  useEffect(() => { draw(); }, [tiles, fog, cellSize, pan, hovered, hasMap]);
-
-  function draw() {
-    const canvas = canvasRef.current;
-    if (!canvas || canvas.width === 0) return;
-    const ctx = canvas.getContext('2d');
-    const { cols, rows, tiles, fog, cellSize: cs, pan:{ x:ox, y:oy }, hovered, isMaster } = stateRef.current;
-
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.fillStyle = '#0e0e16';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-    ctx.fillStyle = 'rgba(255,255,255,0.03)';
-    for (let gx = ((ox%40)+40)%40; gx < canvas.width; gx += 40)
-      for (let gy = ((oy%40)+40)%40; gy < canvas.height; gy += 40)
-        ctx.fillRect(gx, gy, 2, 2);
-
-    for (let r = 0; r < rows; r++) {
-      for (let c = 0; c < cols; c++) {
-        const idx = r * cols + c;
-        const x = c * cs + ox;
-        const y = r * cs + oy;
-        if (x + cs < 0 || y + cs < 0 || x > canvas.width || y > canvas.height) continue;
-
-        const tile   = MAP_TILES[tiles[idx]] || null;
-        const fogged = fog[idx];
-
-        ctx.fillStyle = tile ? tile.color : '#1a1a26';
-        ctx.fillRect(x, y, cs, cs);
-
-        ctx.strokeStyle = 'rgba(255,255,255,0.05)';
-        ctx.lineWidth = 1;
-        ctx.strokeRect(x+0.5, y+0.5, cs-1, cs-1);
-
-        if (fogged) {
-          if (isMaster) {
-            ctx.fillStyle = 'rgba(0,0,0,0.52)';
-            ctx.fillRect(x, y, cs, cs);
-            ctx.strokeStyle = 'rgba(80,80,140,0.22)';
-            ctx.lineWidth = 1;
-            for (let d = -cs; d < cs*2; d += 7) {
-              ctx.beginPath(); ctx.moveTo(x+d, y); ctx.lineTo(x+d+cs, y+cs); ctx.stroke();
-            }
-          } else {
-            ctx.fillStyle = '#06060a';
-            ctx.fillRect(x, y, cs, cs);
-          }
-        }
-
-        if (isMaster && hovered && hovered.r === r && hovered.c === c) {
-          ctx.fillStyle = 'rgba(255,255,255,0.13)';
-          ctx.fillRect(x, y, cs, cs);
-          ctx.strokeStyle = 'rgba(176,48,216,0.85)';
-          ctx.lineWidth = 2;
-          ctx.strokeRect(x+1, y+1, cs-2, cs-2);
-        }
-      }
-    }
-
-    ctx.strokeStyle = 'rgba(176,48,216,0.3)';
-    ctx.lineWidth = 2;
-    ctx.strokeRect(ox, oy, cols*cs, rows*cs);
-  }
-
-  function scheduleSave(newTiles, newFog) {
-    clearTimeout(saveTimer.current);
-    setSaving(true);
-    saveTimer.current = setTimeout(async () => {
-      const { cols, rows, mapName } = stateRef.current;
-      try {
-        await setDoc(doc(db, 'campaigns', campaignId, 'map', 'current'), {
-          tiles: newTiles, fog: newFog, cols, rows,
-          name: mapName || 'Mapa',
-          updatedAt: serverTimestamp(), updatedBy: uid,
-        });
-      } catch(_) {}
-      setSaving(false);
-    }, 350);
-  }
-
-  function cellAt(e) {
-    const canvas = canvasRef.current;
-    if (!canvas) return null;
-    const rect = canvas.getBoundingClientRect();
-    const { cols, rows, cellSize: cs, pan:{ x:ox, y:oy } } = stateRef.current;
-    const c = Math.floor((e.clientX - rect.left - ox) / cs);
-    const r = Math.floor((e.clientY - rect.top  - oy) / cs);
-    if (c < 0 || r < 0 || c >= cols || r >= rows) return null;
-    return { r, c, idx: r * cols + c };
-  }
-
-  function applyTool(cell) {
-    if (!cell || !isMaster) return;
-    const { tool, selTile } = stateRef.current;
-    const { idx } = cell;
-    if (tool === 'reveal') {
-      setFog(prev => { const n=[...prev]; n[idx]=false; scheduleSave(stateRef.current.tiles, n); return n; });
-    } else if (tool === 'fog') {
-      setFog(prev => { const n=[...prev]; n[idx]=true;  scheduleSave(stateRef.current.tiles, n); return n; });
-    } else if (tool === 'paint') {
-      setTiles(prev => { const n=[...prev]; n[idx]=selTile; scheduleSave(n, stateRef.current.fog); return n; });
-    } else if (tool === 'erase') {
-      setTiles(prev => { const n=[...prev]; n[idx]=null; scheduleSave(n, stateRef.current.fog); return n; });
-    }
-  }
-
-  function onDown(e) {
-    isDownRef.current = true;
-    const { tool } = stateRef.current;
-    if (!isMaster || tool === 'pan' || e.button === 1) {
-      panStartRef.current = { mx:e.clientX, my:e.clientY, ox:stateRef.current.pan.x, oy:stateRef.current.pan.y };
-      return;
-    }
-    if (e.button !== 0) return;
-    applyTool(cellAt(e));
-  }
-
-  function onMove(e) {
-    const cell = cellAt(e);
-    if (isMaster) setHovered(cell ? { r:cell.r, c:cell.c } : null);
-    if (!isDownRef.current) return;
-    if (panStartRef.current) {
-      const { mx, my, ox, oy } = panStartRef.current;
-      setPan({ x: ox + e.clientX - mx, y: oy + e.clientY - my });
-      return;
-    }
-    applyTool(cell);
-  }
-
-  function onUp() { isDownRef.current = false; panStartRef.current = null; }
-
-  function onWheel(e) {
-    e.preventDefault();
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const rect = canvas.getBoundingClientRect();
-    const mx = e.clientX - rect.left;
-    const my = e.clientY - rect.top;
-    const { cellSize: cs, pan:{ x:ox, y:oy } } = stateRef.current;
-    const newCs = Math.max(10, Math.min(80, cs + (e.deltaY < 0 ? 3 : -3)));
-    const ratio = newCs / cs;
-    setCellSize(newCs);
-    setPan({ x: mx - (mx-ox)*ratio, y: my - (my-oy)*ratio });
-  }
-
-  function importMap(map) {
-    const newTiles = [...map.tiles];
-    const newFog   = [...map.fog];
-    setCols(map.cols); setRows(map.rows);
-    setTiles(newTiles); setFog(newFog);
-    setMapName(map.name); setHasMap(true);
-    setPan({ x:20, y:20 }); setShowImport(false);
-    setDoc(doc(db, 'campaigns', campaignId, 'map', 'current'), {
-      tiles: newTiles, fog: newFog,
-      cols: map.cols, rows: map.rows, name: map.name,
-      updatedAt: serverTimestamp(), updatedBy: uid,
-    }).catch((e)=>console.error("[mapa] sync no Firestore falhou:", e));
-  }
-
-  function revealAll() { const n=Array(rows*cols).fill(false); setFog(n); scheduleSave(tiles, n); }
-  function fogAll()    { const n=Array(rows*cols).fill(true);  setFog(n); scheduleSave(tiles, n); }
-
-  const TOOLS_C = [
-    { id:'reveal', icon:'👁️', label:'Revelar' },
-    { id:'fog',    icon:'🌫️', label:'Névoa'   },
-    { id:'pan',    icon:'✋',  label:'Mover'   },
-    { id:'paint',  icon:'🖌️', label:'Pintar'  },
-    { id:'erase',  icon:'⬜',  label:'Apagar'  },
-  ];
-
-  const cursor = isMaster
-    ? ({ reveal:'cell', fog:'cell', pan: panStartRef.current?'grabbing':'grab', paint:'crosshair', erase:'crosshair' }[tool] || 'crosshair')
-    : (panStartRef.current ? 'grabbing' : 'grab');
-
-  const ImportModal = () => (
-    <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.78)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:1000 }}>
-      <div style={{ background:'var(--card)', border:'1px solid var(--border)', borderRadius:12, padding:28, width:420, maxHeight:'68vh', display:'flex', flexDirection:'column', gap:14 }}>
-        <div style={{ fontFamily:'Cinzel Decorative,serif', fontSize:16, color:'var(--gold)' }}>Importar Mapa Salvo</div>
-        <div style={{ fontSize:12, color:'var(--muted)', fontFamily:'Crimson Pro,serif' }}>Selecione um mapa criado no Editor de Mapas para carregar nesta sessão.</div>
-        <div style={{ overflowY:'auto', display:'flex', flexDirection:'column', gap:6 }}>
-          {savedMaps.length === 0
-            ? <div style={{ color:'var(--muted)', fontSize:13, textAlign:'center', padding:28 }}>Nenhum mapa salvo.<br/>Crie um no Editor de Mapas primeiro.</div>
-            : savedMaps.map(m => (
-              <button key={m.id} onClick={() => importMap(m)}
-                style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'10px 14px', borderRadius:8, border:'1px solid var(--border)', background:'transparent', color:'var(--text)', cursor:'pointer', textAlign:'left', transition:'all .15s' }}
-                onMouseEnter={e=>{ e.currentTarget.style.borderColor='rgba(176,48,216,0.5)'; e.currentTarget.style.background='rgba(176,48,216,0.08)'; }}
-                onMouseLeave={e=>{ e.currentTarget.style.borderColor='var(--border)'; e.currentTarget.style.background='transparent'; }}>
-                <span style={{ fontFamily:'Cinzel,serif', fontSize:13 }}>🗺️ {m.name}</span>
-                <span style={{ fontSize:10, color:'var(--muted)' }}>{m.cols}×{m.rows} · {m.savedAt}</span>
-              </button>
-            ))
-          }
-        </div>
-        <button onClick={() => setShowImport(false)} style={{ padding:'6px 14px', borderRadius:6, border:'1px solid var(--border)', background:'transparent', color:'var(--muted)', cursor:'pointer', fontFamily:'Cinzel,serif', fontSize:11, alignSelf:'flex-end' }}>Fechar</button>
-      </div>
-    </div>
-  );
-
-  // ── Empty state
-  if (!hasMap) {
-    return (
-      <div style={{ display:'flex', flexDirection:'column', flex:1, overflow:'hidden' }}>
-        <div style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', flex:1, gap:16, textAlign:'center' }}>
-          <div style={{ fontSize:58, opacity:0.35 }}>🗺️</div>
-          <div style={{ fontFamily:'Cinzel Decorative,serif', fontSize:17, color:'var(--gold)', opacity:0.7 }}>Sem mapa ativo</div>
-          <div style={{ fontFamily:'Crimson Pro,serif', fontSize:14, color:'var(--muted)', maxWidth:340, lineHeight:1.8 }}>
-            {isMaster ? 'Importe um dos seus mapas salvos para iniciar a sessão.' : 'Aguardando o Mestre carregar um mapa para a sessão.'}
-          </div>
-          {isMaster && (
-            <button onClick={() => setShowImport(true)}
-              style={{ padding:'10px 22px', borderRadius:8, border:'1px solid rgba(176,48,216,0.5)', background:'rgba(176,48,216,0.15)', color:'#e0c8ff', cursor:'pointer', fontFamily:'Cinzel,serif', fontSize:11, letterSpacing:1, marginTop:8 }}>
-              🗺️ Importar Mapa
-            </button>
-          )}
-        </div>
-        {showImport && <ImportModal />}
-      </div>
-    );
-  }
-
-  // ── Map active
+  const [mesaAberta, setMesaAberta] = useState(false);
   return (
-    <div style={{ display:'flex', flexDirection:'column', flex:1, overflow:'hidden', userSelect:'none' }}>
-
-      {/* Mestre: toolbar de controle */}
-      {isMaster && (
-        <div style={{ display:'flex', alignItems:'center', gap:6, padding:'6px 10px', background:'var(--card)', borderBottom:'1px solid var(--border)', flexWrap:'wrap', flexShrink:0 }}>
-          <span style={{ fontFamily:'Cinzel,serif', fontSize:10, color:'var(--gold)', letterSpacing:1, maxWidth:120, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>🗺️ {mapName}</span>
-          <div style={{ width:1, height:18, background:'var(--border)' }} />
-          {TOOLS_C.map(t => (
-            <button key={t.id} onClick={() => setTool(t.id)} title={t.label}
-              style={{ padding:'4px 7px', borderRadius:6, fontSize:14, cursor:'pointer',
-                border:`1px solid ${tool===t.id ? 'rgba(176,48,216,0.7)' : 'var(--border)'}`,
-                background: tool===t.id ? 'rgba(176,48,216,0.2)' : 'transparent' }}>
-              {t.icon}
-            </button>
-          ))}
-          <div style={{ width:1, height:18, background:'var(--border)' }} />
-          <button onClick={revealAll} style={{ padding:'3px 8px', borderRadius:6, border:'1px solid var(--border)', background:'transparent', color:'var(--muted)', cursor:'pointer', fontSize:10, fontFamily:'Cinzel,serif' }}>👁 Revelar tudo</button>
-          <button onClick={fogAll}    style={{ padding:'3px 8px', borderRadius:6, border:'1px solid var(--border)', background:'transparent', color:'var(--muted)', cursor:'pointer', fontSize:10, fontFamily:'Cinzel,serif' }}>🌫 Cobrir tudo</button>
-          <div style={{ width:1, height:18, background:'var(--border)' }} />
-          <button onClick={() => setShowTiles(p => !p)}
-            style={{ padding:'3px 8px', borderRadius:6, border:`1px solid ${showTiles ? 'rgba(176,48,216,0.5)' : 'var(--border)'}`, background: showTiles ? 'rgba(176,48,216,0.18)' : 'transparent', color: showTiles ? '#e0c8ff' : 'var(--muted)', cursor:'pointer', fontSize:10, fontFamily:'Cinzel,serif' }}>
-            🎨 Tiles
-          </button>
-          <button onClick={() => setShowImport(true)} style={{ padding:'3px 8px', borderRadius:6, border:'1px solid var(--border)', background:'transparent', color:'var(--muted)', cursor:'pointer', fontSize:10, fontFamily:'Cinzel,serif' }}>
-            📂 Trocar mapa
-          </button>
-          <div style={{ flex:1 }} />
-          <span style={{ fontSize:10, fontFamily:'Cinzel,serif', color: saving ? 'rgba(176,48,216,0.7)' : 'rgba(255,255,255,0.2)' }}>
-            {saving ? '↑ Sincronizando…' : '✓ Ao vivo'}
-          </span>
+    <div style={{ display:'flex', flexDirection:'column', flex:1, overflow:'hidden' }}>
+      <div style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', flex:1, gap:16, textAlign:'center' }}>
+        <div style={{ fontSize:58, opacity:0.35 }}>🗺️</div>
+        <div style={{ fontFamily:'Cinzel Decorative,serif', fontSize:17, color:'var(--gold)', opacity:0.7 }}>Mesa tática</div>
+        <div style={{ fontFamily:"var(--font-body,'Crimson Pro',serif)", fontSize:14, color:'var(--muted)', maxWidth:380, lineHeight:1.8 }}>
+          {isMaster
+            ? 'Monte o mapa com imagens, tokens, camadas e névoa — os jogadores acompanham cada mudança ao vivo.'
+            : 'O mapa da sessão abre aqui em tempo real, conforme o Mestre edita.'}
         </div>
-      )}
-
-      {/* Jogador: barra de info */}
-      {!isMaster && (
-        <div style={{ display:'flex', alignItems:'center', gap:8, padding:'6px 12px', background:'var(--card)', borderBottom:'1px solid var(--border)', flexShrink:0 }}>
-          <span style={{ fontSize:10, color:'var(--muted)', fontFamily:'Cinzel,serif', letterSpacing:1 }}>🗺️ {mapName}</span>
-          <span style={{ fontSize:10, color:'rgba(255,255,255,0.2)', fontFamily:'Cinzel,serif' }}>· {cols}×{rows}</span>
-          <div style={{ flex:1 }} />
-          <span style={{ fontSize:10, color:'rgba(80,200,80,0.7)', fontFamily:'Cinzel,serif' }}>● Ao vivo</span>
-        </div>
-      )}
-
-      <div style={{ display:'flex', flex:1, overflow:'hidden' }}>
-
-        {/* Paleta de tiles (mestre) */}
-        {isMaster && showTiles && (
-          <div style={{ width:136, background:'var(--card)', borderRight:'1px solid var(--border)', padding:'8px 6px', overflowY:'auto', display:'flex', flexDirection:'column', gap:3, flexShrink:0 }}>
-            {Object.entries(MAP_TILES).map(([key, tile]) => {
-              const active = selTile===key && tool==='paint';
-              return (
-                <button key={key} onClick={() => { setSelTile(key); setTool('paint'); }}
-                  style={{ display:'flex', alignItems:'center', gap:6, padding:'4px 6px', borderRadius:6, cursor:'pointer', width:'100%', textAlign:'left',
-                    border:`1px solid ${active ? 'rgba(176,48,216,0.7)' : 'var(--border)'}`,
-                    background: active ? 'rgba(176,48,216,0.15)' : 'transparent' }}>
-                  <div style={{ width:13, height:13, borderRadius:2, background:tile.color, border:`1px solid ${tile.border}`, flexShrink:0 }} />
-                  <span style={{ fontSize:9, color: active ? '#e0c8ff' : 'var(--muted)', fontFamily:'Cinzel,serif' }}>{tile.label}</span>
-                </button>
-              );
-            })}
-          </div>
-        )}
-
-        {/* Canvas */}
-        <div ref={containerRef} style={{ flex:1, overflow:'hidden', position:'relative', background:'#0e0e16', cursor }}>
-          <canvas ref={canvasRef} style={{ display:'block' }}
-            onMouseDown={onDown} onMouseMove={onMove}
-            onMouseUp={onUp}     onMouseLeave={onUp}
-            onWheel={onWheel}    onContextMenu={e => e.preventDefault()} />
-
-          <div style={{ position:'absolute', bottom:8, right:10, fontSize:10, color:'rgba(255,255,255,0.2)', fontFamily:'Cinzel,serif', pointerEvents:'none' }}>
-            {cols}×{rows}{isMaster && hovered ? ` · (${hovered.c+1},${hovered.r+1})` : ''}
-          </div>
-          {!isMaster && (
-            <div style={{ position:'absolute', bottom:8, left:10, fontSize:10, color:'rgba(255,255,255,0.18)', fontFamily:'Cinzel,serif', pointerEvents:'none' }}>
-              🎲 Arraste para mover · Scroll para zoom
-            </div>
-          )}
-          {isMaster && (
-            <div style={{ position:'absolute', bottom:8, left:10, fontSize:10, color:'rgba(176,48,216,0.45)', fontFamily:'Cinzel,serif', pointerEvents:'none' }}>
-              {TOOLS_C.find(t=>t.id===tool)?.icon} {TOOLS_C.find(t=>t.id===tool)?.label}
-            </div>
-          )}
-        </div>
+        <button onClick={() => setMesaAberta(true)}
+          style={{ padding:'10px 22px', borderRadius:8, border:'1px solid rgba(176,48,216,0.5)', background:'rgba(176,48,216,0.15)', color:'#e0c8ff', cursor:'pointer', fontFamily:'Cinzel,serif', fontSize:11, letterSpacing:1, marginTop:8 }}>
+          🗺️ Abrir mesa tática
+        </button>
       </div>
-
-      {showImport && <ImportModal />}
+      {mesaAberta && (
+        <MapEditor campaignId={campaignId} uid={uid} isMaster={isMaster} db={db}
+          onBack={() => setMesaAberta(false)} />
+      )}
     </div>
   );
 }
-
 /* ── BESTIARY TAB ── */
 const BESTIARY_SYSTEMS = ['Genérico','Ordem Paranormal','Tormenta 20','D&D 5e'];
 const EMPTY_CREATURE   = { name:'', system:'Genérico', hp:'', ac:'', initiative:'', description:'', attacks:'' };
@@ -6054,25 +5708,6 @@ function MasterAssistant({ system, onAddSession }) {
     </div>
   );
 }
-
-/* ═══════════════════════════════
-   MAP EDITOR
-═══════════════════════════════ */
-const MAP_TILES = {
-  floor:    { color:'#1e1e28', border:'#2a2a38', label:'Chão'       },
-  grass:    { color:'#4a7c4e', border:'#3a6a3e', label:'Grama'      },
-  forest:   { color:'#2d5a27', border:'#1d4a17', label:'Floresta'   },
-  mountain: { color:'#7a6a5a', border:'#6a5a4a', label:'Montanha'   },
-  water:    { color:'#1a55aa', border:'#0a45aa', label:'Água'       },
-  sand:     { color:'#c8a85a', border:'#b8984a', label:'Areia'      },
-  stone:    { color:'#555565', border:'#454555', label:'Pedra'      },
-  dungeon:  { color:'#111120', border:'#080810', label:'Dungeon'    },
-  lava:     { color:'#cc3300', border:'#aa2200', label:'Lava'       },
-  ice:      { color:'#aaddff', border:'#88ccee', label:'Gelo'       },
-  swamp:    { color:'#3a5a2a', border:'#2a4a1a', label:'Pântano'   },
-  road:     { color:'#8a7a5a', border:'#7a6a4a', label:'Estrada'   },
-  wall:     { color:'#444444', border:'#333333', label:'Parede'     },
-};
 
 /* ═══════════════════════════════
    PLACEHOLDER SCREENS
