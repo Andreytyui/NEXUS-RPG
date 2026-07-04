@@ -116,7 +116,7 @@ export const chip = (active) => ({
 export function BannerHeader({ description }) {
   return (
     <div style={{ background: "rgba(201,168,76,0.05)", border: "1px solid rgba(201,168,76,0.2)", borderRadius: 8, padding: "14px 18px" }}>
-      <div style={{ fontFamily: FONT.cinzel, fontSize: 11, color: "#c9a84c", letterSpacing: "0.1em", marginBottom: 5 }}>✦ Conteúdo oficial de Ordem Paranormal</div>
+      <div style={{ fontFamily: FONT.cinzel, fontSize: 11, color: "#c9a84c", letterSpacing: "0.1em", marginBottom: 5 }}>✦ Conteúdo do livro base — material não oficial</div>
       <div style={{ fontFamily: FONT.ui, fontSize: 13, color: "rgba(232,228,217,0.6)", lineHeight: 1.6 }}>
         {description || "Conteúdo extraído do sistema base de Ordem Paranormal e de suas expansões oficiais."}
       </div>

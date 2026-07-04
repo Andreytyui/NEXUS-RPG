@@ -6,6 +6,7 @@
 
 import { getElementTheme } from "./elementos";
 import ElementoSymbol from "./ElementoSymbol";
+import { getActiveAvatar } from "../../../domain/character";
 
 const PV_CRITICO = 0.3;
 
@@ -99,8 +100,8 @@ export default function DossierCard({ character: c, systemAccent, onClick }) {
           display: "flex", alignItems: "center", justifyContent: "center",
           fontSize: 30,
         }}>
-          {c.form?.avatar
-            ? <img src={c.form.avatar} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+          {getActiveAvatar(c)
+            ? <img src={getActiveAvatar(c)} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
             : "🕵️"
           }
         </div>

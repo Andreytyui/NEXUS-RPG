@@ -142,7 +142,7 @@ function BookBanner() {
         ))}
       </div>
       <div style={S.bannerText}>
-        Conteúdo oficial de Ordem Paranormal. Veja mais{" "}
+        Conteúdo do livro base de Ordem Paranormal — material não oficial. Veja mais{" "}
         <a href="https://ordemparanormal.com.br" target="_blank" rel="noreferrer" style={S.bannerLink}>aqui</a>
       </div>
     </div>
@@ -274,7 +274,7 @@ function AdicionarHabilidadesModal({ onClose, onAdd, habilidades, nex, classe })
                   <div style={{ fontSize: 32, marginBottom: 12, opacity: 0.4 }}>✦</div>
                   Poderes Paranormais são desbloqueados conforme o NEX e o Elemento de Afinidade.<br/>
                   <span style={{ fontSize: 11, color:"rgba(255,255,255,0.25)", marginTop: 8, display:"block" }}>
-                    Adicione via "Nova Habilidade" ou aguarde a expansão do conteúdo oficial.
+                    Adicione via "Nova Habilidade" ou aguarde a expansão do conteúdo do livro base.
                   </span>
                 </div>
               ) : filtered.length === 0 ? (

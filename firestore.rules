@@ -4,8 +4,16 @@ service cloud.firestore {
   match /databases/{database}/documents {
 
     // ── Users (perfil + plano) ─────────────────────────────────────────────────
+    // plan/subscribedSystems são escritos APENAS pelo backend (service account não passa
+    // pelas rules). Cliente não pode se dar plano (spec 0004 AC-1).
     match /users/{userId} {
-      allow read, write: if request.auth != null && request.auth.uid == userId;
+      allow read: if request.auth != null && request.auth.uid == userId;
+      allow create: if request.auth != null && request.auth.uid == userId
+        && !request.resource.data.keys().hasAny(['subscribedSystems'])
+        && (!('plan' in request.resource.data) || request.resource.data.plan == 'free');
+      allow update: if request.auth != null && request.auth.uid == userId
+        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['plan', 'subscribedSystems']);
+      allow delete: if request.auth != null && request.auth.uid == userId;
 
       // ── Characters (fichas do usuário) ───────────────────────────────────────
       match /characters/{charId} {
@@ -85,17 +93,35 @@ service cloud.firestore {
             || resource.data.characterData.allowAnyEdit == true
           );
       }
+
+      // ── Mapa da campanha (VTT) — sem esta regra todo sync era negado ────────
+      match /map/{docId} {
+        allow read, write: if request.auth != null && isMember(campaignId);
+      }
     }
 
     // ── Public Sheets (fichas compartilháveis por link, sem login) ───────────
     match /publicSheets/{charId} {
       allow read: if true;
-      allow write: if request.auth != null;
+      // Dono obrigatório na criação; docs legados sem ownerUid podem ser
+      // reivindicados pelo primeiro editor autenticado (retrocompat, spec 0004 AC-3).
+      allow create: if request.auth != null
+        && request.resource.data.ownerUid == request.auth.uid;
+      allow update: if request.auth != null
+        && (resource.data.ownerUid == request.auth.uid || !('ownerUid' in resource.data))
+        && request.resource.data.ownerUid == request.auth.uid;
+      allow delete: if request.auth != null
+        && (resource.data.ownerUid == request.auth.uid || !('ownerUid' in resource.data));
 
       match /pendingEdits/{editId} {
         allow read: if true;
+        // Sugestões continuam abertas (by design); resolver é só do dono da ficha.
         allow create: if true;
-        allow update, delete: if request.auth != null;
+        allow update, delete: if request.auth != null
+          && (
+            !('ownerUid' in get(/databases/$(database)/documents/publicSheets/$(charId)).data)
+            || get(/databases/$(database)/documents/publicSheets/$(charId)).data.ownerUid == request.auth.uid
+          );
       }
     }
 

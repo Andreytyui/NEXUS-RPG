@@ -23,6 +23,8 @@ import HabilidadesTab from "./Tabs/HabilidadesTab";
 import RituaisTab from "./Tabs/RituaisTab";
 import InventarioTab from "./Tabs/InventarioTab";
 import DescricaoTab from "./Tabs/DescricaoTab";
+import LicencaOP, { TEXTO_IA } from "../../LicencaOP";
+import { getActiveAvatar, isActiveAvatarAI, NORMAL_PHASE_ID } from "../../../domain/character";
 import {
   ATTR_KEYS, ATTR_LABELS, PERICIAS, PERICIA_GRUPOS, defaultTrainedSet, treinoColor,
   nexStats, deriveStats, rollOP, rollExpr, nexLevel, NEX_LADDER, rollPayload,
@@ -452,7 +454,11 @@ export default function OrdemParanormalSheet({ character, charId, onBack, onUpda
     if (!file) return;
     e.target.value = "";
     const data = await downscale(file);
-    setForm((f) => ({ ...f, avatar: data }));
+    setForm((f) => {
+      const ativa = (f.phases || []).find((p) => p.id === f.activePhaseId);
+      if (ativa) return { ...f, phases: f.phases.map((p) => (p.id === ativa.id ? { ...p, image: data, imageAI: false } : p)) };
+      return { ...f, avatar: data, avatarAI: false };
+    });
     setShowUpload(false);
   };
 
@@ -474,7 +480,11 @@ export default function OrdemParanormalSheet({ character, charId, onBack, onUpda
         reader.readAsDataURL(blob);
       });
       const downscaled = await downscale(new File([blob], "ai.jpg", { type: blob.type }));
-      setForm((f) => ({ ...f, avatar: downscaled }));
+      setForm((f) => {
+        const ativa = (f.phases || []).find((p) => p.id === f.activePhaseId);
+        if (ativa) return { ...f, phases: f.phases.map((p) => (p.id === ativa.id ? { ...p, image: downscaled, imageAI: true } : p)) };
+        return { ...f, avatar: downscaled, avatarAI: true };
+      });
       setShowAI(false);
     } catch (e) {
       setAiError("Erro ao gerar imagem. Tente novamente.");
@@ -482,6 +492,25 @@ export default function OrdemParanormalSheet({ character, charId, onBack, onUpda
       setAiLoading(false);
     }
   };
+
+  /* ── fases do personagem (spec 0005) ── */
+  const fasesList = Array.isArray(form.phases) ? form.phases : [];
+  const faseAtiva = fasesList.find((p) => p.id === form.activePhaseId) || null;
+  const shownAvatar = getActiveAvatar(form);
+  const faseInput = useRef(null);
+  const [novaFaseLabel, setNovaFaseLabel] = useState("");
+  const setFaseAtiva = (id) => setForm((f) => ({ ...f, activePhaseId: id === NORMAL_PHASE_ID ? null : id }));
+  const addFase = async (file, label) => {
+    const image = await downscale(file);
+    const id = `ph_${Date.now()}`;
+    setForm((f) => ({ ...f, phases: [...(f.phases || []), { id, label: label || "Nova fase", image, imageAI: false }], activePhaseId: id }));
+  };
+  const renameFase = (id, label) => setForm((f) => ({ ...f, phases: (f.phases || []).map((p) => (p.id === id ? { ...p, label } : p)) }));
+  const removeFase = (id) => setForm((f) => ({
+    ...f,
+    phases: (f.phases || []).filter((p) => p.id !== id),
+    activePhaseId: f.activePhaseId === id ? null : f.activePhaseId,
+  }));
 
   /* ── array helpers ── */
   const upd = (setter) => (i, patch) => setter((arr) => arr.map((it, idx) => (idx === i ? { ...it, ...patch } : it)));
@@ -675,8 +704,8 @@ export default function OrdemParanormalSheet({ character, charId, onBack, onUpda
             onKeyDown={(e) => e.key === "Enter" && setShowUpload(true)}
             onMouseEnter={(e) => { e.currentTarget.style.boxShadow = `0 0 26px ${theme.accent}66`; }}
             onMouseLeave={(e) => { e.currentTarget.style.boxShadow = "none"; }}>
-            {form.avatar ? (
-              <img src={form.avatar} alt={charName} style={{ width: "100%", height: "100%", objectFit: "cover", filter: "sepia(0.42) contrast(1.06) brightness(0.95) saturate(0.85)" }} />
+            {shownAvatar ? (
+              <img src={shownAvatar} alt={charName} style={{ width: "100%", height: "100%", objectFit: "cover", filter: "sepia(0.42) contrast(1.06) brightness(0.95) saturate(0.85)" }} />
             ) : (
               <div style={{ textAlign: "center", color: "var(--muted)" }}>
                 <div style={{ fontSize: 42, opacity: 0.5 }}>◈</div>
@@ -684,6 +713,7 @@ export default function OrdemParanormalSheet({ character, charId, onBack, onUpda
                 <div className="op-data" style={{ fontSize: 10, marginTop: 4, color: "var(--gold)" }}>clique para enviar</div>
               </div>
             )}
+            {faseAtiva && <span className="op-data" style={{ position: "absolute", bottom: 6, left: 6, fontSize: 9, padding: "2px 6px", background: "rgba(0,0,0,0.65)", border: "1px solid var(--border2)", borderRadius: 3, color: "var(--gold2)" }}>{faseAtiva.label}</span>}
             <span style={{ position: "absolute", inset: 0, pointerEvents: "none", boxShadow: "inset 0 0 38px rgba(0,0,0,0.92)" }} />
           </div>
 
@@ -695,6 +725,12 @@ export default function OrdemParanormalSheet({ character, charId, onBack, onUpda
               <Badge accent>{({ combatente: "⚔️", especialista: "🔬", ocultista: "🌑" }[classe?.id] || "◈")} {classe?.name || "Mundano"}</Badge>
               <Badge>Ordem Paranormal</Badge>
             </div>
+          </div>
+
+          {/* Aviso obrigatório — Licença da Comunidade de Ordem Paranormal (spec 0003) */}
+          <div className="op-ink" style={{ padding: "8px 10px", background: "rgba(0,0,0,0.25)" }}>
+            <LicencaOP variant="ficha" />
+            {isActiveAvatarAI(form) && <div className="op-data" style={{ fontSize: 9, color: "var(--muted)", marginTop: 6 }}>{TEXTO_IA}</div>}
           </div>
 
           {/* ATTRIBUTES — pentagon constellation (no central orb) */}
@@ -1091,13 +1127,34 @@ export default function OrdemParanormalSheet({ character, charId, onBack, onUpda
       {showUpload && (
         <Modal onClose={() => setShowUpload(false)} title="Retrato do Agente">
           <input ref={portraitInput} type="file" accept="image/*" onChange={onPortrait} style={{ display: "none" }} />
-          {form.avatar && <div className="op-ink" style={{ height: 200, marginBottom: 14, overflow: "hidden" }}><img src={form.avatar} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", filter: "sepia(0.42) contrast(1.06) brightness(0.95)" }} /></div>}
+          {shownAvatar && <div className="op-ink" style={{ height: 200, marginBottom: 14, overflow: "hidden" }}><img src={shownAvatar} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", filter: "sepia(0.42) contrast(1.06) brightness(0.95)" }} /></div>}
+          {/* fases do personagem (spec 0005) */}
+          <div className="op-label" style={{ margin: "2px 0 6px" }}>Fases do personagem</div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
+            <FaseThumb selected={!faseAtiva} label="Normal" image={form.avatar} onSelect={() => setFaseAtiva(NORMAL_PHASE_ID)} />
+            {fasesList.map((p) => (
+              <FaseThumb key={p.id} selected={faseAtiva?.id === p.id} label={p.label} image={p.image}
+                onSelect={() => setFaseAtiva(p.id)}
+                onRename={() => { const l = window.prompt("Nome da fase:", p.label); if (l) renameFase(p.id, l); }}
+                onRemove={() => { if (window.confirm(`Remover a fase "${p.label}"?`)) removeFase(p.id); }} />
+            ))}
+          </div>
+          <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 12 }}>
+            <input list="op-fases-sugestoes" value={novaFaseLabel} onChange={(e) => setNovaFaseLabel(e.target.value)}
+              placeholder="Nome da nova fase (ex.: Exausto)" style={{ flex: 1, padding: "5px 8px", fontSize: 12 }} />
+            <datalist id="op-fases-sugestoes"><option value="Cansado" /><option value="Exausto" /><option value="Morto" /></datalist>
+            <button className="btn-ghost" onClick={() => faseInput.current?.click()}>＋ Nova fase</button>
+          </div>
+          <input ref={faseInput} type="file" accept="image/*" style={{ display: "none" }}
+            onChange={async (e) => { const file = e.target.files?.[0]; e.target.value = ""; if (file) { await addFase(file, novaFaseLabel.trim()); setNovaFaseLabel(""); } }} />
+          {faseAtiva && <div className="op-data" style={{ fontSize: 10, color: "var(--gold2)", marginBottom: 8 }}>Enviar arquivo / Gerar com IA aplicam a imagem na fase ativa: {faseAtiva.label}</div>}
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
             <button className="btn-gold" onClick={() => portraitInput.current?.click()}>Enviar arquivo</button>
             <button className="btn-ghost" onClick={() => { setShowUpload(false); setShowAI(true); }}>✦ Gerar com IA</button>
-            {form.avatar && <button className="btn-ghost" onClick={() => setForm((f) => ({ ...f, avatar: "" }))}>Remover</button>}
+            {!faseAtiva && form.avatar && <button className="btn-ghost" onClick={() => setForm((f) => ({ ...f, avatar: "", avatarAI: false }))}>Remover</button>}
           </div>
           <div className="op-data" style={{ fontSize: 10, color: "var(--muted)", marginTop: 12 }}>O retrato recebe tratamento de fotografia desgastada automaticamente.</div>
+          {isActiveAvatarAI(form) && <div className="op-data" style={{ fontSize: 10, color: "var(--muted)", marginTop: 4 }}>{TEXTO_IA}</div>}
         </Modal>
       )}
 
@@ -1232,6 +1289,7 @@ export default function OrdemParanormalSheet({ character, charId, onBack, onUpda
             {aiLoading && <span className="op-data" style={{ fontSize: 11, color: "var(--muted)" }}>~15–30 segundos…</span>}
           </div>
           <div className="op-data" style={{ fontSize: 10, color: "var(--muted)", marginTop: 10 }}>Ctrl+Enter para gerar · Gratuito · Powered by Flux AI</div>
+          <div className="op-data" style={{ fontSize: 10, color: "var(--muted)", marginTop: 4 }}>{TEXTO_IA}</div>
         </Modal>
       )}
 
@@ -1448,6 +1506,26 @@ function Field({ label, value, editMode, onChange, placeholder }) {
 }
 function Badge({ children, accent }) {
   return <span className="op-data" style={{ fontSize: 10, padding: "3px 8px", borderRadius: 3, background: accent ? "rgba(201,168,76,0.14)" : "rgba(255,255,255,0.04)", border: `1px solid ${accent ? "var(--border2)" : "var(--border)"}`, color: accent ? "var(--gold2)" : "var(--muted2)" }}>{children}</span>;
+}
+function FaseThumb({ selected, label, image, onSelect, onRename, onRemove }) {
+  return (
+    <div style={{ width: 72, textAlign: "center" }}>
+      <div onClick={onSelect} role="button" tabIndex={0} onKeyDown={(e) => e.key === "Enter" && onSelect()} title={`Ativar fase ${label}`}
+        style={{ width: 72, height: 72, cursor: "pointer", overflow: "hidden", borderRadius: 4,
+          border: selected ? "2px solid var(--gold)" : "1px solid var(--border)",
+          boxShadow: selected ? "0 0 10px rgba(201,168,76,0.35)" : "none",
+          background: "rgba(0,0,0,0.35)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+        {image ? <img src={image} alt={label} style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <span style={{ opacity: 0.4 }}>◈</span>}
+      </div>
+      <div className="op-data" style={{ fontSize: 9, marginTop: 3, color: selected ? "var(--gold2)" : "var(--muted2)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{label}</div>
+      {(onRename || onRemove) && (
+        <div style={{ display: "flex", justifyContent: "center", gap: 6, marginTop: 2 }}>
+          {onRename && <span onClick={onRename} title="Renomear fase" role="button" tabIndex={0} style={{ cursor: "pointer", fontSize: 10 }}>✏️</span>}
+          {onRemove && <span onClick={onRemove} title="Remover fase" role="button" tabIndex={0} style={{ cursor: "pointer", fontSize: 10 }}>🗑️</span>}
+        </div>
+      )}
+    </div>
+  );
 }
 function Stat({ label, value, edit, onChange }) {
   return (

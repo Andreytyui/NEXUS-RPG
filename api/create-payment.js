@@ -1,14 +1,10 @@
 // Vercel serverless function — cria cobrança PIX via Mercado Pago
 // Requer env var: MERCADOPAGO_ACCESS_TOKEN
 
-function cors(res) {
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
-}
+const { cors } = require("./_lib");
 
 module.exports = async function handler(req, res) {
-  cors(res);
+  cors(req, res);
 
   if (req.method === "OPTIONS") return res.status(200).end();
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
@@ -45,6 +41,8 @@ module.exports = async function handler(req, res) {
         payer: { email: userEmail },
         // userId é salvo aqui para o webhook poder ativar o plano correto
         external_reference: userId,
+        // Ecoada pelo MP na consulta do webhook — define qual sistema ativar (spec 0004 AC-5)
+        metadata: { system_id: "op", plan_name: planName },
         notification_url: notificationUrl,
         // Expira em 30 minutos
         date_of_expiration: new Date(Date.now() + 30 * 60 * 1000).toISOString(),

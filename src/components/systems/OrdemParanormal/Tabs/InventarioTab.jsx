@@ -167,7 +167,7 @@ function AdicionarItensModal({ onClose, onAdd, homebrew }) {
 
         {/* Banner */}
         <div style={IMO.banner}>
-          <div style={IMO.bannerT}>✦ Conteúdo oficial de Ordem Paranormal</div>
+          <div style={IMO.bannerT}>✦ Conteúdo do livro base — material não oficial</div>
           <div style={IMO.bannerD}>
             Conteúdo extraído do sistema base de Ordem Paranormal e de suas expansões oficiais.{" "}
             <a href="https://ordemparanormal.com.br" target="_blank" rel="noreferrer" style={IMO.bannerL}>Veja mais em ordemparanormal.com.br</a>
