@@ -18,6 +18,11 @@ alwaysApply: true
 > V/T/D/F/R/N/M/G. Gate: 7 suítes/41 testes + build verdes. Fase 2 (backlog): ping, barra de
 > HP, fog poligonal, resize/rotate de desenhos, biblioteca de assets.
 > Domínio próprio no ar: playnexusrpg.com (Firebase) + api.playnexusrpg.com (Vercel), Cloudflare DNS.
+> **2026-07-04 (2):** rules do mapa endurecidas e DEPLOYADAS — escrita só do mestre (ADR 0005 §4
+> fechado). Trilhas de Especialista (Infiltrador/Técnico) **BLOQUEADAS**: textos oficiais dos
+> poderes 40/65/99% não verificáveis via web com confiança — parafrasear do livro físico (Andre).
+> F7 (App.jsx < 400 linhas, spec 0002 T4) é o próximo grande passo — começar em sessão nova
+> (refactor grande demais para o fim desta).
 
 ## Em andamento / próximo passo
 - **Missão SaaS — plano F1→F7 (aprovado 2026-07-02):** F1–F6 implementadas

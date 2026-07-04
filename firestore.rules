@@ -94,9 +94,11 @@ service cloud.firestore {
           );
       }
 
-      // ── Mapa da campanha (VTT) — sem esta regra todo sync era negado ────────
+      // ── Mapa da campanha (VTT) — leitura p/ membros; escrita SÓ do mestre ────
+      // (fecha o backlog do ADR 0005 §4; fase 2 do ping exigirá regra própria)
       match /map/{docId} {
-        allow read, write: if request.auth != null && isMember(campaignId);
+        allow read: if request.auth != null && isMember(campaignId);
+        allow write: if request.auth != null && isMaster(campaignId);
       }
     }
 
