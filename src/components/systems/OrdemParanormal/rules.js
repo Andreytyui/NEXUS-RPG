@@ -1,9 +1,9 @@
 /* ════════════════════════════════════════════════════════════════════════
  *  ORDEM PARANORMAL — GAME RULES
  *  ------------------------------------------------------------------------
- *  Pure logic shared by the Ordem Paranormal sheet. Mirrors exactly the
- *  formulas already used by the legacy FullSheet in App.jsx so a character
- *  computes identically whichever sheet renders it (no data drift).
+ *  Pure logic shared by the Ordem Paranormal sheet. Fórmulas conferidas
+ *  contra o livro oficial (spec 0006) — deslocamento, DT de rituais e
+ *  patentes NÃO espelham mais o FullSheet legado do App.jsx.
  * ════════════════════════════════════════════════════════════════════════ */
 
 /* The five attributes, in display order. attrs object is keyed by these. */
@@ -112,8 +112,13 @@ export function deriveStats(attrs, nex) {
     esquiva: attrs.AGI,
     bloqueio: 0,
     peTurno: 1 + nexLevel(nex),
-    deslocamento: `${6 + attrs.AGI}m / ${4 + attrs.AGI}q`,
+    deslocamento: "9m / 6q",
   };
+}
+
+/* DT para resistir aos seus rituais (oficial): 10 + NEX/5 + Presença (+ bônus da ficha). */
+export function dtRituais(nex, attrs, bonus = 0) {
+  return 10 + (nexLevel(nex) + 1) + (attrs?.PRE || 0) + bonus;
 }
 
 /*
@@ -154,25 +159,25 @@ export function rollExpr(expr) {
  */
 export const NEX_LADDER = [
   { nex: 5, tier: "INICIANTE", note: "Primeiro contato com o Paranormal. Poder de classe inicial." },
-  { nex: 10, tier: "INICIANTE", note: "Habilidade de classe." },
-  { nex: 15, tier: "OPERACIONAL", note: "Poder de trilha. 1º elemento de afinidade." },
-  { nex: 20, tier: "OPERACIONAL", note: "Habilidade de classe. Aumento de atributo." },
-  { nex: 25, tier: "OPERACIONAL", note: "Poder paranormal / de classe." },
-  { nex: 30, tier: "VETERANO", note: "Poder de trilha. Resistência ampliada." },
+  { nex: 10, tier: "INICIANTE", note: "Habilidade de trilha (1º poder)." },
+  { nex: 15, tier: "OPERACIONAL", note: "Poder de classe." },
+  { nex: 20, tier: "OPERACIONAL", note: "Aumento de atributo." },
+  { nex: 25, tier: "OPERACIONAL", note: "Marco de classe (ex.: rituais de 2º círculo para Ocultista)." },
+  { nex: 30, tier: "VETERANO", note: "Poder de classe." },
   { nex: 35, tier: "VETERANO", note: "Grau de treinamento (5+INT perícias)." },
-  { nex: 40, tier: "VETERANO", note: "Habilidade de classe. Aumento de atributo." },
-  { nex: 45, tier: "VETERANO", note: "Poder paranormal." },
-  { nex: 50, tier: "ESPECIAL", note: "Poder de trilha. Marco de meio-caminho." },
-  { nex: 55, tier: "ESPECIAL", note: "Poder de classe." },
-  { nex: 60, tier: "ESPECIAL", note: "Aumento de atributo." },
-  { nex: 65, tier: "ESPECIAL", note: "Poder paranormal." },
-  { nex: 70, tier: "CRÍTICO", note: "Poder de trilha. Grau de treinamento." },
-  { nex: 75, tier: "CRÍTICO", note: "Habilidade de classe." },
+  { nex: 40, tier: "VETERANO", note: "Habilidade de trilha (2º poder)." },
+  { nex: 45, tier: "VETERANO", note: "Poder de classe." },
+  { nex: 50, tier: "ESPECIAL", note: "Aumento de atributo. Versatilidade. Afinidade elemental (escolha do elemento)." },
+  { nex: 55, tier: "ESPECIAL", note: "Marco de classe (ex.: rituais de 3º círculo para Ocultista)." },
+  { nex: 60, tier: "ESPECIAL", note: "Poder de classe." },
+  { nex: 65, tier: "ESPECIAL", note: "Habilidade de trilha (3º poder)." },
+  { nex: 70, tier: "CRÍTICO", note: "Grau de treinamento (5+INT perícias)." },
+  { nex: 75, tier: "CRÍTICO", note: "Poder de classe." },
   { nex: 80, tier: "CRÍTICO", note: "Aumento de atributo." },
-  { nex: 85, tier: "CRÍTICO", note: "Poder paranormal." },
-  { nex: 90, tier: "MÁXIMO", note: "Poder de trilha. Limiar do Outro Lado." },
-  { nex: 95, tier: "MÁXIMO", note: "Habilidade de classe suprema." },
-  { nex: 99, tier: "TRANSCENDENTE", note: "Convergência total. Agente lendário." },
+  { nex: 85, tier: "CRÍTICO", note: "Marco de classe (ex.: rituais de 4º círculo para Ocultista)." },
+  { nex: 90, tier: "MÁXIMO", note: "Poder de classe. Limiar do Outro Lado." },
+  { nex: 95, tier: "MÁXIMO", note: "Aumento de atributo." },
+  { nex: 99, tier: "TRANSCENDENTE", note: "Habilidade de trilha (4º e último poder). Agente lendário." },
 ];
 
 /* ── Classes ── */
@@ -415,27 +420,22 @@ export const CLASS_BASE_ABILITIES = {
 };
 
 /*
- * ── Patentes ──
- * Progressão de patente por NEX, com limite de itens por categoria
- * [Cat. 0, Cat. I, Cat. II, Cat. III, Cat. IV] (null = ilimitado) e o
- * limite de crédito correspondente.
- *
- * NOTA: tabela reconstruída de memória das regras de Ordem Paranormal —
- * confira contra a edição do seu livro e ajuste os valores abaixo se
- * necessário (cada linha é independente, fácil de corrigir).
+ * ── Patentes (tabela oficial, spec 0006) ──
+ * Patente é concedida por Pontos de Prestígio (PP), não por NEX. Limite de
+ * itens por categoria [Cat. 0, I, II, III, IV] (null = ilimitado) e limite
+ * de crédito correspondente.
  */
 export const PATENTES = [
-  { nome: "Recruta",         nexMin: 5,  nexMax: 5,  limiteItens: [null, 2,    0,    0,    0], limiteCredito: "Baixo" },
-  { nome: "Operador",        nexMin: 10, nexMax: 15, limiteItens: [null, 4,    1,    0,    0], limiteCredito: "Médio" },
-  { nome: "Agente Especial", nexMin: 20, nexMax: 35, limiteItens: [null, 6,    2,    1,    0], limiteCredito: "Alto" },
-  { nome: "Agente de Elite", nexMin: 40, nexMax: 55, limiteItens: [null, 8,    4,    2,    1], limiteCredito: "Altíssimo" },
-  { nome: "Veterano",        nexMin: 60, nexMax: 75, limiteItens: [null, 10,   6,    3,    2], limiteCredito: "Altíssimo" },
-  { nome: "Lenda Viva",      nexMin: 80, nexMax: 95, limiteItens: [null, null, 8,    5,    3], limiteCredito: "Altíssimo" },
-  { nome: "Agente Lendário", nexMin: 99, nexMax: 99, limiteItens: [null, null, null, 8,    5], limiteCredito: "Altíssimo" },
+  { nome: "Recruta",              prestigioMin: 0,   limiteItens: [null, 2, 0, 0, 0], limiteCredito: "Baixo" },
+  { nome: "Operador",             prestigioMin: 20,  limiteItens: [null, 3, 1, 0, 0], limiteCredito: "Médio" },
+  { nome: "Agente especial",      prestigioMin: 50,  limiteItens: [null, 3, 2, 1, 0], limiteCredito: "Médio" },
+  { nome: "Oficial de operações", prestigioMin: 100, limiteItens: [null, 3, 3, 2, 1], limiteCredito: "Alto" },
+  { nome: "Agente de elite",      prestigioMin: 200, limiteItens: [null, 3, 3, 3, 2], limiteCredito: "Ilimitado" },
 ];
 
-export function patenteForNex(nexVal) {
-  return PATENTES.find((p) => nexVal >= p.nexMin && nexVal <= p.nexMax) || PATENTES[0];
+export function patenteForPrestigio(pp) {
+  const v = Number(pp) || 0;
+  return [...PATENTES].reverse().find((p) => v >= p.prestigioMin) || PATENTES[0];
 }
 
 /* Capacidade de carga (em espaços) — baseada em Força. Mesma ressalva acima. */

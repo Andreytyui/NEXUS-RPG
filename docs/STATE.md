@@ -10,17 +10,18 @@ alwaysApply: true
 > todo. Diferente do **ADR** (decisão durável e imutável). Decisão estrutural → ADR; estado do
 > trabalho → aqui. Atualize ao **pausar/encerrar**; leia ao **retomar**. Use a skill `/handoff`.
 
-**Última atualização:** 2026-07-02 por Claude (F1 — 0003-conformidade-licenca-op)
+**Última atualização:** 2026-07-03 por Claude (F5 — 0006-rules-fiel-ao-oficial)
 
 ## Em andamento / próximo passo
-- **Missão SaaS — plano F1→F7 (aprovado 2026-07-02):** F1 (licença, spec 0003) e F2 (segurança/pagamentos, spec 0004) implementadas
-- **PENDENTE DE DEPLOY MANUAL (F2 só vale em produção após isso):** `firebase deploy --only firestore:rules` + deploy Vercel; env vars na Vercel: `FIREBASE_WEB_API_KEY` (obrigatória p/ /api/ai) e `MERCADOPAGO_WEBHOOK_SECRET` (recomendada)
-- **F3 (observabilidade) concluída 2026-07-03:** 24 catches silenciosos de App.jsx agora logam com contexto (rastro em `specs/quick/001-observabilidade-catches/`)
-- **F4 (fases do personagem, spec 0005) concluída 2026-07-03:** `form.phases[]`/`activePhaseId` (aditivo, fase "Normal" = avatar), galeria/CRUD no modal do retrato, upload+IA aplicam na fase ativa, `getActiveAvatar()` (novo `src/domain/character.js`, 5 testes) em todos os pontos de render (ficha, DossierCard, MestrePanel, SharedSheets, SheetList, cards). Gate: 5 suítes/11 testes + build verdes
-- **Próximo passo:** F5 — rules.js fiel ao livro oficial (testes ≥80% ANTES, depois corrigir PV/PE por nível, peTurno, DT rituais, unlock de elemento NEX 15 vs 50, com migração dos máximos) — abrir spec 0006
+- **Missão SaaS — plano F1→F7 (aprovado 2026-07-02):** F1–F5 implementadas
+- **Deploy 2026-07-03:** commit F1–F4 + F5 no GitHub (main); `firebase deploy` feito (firestore:rules + hosting) — **rules da F2 estão em produção**
+- **AINDA PENDENTE (Vercel, manual do Andre):** env vars `FIREBASE_WEB_API_KEY` (obrigatória — sem ela `/api/ai` falha fechado) e `MERCADOPAGO_WEBHOOK_SECRET` (recomendada)
+- **F5 (rules.js fiel ao oficial, spec 0006) concluída 2026-07-03:** ver decisões abaixo. Gate: 6 suítes/39 testes verdes, rules.js 100% linhas (≥80% exigido), build verde
+- **Próximo passo:** F6 — MapEditor novo vira o mapa multiplayer oficial (Firestore sync em `campaigns/{id}/map`, aposentar o tile-based) — exigirá ADR e spec 0007
 - `0002-split-app-jsx` parcialmente entregue (hooks useAuth/useCharacter/useCampaign criados, usados pelo App root e testados); Task 4 (App.jsx enxuto) continua na F7 da missão
 
 ## Decisões recentes
+- 2026-07-03: F5 (spec 0006) — verificação contra o oficial REFUTOU a auditoria em PV/PE/peTurno (código já era fiel; **migração de máximos descartada**). Fixes reais: DT de rituais agora calculada (10 + NEX/5 + PRE + bônus; campo manual legado migra p/ bônus, idempotente), deslocamento oficial 9m/6q (era 6+AGI), NEX_LADDER com marcos oficiais (trilha 10/40/65/99, atributo 20/50/80/95, afinidade só no 50), PATENTES = tabela oficial de 5 por Pontos de Prestígio (`patenteForPrestigio`; `patenteForNex` removido)
 - 2026-07-03: F2 implementada (spec 0004) — rules protegem `plan`/`subscribedSystems` (fecha paywall burlável), `publicSheets` com dono (legados reivindicáveis), regra p/ subcoleção `map` (destrava sync); webhook verifica pagamento na API do MP + HMAC opcional, Catarse vira ativação manual; `/api/ai` exige ID token + rate limit; CORS allowlist; fix: login não reseta mais `plan` (`useAuth`). Deploy manual pendente.
 - 2026-07-02: Auditoria FASE 0 (frentes A–E) + plano F1→F7 aprovado. Críticos: violações da licença OP, paywall burlável (`users/{uid}` write), webhook sem assinatura/formato Catarse≠MP, dois sistemas de mapa (novo é localStorage-only, sem regra Firestore p/ `campaigns/{id}/map`)
 - 2026-07-02: F1 implementada — selo + texto obrigatório (`src/components/LicencaOP.jsx`), rótulos "Conteúdo oficial" renomeados, avisos de IA (flag `form.avatarAI`), checklist em `docs/product/conformidade-licenca-op.md`
@@ -45,7 +46,9 @@ alwaysApply: true
 ## Todos soltos
 - [x] F1: conformidade da licença OP (spec 0003) — implementada 2026-07-02; validar com `/validar`
 - [x] F2: segurança e pagamentos (spec 0004) — implementada 2026-07-03
-- [ ] Deploy F2: `firebase deploy --only firestore:rules` + Vercel + env vars (`FIREBASE_WEB_API_KEY`, `MERCADOPAGO_WEBHOOK_SECRET`)
+- [x] Deploy F2 (Firebase): `firebase deploy --only firestore:rules` + hosting — feito 2026-07-03
+- [ ] Deploy F2 (Vercel): env vars `FIREBASE_WEB_API_KEY` e `MERCADOPAGO_WEBHOOK_SECRET` no painel (manual)
+- [ ] Trilhas de Especialista faltantes (Infiltrador, Técnico) + revisão paráfrase×cópia dos textos de poderes (fora de escopo da 0006)
 - [ ] Pendência jurídica: IA × conteúdo comercial (ver `docs/product/conformidade-licenca-op.md`)
 - [ ] Revisar `src/data/ordemParanormal/*.json` — paráfrase vs texto copiado do livro
 - [x] Task 1: criar `src/hooks/useAuth.js`

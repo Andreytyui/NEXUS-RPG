@@ -28,6 +28,7 @@ import { getActiveAvatar, isActiveAvatarAI, NORMAL_PHASE_ID } from "../../../dom
 import {
   ATTR_KEYS, ATTR_LABELS, PERICIAS, PERICIA_GRUPOS, defaultTrainedSet, treinoColor,
   nexStats, deriveStats, rollOP, rollExpr, nexLevel, NEX_LADDER, rollPayload,
+  dtRituais as dtRituaisRule,
 } from "./rules";
 
 const downscale = (file, max = 420) =>
@@ -237,7 +238,14 @@ export default function OrdemParanormalSheet({ character, charId, onBack, onUpda
     return { itens: itensMig, pontos_prestigio: 0 };
   });
   const [descricao, setDescricao] = useState(character.descricao ?? {});
-  const [dtRituais, setDtRituais] = useState(character.dtRituais ?? 16);
+  const [dtRituaisBonus, setDtRituaisBonus] = useState(() => {
+    if (character.dtRituaisBonus !== undefined) return character.dtRituaisBonus;
+    // migração spec 0006: DT manual legada vira bônus sobre a base oficial (DT exibida não muda)
+    if (character.dtRituais !== undefined) {
+      return character.dtRituais - dtRituaisRule(character.nex ?? 5, character.attrs || {});
+    }
+    return 0;
+  });
   const [rollHistory, setRollHistory] = useState(character.rollHistory ?? []);
   const [trilha] = useState(character.trilha ?? null);
 
@@ -336,7 +344,8 @@ export default function OrdemParanormalSheet({ character, charId, onBack, onUpda
     pv: hp, san, pe, pvMax, sanMax, peMax, attacks, ataques: attacks, skills, poderes, rituais, itens,
     diario, creditos, rollHistory, trilha, defesaBonus, defesaOutros, esquivaBonus, bloqueio, protecao, resistencias,
     proeficiencia, elementoAfinidade, elementoEscolhidoEm, elementoGmOverride, elementoNotas,
-    habilidades, inventario, descricao, dtRituais,
+    habilidades, inventario, descricao, dtRituaisBonus,
+    dtRituais: dtRituaisRule(nex, attrs, dtRituaisBonus), // total calculado (compat de leitura)
   };
   const latest = useRef(snapshot);
   latest.current = snapshot;
@@ -359,13 +368,14 @@ export default function OrdemParanormalSheet({ character, charId, onBack, onUpda
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [attrs, form, skillTreino, skillOutros, pdBonus, deslocamentoBonus, nex, hp, san, pe, pvMax, sanMax, peMax, attacks, skills, poderes,
       rituais, itens, diario, creditos, defesaBonus, defesaOutros, esquivaBonus, bloqueio, protecao, resistencias,
-      proeficiencia, elementoAfinidade, elementoNotas, habilidades, inventario, descricao, dtRituais]);
+      proeficiencia, elementoAfinidade, elementoNotas, habilidades, inventario, descricao, dtRituaisBonus]);
   useEffect(() => () => flushSave(), []); // flush on unmount
   const handleBack = () => { flushSave(); onBack?.(); };
 
   /* ── derived ── */
   const { peTurno } = deriveStats(attrs, nex);
-  const deslocamentoDisplay = `${6 + (attrs.AGI || 0) + deslocamentoBonus}m / ${4 + (attrs.AGI || 0) + deslocamentoBonus}q`;
+  // Oficial (spec 0006): deslocamento padrão 9m/6q — AGI não altera; bônus em metros
+  const deslocamentoDisplay = `${9 + deslocamentoBonus}m / ${Math.floor((9 + deslocamentoBonus) / 1.5)}q`;
   const defesa = 10 + (attrs.AGI || 0) + defesaBonus + defesaOutros;
   const reflexosTreino = Number(skillTreino["Reflexos"]) || 0;
   const reflexosExtra  = Number(skillOutros["Reflexos"]) || 0;
@@ -950,7 +960,7 @@ export default function OrdemParanormalSheet({ character, charId, onBack, onUpda
             )}
 
             {activeTab === "rituais" && (
-              <RituaisTab rituais={rituais} setRituais={setRituais} dtRituais={dtRituais} setDtRituais={setDtRituais} onRollDados={rollDados} />
+              <RituaisTab rituais={rituais} setRituais={setRituais} dtBase={dtRituaisRule(nex, attrs)} dtBonus={dtRituaisBonus} setDtBonus={setDtRituaisBonus} onRollDados={rollDados} />
             )}
 
             {activeTab === "inventario" && (

@@ -427,7 +427,7 @@ function RitualCard({ r, onEdit, onRemove, onRoll }) {
 }
 
 /* ═══ Tab principal ═══ */
-export default function RituaisTab({ rituais, setRituais, dtRituais, setDtRituais, onRollDados }) {
+export default function RituaisTab({ rituais, setRituais, dtBase, dtBonus, setDtBonus, onRollDados }) {
   const [busca, setBusca] = useState("");
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState(null);
@@ -451,8 +451,14 @@ export default function RituaisTab({ rituais, setRituais, dtRituais, setDtRituai
       <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
         <span style={{ ...tLabel, display: "flex", alignItems: "center", gap: 6 }}>
           DT RITUAIS
-          <input type="number" value={dtRituais} onChange={(e) => setDtRituais(parseInt(e.target.value, 10) || 0)}
-            style={{ width: 52, padding: "4px 6px", textAlign: "center", background: "rgba(0,0,0,0.4)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 4, color: "var(--el-accent)", fontFamily: "var(--font-data,'Share Tech Mono',monospace)", fontSize: 13 }} />
+          {/* Oficial: 10 + NEX/5 + Presença (calculada) + bônus editável */}
+          <span title="10 + NEX/5 + Presença + bônus"
+            style={{ padding: "4px 8px", background: "rgba(0,0,0,0.4)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 4, color: "var(--el-accent)", fontFamily: "var(--font-data,'Share Tech Mono',monospace)", fontSize: 13 }}>
+            {(dtBase || 0) + (dtBonus || 0)}
+          </span>
+          BÔNUS
+          <input type="number" value={dtBonus} onChange={(e) => setDtBonus(parseInt(e.target.value, 10) || 0)}
+            style={{ width: 44, padding: "4px 6px", textAlign: "center", background: "rgba(0,0,0,0.4)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 4, color: "var(--text)", fontFamily: "var(--font-data,'Share Tech Mono',monospace)", fontSize: 13 }} />
         </span>
         <input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="🔍 Filtrar…" style={{ ...inputS, flex: 1, minWidth: 120, padding: "6px 10px" }} />
         <button onClick={() => setShowAdd(true)} style={{ ...btnGhost, fontSize: 11, whiteSpace: "nowrap" }}>+ Adicionar</button>

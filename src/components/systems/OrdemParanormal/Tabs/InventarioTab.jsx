@@ -4,7 +4,7 @@ import {
   fieldLabel, inputS, btnGold, btnGhost, chip, ModalShell,
   tLabel, tCardTitle, tBody, tStat, tEmpty, tSubtext,
 } from "./shared/modalStyles";
-import { patenteForNex, cargaMaxima } from "../rules";
+import { patenteForPrestigio, cargaMaxima } from "../rules";
 import ITENS_OFICIAIS from "../../../../data/ordemParanormal/itens-oficiais.json";
 
 const TIPOS = [
@@ -334,8 +334,8 @@ export default function InventarioTab({ inventario, setInventario, onRollDados, 
   const removeItem = (id) => setItens((arr) => arr.filter((x) => x.id !== id));
   const toggleEquip = (id) => setItens((arr) => arr.map((x) => x.id === id ? { ...x, is_equipado: !x.is_equipado } : x));
 
-  /* Patente, limites e carga são calculados — não editados manualmente. */
-  const patente = patenteForNex(nex ?? 5);
+  /* Patente oficial vem dos Pontos de Prestígio (spec 0006); limites e carga são calculados. */
+  const patente = patenteForPrestigio(inv.pontos_prestigio);
   const limites = patente.limiteItens; // [Cat.0, I, II, III, IV] — null = ilimitado
   const itemCategoria = (it) => CATEGORIAS.includes(it.categoria) ? it.categoria : "I";
   const noInv = CATEGORIAS.map((cat) => itens.filter((it) => itemCategoria(it) === cat).length);
@@ -358,7 +358,7 @@ export default function InventarioTab({ inventario, setInventario, onRollDados, 
       <div className="op-ink" style={{ padding: "12px 14px", background: "rgba(0,0,0,0.25)", display: "flex", flexDirection: "column", gap: 10 }}>
         <div style={{ display: "flex", gap: 18, flexWrap: "wrap" }}>
           <div style={statRow}>Pontos de Prestígio <InlineNum value={inv.pontos_prestigio || 0} onChange={(v) => setInv({ pontos_prestigio: v })} /></div>
-          <div style={statRow}>Patente <StatPill value={patente.nome} /> <span style={{ ...tSubtext, fontSize: 10 }}>NEX {nex ?? 5}%</span></div>
+          <div style={statRow}>Patente <StatPill value={patente.nome} /> <span style={{ ...tSubtext, fontSize: 10 }}>{inv.pontos_prestigio || 0} PP</span></div>
         </div>
         <div style={{ display: "flex", gap: 18, flexWrap: "wrap", alignItems: "center" }}>
           <div style={statRow}>
