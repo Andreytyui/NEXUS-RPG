@@ -3,6 +3,8 @@
 const DEFAULT_ORIGINS = [
   "https://nexus-rpg-app.web.app",
   "https://nexus-rpg-app.firebaseapp.com",
+  "https://playnexusrpg.com",
+  "https://www.playnexusrpg.com",
   "http://localhost:3000",
 ];
 
