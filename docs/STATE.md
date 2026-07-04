@@ -10,7 +10,14 @@ alwaysApply: true
 > todo. Diferente do **ADR** (decisão durável e imutável). Decisão estrutural → ADR; estado do
 > trabalho → aqui. Atualize ao **pausar/encerrar**; leia ao **retomar**. Use a skill `/handoff`.
 
-**Última atualização:** 2026-07-04 por Claude (F6 — 0007-mapa-mesa-multiplayer + tipografia OP)
+**Última atualização:** 2026-07-04 por Claude (0008 — editor nível Owlbear fase 1)
+
+> **0008 (editor Owlbear fase 1) implementada 2026-07-04:** ferramenta de desenho
+> (livre/linha/retângulo/círculo, cor+espessura, preview), tokens com imagem (`img_tok_*`),
+> tamanhos P/M/G/E, condições por emoji (ctx menu), névoa por retângulo de arrasto, atalhos
+> V/T/D/F/R/N/M/G. Gate: 7 suítes/41 testes + build verdes. Fase 2 (backlog): ping, barra de
+> HP, fog poligonal, resize/rotate de desenhos, biblioteca de assets.
+> Domínio próprio no ar: playnexusrpg.com (Firebase) + api.playnexusrpg.com (Vercel), Cloudflare DNS.
 
 ## Em andamento / próximo passo
 - **Missão SaaS — plano F1→F7 (aprovado 2026-07-02):** F1–F6 implementadas

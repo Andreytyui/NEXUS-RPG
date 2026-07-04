@@ -3,14 +3,32 @@ import { historyReducer, initialHistoryState, DEFAULT_LAYERS } from './reducer.j
 import { subscribeCampaignMap, saveScene, saveImage } from './campaignSync.js';
 
 const TOOLS = [
-  { id: 'select',  label: 'Selecionar', ch: '↖' },
-  { id: 'token',   label: 'Token',      ch: '⬤' },
-  { id: 'fog',     label: 'Névoa',      ch: '☁' },
-  { id: 'reveal',  label: 'Revelar',    ch: '👁' },
-  { id: 'note',    label: 'Nota',       ch: '📝' },
-  { id: 'measure', label: 'Medir',      ch: '📏' },
+  { id: 'select',  label: 'Selecionar (V)', ch: '↖' },
+  { id: 'token',   label: 'Token (T)',      ch: '⬤' },
+  { id: 'draw',    label: 'Desenhar (D)',   ch: '✏' },
+  { id: 'fog',     label: 'Névoa (F)',      ch: '☁' },
+  { id: 'reveal',  label: 'Revelar (R)',    ch: '👁' },
+  { id: 'note',    label: 'Nota (N)',       ch: '📝' },
+  { id: 'measure', label: 'Medir (M)',      ch: '📏' },
 ];
 const COLORS = ['#4ade80','#60a5fa','#f87171','#fbbf24','#c084fc','#f472b6','#34d399','#fb923c','#e2e8f0','#a3e635'];
+
+/* Condições de token (spec 0008 AC-4) e espessuras de desenho (AC-1). */
+const CONDICOES = [
+  { e: '☠️', n: 'Morto' }, { e: '😵', n: 'Atordoado' }, { e: '🩸', n: 'Ferido' },
+  { e: '🛡️', n: 'Protegido' }, { e: '💤', n: 'Inconsciente' }, { e: '🔥', n: 'Em chamas' },
+  { e: '☣️', n: 'Envenenado' }, { e: '👁️', n: 'Marcado' },
+];
+const DRAW_WIDTHS = [2, 4, 7];
+
+/* Shape de um elemento drawing — points normalizados ao bbox; rect/círculo usam só w/h. */
+function DrawingShape({ d }) {
+  const p = { fill: 'none', stroke: d.color, strokeWidth: d.strokeWidth, strokeLinecap: 'round', strokeLinejoin: 'round' };
+  if (d.shape === 'line') { const a = d.points[0], b = d.points[1] || a; return <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} {...p} />; }
+  if (d.shape === 'rect') return <rect x={d.strokeWidth / 2} y={d.strokeWidth / 2} width={Math.max(1, d.w - d.strokeWidth)} height={Math.max(1, d.h - d.strokeWidth)} {...p} />;
+  if (d.shape === 'circle') return <ellipse cx={d.w / 2} cy={d.h / 2} rx={Math.max(1, (d.w - d.strokeWidth) / 2)} ry={Math.max(1, (d.h - d.strokeWidth) / 2)} {...p} />;
+  return <polyline points={d.points.map(pt => `${pt.x},${pt.y}`).join(' ')} {...p} />;
+}
 
 export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
   // Modo campanha (spec 0007): mestre edita a mesa (Firestore), jogador vê ao vivo (read-only).
@@ -45,6 +63,13 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
   const [boxSel,          setBoxSel]          = useState(null);
   const [layerPickerOpen, setLayerPickerOpen] = useState(false);
   const [,                setDragTick]        = useState(0);
+  /* spec 0008 — desenho e upgrades de token */
+  const [drawMode,   setDrawMode]   = useState('free'); // free | line | rect | circle
+  const [drawColor,  setDrawColor]  = useState('#f87171');
+  const [drawWidth,  setDrawWidth]  = useState(4);
+  const [drawLive,   setDrawLive]   = useState(null);   // preview do traço (coords de mundo)
+  const [tokSize,    setTokSize]    = useState(1);      // multiplicador da célula (P/M/G/E)
+  const [tokImageId, setTokImageId] = useState(null);   // imagem aplicada aos próximos tokens
 
   const containerRef     = useRef(null);
   const bgInputRef       = useRef(null);
@@ -56,6 +81,9 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
   const dragRef          = useRef(null);
   const resizeRef        = useRef(null);
   const rotateRef        = useRef(null);
+  const drawRef          = useRef(null);
+  const fogDragRef       = useRef(null);
+  const tokImgInputRef   = useRef(null);
   const migrationDoneRef = useRef(false);
   const elementDownRef   = useRef(false);
   const stateRef         = useRef({});
@@ -87,6 +115,21 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
     if (!stateRef.current.snapGrid) return { x, y };
     const gs = stateRef.current.gridSize;
     return { x: Math.round(x / gs) * gs, y: Math.round(y / gs) * gs };
+  }
+
+  /* Névoa por área (spec 0008 AC-5): aplica o retângulo de células entre o início do arrasto
+     e o cursor sobre o conjunto-base capturado no mousedown (preview ao vivo, sem acumular). */
+  function applyFogRect(wx, wy) {
+    const drag = fogDragRef.current; if (!drag) return;
+    const gs = stateRef.current.gridSize, sc = stateRef.current.scene;
+    const c1 = Math.floor(Math.min(drag.wx, wx) / gs), c2 = Math.floor(Math.max(drag.wx, wx) / gs);
+    const r1 = Math.floor(Math.min(drag.wy, wy) / gs), r2 = Math.floor(Math.max(drag.wy, wy) / gs);
+    const st = new Set(drag.base);
+    for (let r = r1; r <= r2; r++) for (let c = c1; c <= c2; c++) {
+      const k = `${c},${r}`;
+      if (fogModeRef.current === 'add') st.add(k); else st.delete(k);
+    }
+    dispatch({ type: 'PATCH_SCENE', sceneId: sc.id, patch: { fogCells: [...st] } });
   }
 
   function upScene(patch) { dispatch({ type: 'PATCH_SCENE', sceneId: stateRef.current.scene.id, patch }); }
@@ -193,6 +236,34 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
     reader.readAsDataURL(file);
   }
 
+  /* Token com imagem (spec 0008 AC-2): reduz a ~256px; img_tok_* sobe pelo pipeline de campanha. */
+  function loadTokenImage(file) {
+    if (!file?.type.startsWith('image/')) return;
+    const reader = new FileReader();
+    reader.onload = ev => {
+      const img = new Image();
+      img.onload = () => {
+        const r = Math.min(1, 256 / Math.max(img.width, img.height));
+        const c = document.createElement('canvas');
+        c.width = Math.max(1, Math.round(img.width * r));
+        c.height = Math.max(1, Math.round(img.height * r));
+        c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+        const id = 'img_tok_' + Date.now();
+        setImageStore(prev => ({ ...prev, [id]: c.toDataURL('image/jpeg', 0.85) }));
+        setTokImageId(id);
+      };
+      img.src = ev.target.result;
+    };
+    reader.readAsDataURL(file);
+  }
+
+  function toggleCondition(id, emoji) {
+    const el = stateRef.current.elements.find(e => e.id === id);
+    if (!el) return;
+    const cur = el.conditions || [];
+    updateEl(id, { conditions: cur.includes(emoji) ? cur.filter(c => c !== emoji) : [...cur, emoji] });
+  }
+
   function addScene() {
     const id = 's' + Date.now();
     dispatch({ type: 'ADD_SCENE', id });
@@ -281,6 +352,14 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
         }).map(el => el.id)));
         return;
       }
+      // Atalhos de ferramenta (spec 0008 AC-6) — ignorados ao digitar e no modo jogador.
+      const tag = e.target?.tagName;
+      const typing = tag === 'INPUT' || tag === 'TEXTAREA' || e.target?.isContentEditable;
+      if (!typing && !e.ctrlKey && !e.metaKey && !e.altKey && !viewer) {
+        const hot = { v: 'select', t: 'token', d: 'draw', f: 'fog', r: 'reveal', n: 'note', m: 'measure' }[e.key.toLowerCase()];
+        if (hot) { setTool(hot); return; }
+        if (e.key.toLowerCase() === 'g') { setShowGrid(g => !g); return; }
+      }
       if (sids.size === 0) return;
       if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); deleteEls([...sids]); setSelIds(new Set()); }
       if ((e.ctrlKey || e.metaKey) && e.key === 'd') {
@@ -344,12 +423,14 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
     }
     if (t === 'fog' || t === 'reveal') {
       fogRef.current = true; fogModeRef.current = t === 'fog' ? 'add' : 'del';
-      const k = fogKey(wp.x, wp.y), { scene: sc } = stateRef.current, st = new Set(sc.fogCells);
-      fogModeRef.current === 'add' ? st.add(k) : st.delete(k);
-      dispatch({ type: 'PATCH_SCENE', sceneId: sc.id, patch: { fogCells: [...st] } });
+      fogDragRef.current = { wx: wp.x, wy: wp.y, base: new Set(stateRef.current.scene.fogCells) };
+      applyFogRect(wp.x, wp.y);
     } else if (t === 'token') {
       const sn = snap(wp.x, wp.y);
-      addEl({ id: Date.now(), type: 'token', layerId: 'layer-tokens', x: sn.x, y: sn.y, color: tokColor, label: tokLabel || '?', size: 36, hidden: false, locked: false, spectre: false });
+      addEl({ id: Date.now(), type: 'token', layerId: 'layer-tokens', x: sn.x, y: sn.y, color: tokColor, label: tokLabel || '?', size: Math.max(18, Math.round(stateRef.current.gridSize * tokSize)), imageId: tokImageId, conditions: [], hidden: false, locked: false, spectre: false });
+    } else if (t === 'draw') {
+      drawRef.current = { shape: drawMode, color: drawColor, strokeWidth: drawWidth, pts: [{ x: wp.x, y: wp.y }] };
+      setDrawLive({ ...drawRef.current, pts: [...drawRef.current.pts] });
     } else if (t === 'note') {
       const txt = window.prompt('Texto da nota:');
       if (txt?.trim()) addEl({ id: Date.now(), type: 'note', layerId: 'layer-objects', x: wp.x, y: wp.y, text: txt.trim(), hidden: false, locked: false, spectre: false });
@@ -400,9 +481,14 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
     }
     if (fogRef.current) {
       const { x: sx, y: sy } = clientXY(e); const wp = screenToWorld(sx, sy);
-      const k = fogKey(wp.x, wp.y), { scene: sc } = stateRef.current, st = new Set(sc.fogCells);
-      fogModeRef.current === 'add' ? st.add(k) : st.delete(k);
-      dispatch({ type: 'PATCH_SCENE', sceneId: sc.id, patch: { fogCells: [...st] } }); return;
+      applyFogRect(wp.x, wp.y); return;
+    }
+    if (drawRef.current) {
+      const { x: sx, y: sy } = clientXY(e); const wp = screenToWorld(sx, sy);
+      const d = drawRef.current;
+      if (d.shape === 'free') d.pts.push({ x: wp.x, y: wp.y });
+      else d.pts[1] = { x: wp.x, y: wp.y };
+      setDrawLive({ ...d, pts: [...d.pts] }); return;
     }
     if (measureRef.current) {
       const { x: sx, y: sy } = clientXY(e); const wp = screenToWorld(sx, sy);
@@ -429,17 +515,33 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
       const hit = new Set();
       els.forEach(el => {
         const l = lm[el.layerId]; if (!l?.visible || l?.locked) return;
-        const cx = el.type === 'image' ? el.x + (el.w || 0) / 2 : el.x;
-        const cy = el.type === 'image' ? el.y + (el.h || 0) / 2 : el.y;
+        const cx = el.w != null ? el.x + el.w / 2 : el.x;
+        const cy = el.w != null ? el.y + (el.h || 0) / 2 : el.y;
         const ex = cx * s + p.x, ey = cy * s + p.y;
         if (ex >= minX && ex <= maxX && ey >= minY && ey <= maxY) hit.add(el.id);
       });
       if (e?.shiftKey) setSelIds(prev => { const n = new Set(prev); hit.forEach(id => n.add(id)); return n; });
       else setSelIds(hit);
     }
+    if (drawRef.current) {
+      const d = drawRef.current;
+      if (d.pts.length > 1) {
+        const xs = d.pts.map(p => p.x), ys = d.pts.map(p => p.y);
+        const minX = Math.min(...xs), minY = Math.min(...ys);
+        const w = Math.max(d.strokeWidth + 2, Math.max(...xs) - minX);
+        const h = Math.max(d.strokeWidth + 2, Math.max(...ys) - minY);
+        addEl({
+          id: Date.now(), type: 'drawing', layerId: 'layer-drawing', x: minX, y: minY, w, h,
+          shape: d.shape, color: d.color, strokeWidth: d.strokeWidth,
+          points: d.pts.map(p => ({ x: Math.round(p.x - minX), y: Math.round(p.y - minY) })),
+          hidden: false, locked: false, spectre: false,
+        });
+      }
+      drawRef.current = null; setDrawLive(null);
+    }
     elementDownRef.current = false;
     panRef.current = null; dragRef.current = null; resizeRef.current = null; rotateRef.current = null;
-    fogRef.current = false; measureRef.current = null; boxRef.current = null; setBoxSel(null);
+    fogRef.current = false; fogDragRef.current = null; measureRef.current = null; boxRef.current = null; setBoxSel(null);
   }
 
   function onWheel(e) {
@@ -457,7 +559,7 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
   const fogRects   = (scene.fogCells || []).map(k => { const [c, r] = k.split(',').map(Number); return { x: c * gridSize, y: r * gridSize }; });
   const gridHalf   = 50000; // world-px padding in each direction for "infinite" grid illusion
   const gridPatOff = gridHalf % gridSize; // aligns pattern so world (0,0) stays on a grid line
-  const cursor     = panRef.current ? 'grabbing' : tool === 'fog' || tool === 'reveal' ? 'cell' : tool === 'token' || tool === 'note' || tool === 'measure' ? 'crosshair' : 'default';
+  const cursor     = panRef.current ? 'grabbing' : tool === 'fog' || tool === 'reveal' ? 'cell' : tool === 'token' || tool === 'note' || tool === 'measure' || tool === 'draw' ? 'crosshair' : 'default';
   const singleSel  = selIds.size === 1 ? elements.find(el => el.id === [...selIds][0]) : null;
   const anyHidden  = selIds.size > 0 && [...selIds].some(id => elements.find(e => e.id === id)?.hidden);
   const anyLocked  = selIds.size > 0 && [...selIds].some(id => elements.find(e => e.id === id)?.locked);
@@ -661,23 +763,67 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
               const px = livePos ? livePos.x : t.x;
               const py = livePos ? livePos.y : t.y;
               const opacity = (t.hidden ? 0.25 : t.spectre ? 0.45 : 1) * (tokLayer?.opacity ?? 1);
+              const tokImg = t.imageId ? imageStore[t.imageId] : null;
               return (
                 <div key={t.id} style={{
                   position: 'absolute', left: px - t.size / 2, top: py - t.size / 2, width: t.size, height: t.size,
-                  borderRadius: '50%', background: t.color, opacity,
-                  border: isSel ? '2.5px solid #a855f7' : '2.5px solid rgba(255,255,255,0.85)',
+                  borderRadius: '50%', background: tokImg ? '#12121e' : t.color, opacity,
+                  border: isSel ? '2.5px solid #a855f7' : `2.5px solid ${tokImg ? t.color : 'rgba(255,255,255,0.85)'}`,
                   boxShadow: isSel ? `0 0 0 3px rgba(168,85,247,0.5),0 0 14px ${t.color}99` : `0 0 14px ${t.color}99,0 2px 8px rgba(0,0,0,0.5)`,
-                  display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700, color: '#fff',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: Math.max(11, Math.round(t.size * 0.3)), fontWeight: 700, color: '#fff',
                   filter: t.spectre ? 'blur(1.5px)' : 'none', cursor: (t.locked || tokLayer?.locked) ? 'not-allowed' : 'grab', zIndex: (layerOrder[t.layerId] ?? 0) * 10 + 5,
                   textShadow: '0 1px 3px rgba(0,0,0,0.8)', transition: 'opacity 0.2s,box-shadow 0.15s',
                 }}
                   onMouseDown={e => onElementDown(e, t)}
                   onContextMenu={e => { e.preventDefault(); e.stopPropagation(); setSelIds(new Set([t.id])); setCtxMenu({ x: e.clientX, y: e.clientY, type: 'token', tokenId: t.id }); }}>
-                  {(t.label || '?').charAt(0).toUpperCase()}
+                  {tokImg
+                    ? <img src={tokImg} draggable={false} style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '50%', pointerEvents: 'none' }} />
+                    : (t.label || '?').charAt(0).toUpperCase()}
+                  {(t.conditions || []).length > 0 && (
+                    <div style={{ position: 'absolute', top: -Math.max(10, t.size * 0.22), left: '50%', transform: 'translateX(-50%)', display: 'flex', gap: 1, whiteSpace: 'nowrap', fontSize: Math.max(10, Math.round(t.size * 0.26)), filter: 'drop-shadow(0 1px 2px rgba(0,0,0,0.9))', pointerEvents: 'none' }}>
+                      {(t.conditions || []).map((c, i) => <span key={i}>{c}</span>)}
+                    </div>
+                  )}
+                  {tokImg && t.label && t.label !== '?' && (
+                    <div style={{ position: 'absolute', bottom: -17, left: '50%', transform: 'translateX(-50%)', background: 'rgba(0,0,0,0.75)', borderRadius: 4, padding: '1px 6px', fontSize: 10, whiteSpace: 'nowrap', pointerEvents: 'none' }}>{t.label}</div>
+                  )}
                   {t.locked && <span style={{ position: 'absolute', top: -5, right: -5, fontSize: 9, background: 'rgba(0,0,0,0.75)', borderRadius: '50%', width: 14, height: 14, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>🔒</span>}
                 </div>
               );
             })}
+
+            {/* DRAWINGS (spec 0008 AC-1) */}
+            {elements.filter(el => el.type === 'drawing' && (!viewer || (!el.hidden && !el.spectre))).map(d => {
+              const dLayer = layers.find(l => l.id === d.layerId);
+              if (dLayer && !dLayer.visible) return null;
+              const isSel = selIds.has(d.id);
+              const livePos = dragRef.current?.positions?.[d.id];
+              const px = livePos ? livePos.x : d.x;
+              const py = livePos ? livePos.y : d.y;
+              const opacity = (d.hidden ? 0.3 : d.spectre ? 0.5 : 1) * (dLayer?.opacity ?? 1);
+              return (
+                <div key={d.id}
+                  style={{ position: 'absolute', left: px, top: py, width: d.w, height: d.h, opacity, zIndex: (layerOrder[d.layerId] ?? 0) * 10 + 5, outline: isSel ? '1.5px dashed #a855f7' : 'none', outlineOffset: 2, cursor: (d.locked || dLayer?.locked) ? 'default' : 'grab', pointerEvents: viewer ? 'none' : (isSel ? 'auto' : 'none'), filter: d.spectre ? 'blur(1px)' : 'none' }}
+                  onMouseDown={e => onElementDown(e, d)}
+                  onContextMenu={e => { e.preventDefault(); e.stopPropagation(); setSelIds(new Set([d.id])); setCtxMenu({ x: e.clientX, y: e.clientY, type: 'image', elId: d.id }); }}>
+                  <svg width={Math.max(1, d.w)} height={Math.max(1, d.h)} style={{ display: 'block', overflow: 'visible', pointerEvents: 'none' }} xmlns="http://www.w3.org/2000/svg"><DrawingShape d={d} /></svg>
+                </div>
+              );
+            })}
+
+            {/* preview do traço em andamento */}
+            {drawLive && drawLive.pts.length > 0 && (
+              <svg style={{ position: 'absolute', top: 0, left: 0, width: mapW, height: mapH, pointerEvents: 'none', zIndex: 205, overflow: 'visible' }} xmlns="http://www.w3.org/2000/svg">
+                {(() => {
+                  const pts = drawLive.pts, a = pts[0], b = pts[pts.length - 1];
+                  const p = { fill: 'none', stroke: drawLive.color, strokeWidth: drawLive.strokeWidth, strokeLinecap: 'round', strokeLinejoin: 'round', opacity: 0.9 };
+                  if (drawLive.shape === 'line') return <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} {...p} />;
+                  if (drawLive.shape === 'rect') return <rect x={Math.min(a.x, b.x)} y={Math.min(a.y, b.y)} width={Math.abs(b.x - a.x)} height={Math.abs(b.y - a.y)} {...p} />;
+                  if (drawLive.shape === 'circle') return <ellipse cx={(a.x + b.x) / 2} cy={(a.y + b.y) / 2} rx={Math.abs(b.x - a.x) / 2} ry={Math.abs(b.y - a.y) / 2} {...p} />;
+                  return <polyline points={pts.map(pt => `${pt.x},${pt.y}`).join(' ')} {...p} />;
+                })()}
+              </svg>
+            )}
 
             {/* NOTES */}
             {elements.filter(el => el.type === 'note' && (!viewer || (!el.hidden && !el.spectre))).map(n => {
@@ -748,6 +894,36 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
             <div style={{ width: 1, height: 20, background: 'rgba(255,255,255,0.1)' }} />
             <input value={tokLabel} onChange={e => setTokLabel(e.target.value)} placeholder="Rótulo" style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, padding: '5px 12px', color: '#fff', fontSize: 12, width: 100, outline: 'none' }} />
             <div style={{ width: 22, height: 22, borderRadius: '50%', background: tokColor, border: '2px solid rgba(255,255,255,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, color: '#fff' }}>{(tokLabel || '?').charAt(0).toUpperCase()}</div>
+            <div style={{ width: 1, height: 20, background: 'rgba(255,255,255,0.1)' }} />
+            <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)' }}>Tam:</span>
+            {[['P', 0.5], ['M', 1], ['G', 2], ['E', 3]].map(([l, v]) => (
+              <button key={l} title={`${v}× célula`} onClick={() => setTokSize(v)} style={{ ...TB(tokSize === v), width: 26, height: 26, borderRadius: 6, fontSize: 11 }}>{l}</button>
+            ))}
+            <div style={{ width: 1, height: 20, background: 'rgba(255,255,255,0.1)' }} />
+            <button title="Token com imagem (retrato)" onClick={() => tokImgInputRef.current?.click()} style={{ ...TB(!!tokImageId), width: 28, height: 28, borderRadius: 6 }}>🖼</button>
+            {tokImageId && imageStore[tokImageId] && (
+              <img src={imageStore[tokImageId]} alt="" title="Clique para remover a imagem" onClick={() => setTokImageId(null)}
+                style={{ width: 24, height: 24, borderRadius: '50%', objectFit: 'cover', border: `2px solid ${tokColor}`, cursor: 'pointer' }} />
+            )}
+            <input ref={tokImgInputRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={e => { loadTokenImage(e.target.files?.[0]); e.target.value = ''; }} />
+          </div>
+        )}
+
+        {tool === 'draw' && !viewer && (
+          <div style={{ position: 'absolute', bottom: 16, left: '50%', transform: 'translateX(-50%)', zIndex: 30, background: 'rgba(22,22,46,0.95)', backdropFilter: 'blur(16px)', border: '1px solid rgba(255,255,255,0.14)', borderRadius: 14, padding: '10px 16px', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            {[['free', '✏', 'Traço livre'], ['line', '╱', 'Linha'], ['rect', '▭', 'Retângulo'], ['circle', '◯', 'Círculo']].map(([m, ch, tt]) => (
+              <button key={m} title={tt} onClick={() => setDrawMode(m)} style={{ ...TB(drawMode === m), width: 30, height: 30, borderRadius: 8 }}>{ch}</button>
+            ))}
+            <div style={{ width: 1, height: 20, background: 'rgba(255,255,255,0.1)' }} />
+            {COLORS.map(c => (
+              <button key={c} onClick={() => setDrawColor(c)} style={{ width: 20, height: 20, borderRadius: '50%', background: c, border: drawColor === c ? '2px solid #fff' : '2px solid transparent', cursor: 'pointer' }} />
+            ))}
+            <div style={{ width: 1, height: 20, background: 'rgba(255,255,255,0.1)' }} />
+            {DRAW_WIDTHS.map(w => (
+              <button key={w} title={`Espessura ${w}px`} onClick={() => setDrawWidth(w)} style={{ ...TB(drawWidth === w), width: 30, height: 26, borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <div style={{ width: 14, height: w, background: '#fff', borderRadius: w }} />
+              </button>
+            ))}
           </div>
         )}
 
@@ -800,6 +976,11 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
             {singleSel?.type === 'token' && (<>
               <button title="Editar Rótulo" onClick={() => editLabel(singleSel.id)} style={actBtn(false)}>Tt</button>
               <button title={singleSel.spectre ? 'Remover Espectro' : 'Espectro'} onClick={() => toggleSpectre(singleSel.id)} style={actBtn(singleSel.spectre)}>👻</button>
+              <div style={{ width: 1, height: 24, background: 'rgba(255,255,255,0.1)', margin: '0 2px' }} />
+              {[['P', 0.5], ['M', 1], ['G', 2], ['E', 3]].map(([l, v]) => (
+                <button key={l} title={`Tamanho ${v}× célula`} onClick={() => updateEl(singleSel.id, { size: Math.max(18, Math.round(gridSize * v)) })}
+                  style={actBtn(Math.abs(singleSel.size - gridSize * v) < 2)}>{l}</button>
+              ))}
             </>)}
 
             {singleSel?.type === 'image' && (
@@ -853,6 +1034,17 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
                 <button key={i} onClick={item.action} style={{ display: 'block', width: '100%', textAlign: 'left', padding: '8px 16px', background: 'none', border: 'none', color: 'rgba(255,255,255,0.8)', cursor: 'pointer', fontSize: 13 }}
                   onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.06)'; }} onMouseLeave={e => { e.currentTarget.style.background = 'none'; }}>{item.label}</button>
               ))}
+              <div style={{ height: 1, background: 'rgba(255,255,255,0.08)', margin: '4px 0' }} />
+              <div style={{ padding: '4px 14px 2px', fontSize: 10, color: 'rgba(255,255,255,0.35)', letterSpacing: 1 }}>CONDIÇÕES</div>
+              <div style={{ padding: '2px 12px 8px', display: 'flex', flexWrap: 'wrap', gap: 4, maxWidth: 200 }}>
+                {CONDICOES.map(c => {
+                  const on = (elements.find(e2 => e2.id === ctxMenu.tokenId)?.conditions || []).includes(c.e);
+                  return (
+                    <button key={c.e} title={c.n} onClick={() => toggleCondition(ctxMenu.tokenId, c.e)}
+                      style={{ width: 28, height: 28, borderRadius: 6, border: on ? '1px solid #a855f7' : '1px solid rgba(255,255,255,0.08)', background: on ? 'rgba(168,85,247,0.18)' : 'rgba(255,255,255,0.03)', cursor: 'pointer', fontSize: 14 }}>{c.e}</button>
+                  );
+                })}
+              </div>
               <div style={{ height: 1, background: 'rgba(255,255,255,0.08)', margin: '4px 0' }} />
               <button onClick={() => { deleteEl(ctxMenu.tokenId); setCtxMenu(null); }}
                 style={{ display: 'block', width: '100%', textAlign: 'left', padding: '8px 16px', background: 'none', border: 'none', color: 'rgba(248,113,113,0.85)', cursor: 'pointer', fontSize: 13 }}
