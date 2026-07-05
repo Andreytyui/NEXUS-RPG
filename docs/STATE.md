@@ -10,7 +10,48 @@ alwaysApply: true
 > todo. Diferente do **ADR** (decisão durável e imutável). Decisão estrutural → ADR; estado do
 > trabalho → aqui. Atualize ao **pausar/encerrar**; leia ao **retomar**. Use a skill `/handoff`.
 
-**Última atualização:** 2026-07-04 por Claude (0008 — editor nível Owlbear fase 1)
+**Última atualização:** 2026-07-05 por Claude (0012 — fog avançada implementada)
+
+> **2026-07-05 (4): 0012 (fog avançada) IMPLEMENTADA** — formas círculo (arrasto centro→raio),
+> polígono (clique-a-clique; fecha no 1º ponto/duplo-clique/Enter; Esc cancela) e traço livre
+> (Douglas-Peucker ε=4px) em Cobrir/Cortar; poda por contenção no commit (substituiu Join/Trim
+> — ratificado no plano: mask binária torna união no-op visual); sub-modo edição 🧽 (clique
+> seleciona forma de fog, Delete/botão apaga); preview 👁 visão do jogador (asViewer, pixel-
+> igual). Novos: fog.js (geometria pura, 11 testes) + FogLayer.jsx (mask memoizada extraída
+> do index.jsx — decomposição transversal avançou). Gates: 12 suítes/83 testes + build verdes.
+> **Sem mudança de rules/schema.** Pendência: validação de mesa (checklist tasks.md 0012).
+
+> **2026-07-05 (3): 0011 (camadas Owlbear + anexos) IMPLEMENTADA** — auto-grudar (anexo→
+> personagem, personagem→montaria) por drop; mover pai arrasta a subárvore; apagar pai
+> DESANEXA filhos (reducer); duplicar leva a subárvore com vínculos remapeados; z-order
+> (frente/trás por camada); ctx menu ampliado (desanexar, z-order, substituir imagem AC-7).
+> Novo módulo puro attach.js (findAttachTarget/subtreeIds/wouldCycle/dupSubtree) + teste.
+> Guard de ciclo e hidden/camada-invisível cobertos. Gates: 11 suítes/72 testes + build
+> verdes. **Sem mudança de rules.** Task 4 (extrair LayersPanel.jsx) ADIADA — decomposição é
+> meta transversal, não AC; comportamento entregue completo. **Pendência:** validação de mesa.
+
+> **2026-07-05 (2): 0010 (interação do jogador) IMPLEMENTADA** — jogador com ferramentas
+> Selecionar/Régua/Apontar, move o PRÓPRIO token (throttle 300ms + final, gated por
+> `canMove` no cliente e rules v2 no servidor), ping por duplo-clique, apontador e régua
+> compartilhados (canal `live_{uid}`, throttle 250ms, staleness 6s), Sync View (mestre 📡 →
+> jogador segue até pan manual), "Atribuir a…" no ctx menu do token, ciclo de permissão por
+> camada no painel (🚷/👤/👥). Novos: permissions.js, sync/live.js, PingsOverlay.jsx (+2
+> suítes de teste; bug real de throttle pego pelo teste). Gates: 10 suítes/63 testes + build
+> verdes. **Sem mudança de rules** (0009 já cobria). **Pendência:** validação de mesa com 2
+> navegadores (checklist na Task 5 do tasks.md da 0010) + deploy do hosting.
+
+> **2026-07-05: PLANO MESTRE OWLBEAR aprovado (specs 0009–0016)** — paridade com Owlbear Rodeo
+> no editor de mapas; plano em `~/.claude/plans/o-owlbear-foi-analisado-keen-steele.md`.
+> **0009 (fundação de dados v2, ARQUITETURAL) IMPLEMENTADA + rules DEPLOYADAS:** ADR 0006
+> aceito; elementos em docs próprios (`map/{sceneId}/elements/*`), multi-cena com ponteiro
+> `map/state`, 7 camadas Owlbear, fog por shapes (SVG mask), grid objeto, migração lazy
+> idempotente (Firestore, pelo mestre ao abrir) + fase 3 do migrateScene (localStorage).
+> Novos módulos: schema.js, migrations.js, grid.js, sync/campaignSync2.js, sync/elementDiff.js;
+> campaignSync.js v1 REMOVIDO. Gates: 8 suítes/49 testes + build verdes.
+> **Pendência 0009:** validação manual das rules (AC-5, checklist no tasks.md da 0009) e da
+> mesa com 2 navegadores (AC-1/3/6); deploy do app (hosting) após validação.
+> **Próximas fases:** 0010 (interação do jogador) e 0011 (camadas/anexos) — podem rodar em
+> paralelo, ambas só dependem da 0009.
 
 > **0008 (editor Owlbear fase 1) implementada 2026-07-04:** ferramenta de desenho
 > (livre/linha/retângulo/círculo, cor+espessura, preview), tokens com imagem (`img_tok_*`),
@@ -21,8 +62,12 @@ alwaysApply: true
 > **2026-07-04 (2):** rules do mapa endurecidas e DEPLOYADAS — escrita só do mestre (ADR 0005 §4
 > fechado). Trilhas de Especialista (Infiltrador/Técnico) **BLOQUEADAS**: textos oficiais dos
 > poderes 40/65/99% não verificáveis via web com confiança — parafrasear do livro físico (Andre).
-> F7 (App.jsx < 400 linhas, spec 0002 T4) é o próximo grande passo — começar em sessão nova
-> (refactor grande demais para o fim desta).
+> **2026-07-04 (3): F7 CONCLUÍDA** — spec 0002 fechada: footer extraído p/ `AppFooter` (módulo),
+> função `App()` = 385 linhas (AC-4 verde via comando da spec). Gates: build + 7 suítes/41 testes
+> verdes. AC-5 (regressão zero) aguarda teste manual no browser (login → ficha → campanha).
+> **Bug em produção descoberto 2026-07-04:** login Google falha em playnexusrpg.com —
+> domínio não está em Authorized domains do Firebase Auth (Console → Authentication →
+> Settings → Authorized domains → adicionar `playnexusrpg.com`). Manual do Andre.
 
 ## Em andamento / próximo passo
 - **Missão SaaS — plano F1→F7 (aprovado 2026-07-02):** F1–F6 implementadas
@@ -36,9 +81,11 @@ alwaysApply: true
   (Cinzel) intocados
 - **AINDA PENDENTE (Vercel, manual do Andre):** env vars `FIREBASE_WEB_API_KEY` (obrigatória —
   sem ela `/api/ai` falha fechado) e `MERCADOPAGO_WEBHOOK_SECRET` (recomendada)
-- **Próximo passo:** validação manual da mesa → F7 do plano; backlog: rules mestre-only no mapa
-  (ADR 0005 §4), trilhas de Especialista faltantes
-- `0002-split-app-jsx` parcialmente entregue (hooks useAuth/useCharacter/useCampaign criados, usados pelo App root e testados); Task 4 (App.jsx enxuto) continua na F7 da missão
+- **Próximo passo:** validações manuais do Andre — (1) mesa com 2 navegadores, (2) fluxos pós-F7
+  no browser (AC-5 da 0002), (3) domínio `playnexusrpg.com` nos Authorized domains do Firebase
+  Auth, (4) env vars Vercel; backlog: trilhas de Especialista faltantes
+- `0002-split-app-jsx` **CONCLUÍDA 2026-07-04** (F7): hooks useAuth/useCharacter/useCampaign +
+  App() enxuto (385 linhas, AC-4); AC-5 pendente de teste manual no browser
 
 ## Decisões recentes
 - 2026-07-03: F5 (spec 0006) — verificação contra o oficial REFUTOU a auditoria em PV/PE/peTurno (código já era fiel; **migração de máximos descartada**). Fixes reais: DT de rituais agora calculada (10 + NEX/5 + PRE + bônus; campo manual legado migra p/ bônus, idempotente), deslocamento oficial 9m/6q (era 6+AGI), NEX_LADDER com marcos oficiais (trilha 10/40/65/99, atributo 20/50/80/95, afinidade só no 50), PATENTES = tabela oficial de 5 por Pontos de Prestígio (`patenteForPrestigio`; `patenteForNex` removido)
@@ -74,8 +121,9 @@ alwaysApply: true
 - [x] Task 1: criar `src/hooks/useAuth.js`
 - [x] Task 2: criar `src/hooks/useCharacter.js`
 - [x] Task 3: criar `src/hooks/useCampaign.js`
-- [ ] Task 4: refatorar App.jsx para < 400 linhas (→ F7 da missão)
-- [ ] Task 5: rodar testes — 3 hooks com 1 teste verde cada
+- [x] Task 4: refatorar App.jsx para < 400 linhas — feito 2026-07-04 (App() = 385 linhas)
+- [x] Task 5: rodar testes — 7 suítes/41 testes verdes, cobertura em `coverage/` (2026-07-04)
+- [ ] Adicionar `playnexusrpg.com` aos Authorized domains (Firebase Console → Authentication → Settings) — login Google quebrado em produção até lá (manual)
 - [x] Spec `0002-split-app-jsx` — todos os artefatos criados
 - [x] Configurar GitHub Actions (ci.yml — build + testes + cobertura)
 - [x] Secrets do Firebase configurados no GitHub

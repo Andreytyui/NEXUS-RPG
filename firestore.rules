@@ -94,11 +94,32 @@ service cloud.firestore {
           );
       }
 
-      // ── Mapa da campanha (VTT) — leitura p/ membros; escrita SÓ do mestre ────
-      // (fecha o backlog do ADR 0005 §4; fase 2 do ping exigirá regra própria)
+      // ── Mapa da campanha (VTT) v2 — spec 0009 / ADR 0006 ─────────────────────
+      // Docs da coleção map: state (ponteiro), cenas s_* (meta), img_* (imutáveis),
+      // live_{uid} (canal efêmero). Escrita geral só do mestre; membro escreve apenas
+      // o próprio live_{uid}.
       match /map/{docId} {
         allow read: if request.auth != null && isMember(campaignId);
         allow write: if request.auth != null && isMaster(campaignId);
+        allow write: if request.auth != null && isMember(campaignId)
+          && docId == 'live_' + request.auth.uid;
+
+        // Elementos da cena em docs próprios — jogador gated pelas permissions da cena
+        // (dormente até a spec 0010; mestre tem write total).
+        match /elements/{elId} {
+          allow read: if request.auth != null && isMember(campaignId);
+          allow write: if request.auth != null && isMaster(campaignId);
+          allow create: if request.auth != null && isMember(campaignId)
+            && request.resource.data.ownerId == request.auth.uid
+            && layerPerm(campaignId, docId, request.resource.data.layerId, 'create') == true;
+          allow update: if request.auth != null && isMember(campaignId)
+            && resource.data.ownerId == request.auth.uid
+            && layerPerm(campaignId, docId, resource.data.layerId, 'update') == 'owner'
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['x', 'y', 'rotation']);
+          allow delete: if request.auth != null && isMember(campaignId)
+            && resource.data.ownerId == request.auth.uid
+            && layerPerm(campaignId, docId, resource.data.layerId, 'delete') == 'owner';
+        }
       }
     }
 
@@ -138,6 +159,13 @@ service cloud.firestore {
 
     function onlyUpdatingFields(fields) {
       return request.resource.data.diff(resource.data).affectedKeys().hasOnly(fields);
+    }
+
+    // Permissão da camada declarada no doc da cena (spec 0009 / ADR 0006 §6).
+    // Devolve o valor cru (true/'owner'/'all'/...) ou false se não configurada.
+    function layerPerm(campaignId, sceneId, layerId, action) {
+      let perms = get(/databases/$(database)/documents/campaigns/$(campaignId)/map/$(sceneId)).data.permissions;
+      return (layerId in perms && action in perms[layerId]) ? perms[layerId][action] : false;
     }
   }
 }

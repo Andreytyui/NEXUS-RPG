@@ -1,6 +1,19 @@
 import { useState, useEffect, useRef, useReducer } from 'react';
 import { historyReducer, initialHistoryState, DEFAULT_LAYERS } from './reducer.js';
-import { subscribeCampaignMap, saveScene, saveImage } from './campaignSync.js';
+import {
+  subscribeMapState, subscribeScenes, subscribeElements, getImage, saveImage,
+  saveSceneMeta, publishElements, setActiveScene as fsSetActiveScene,
+  createScene as fsCreateScene, deleteScene as fsDeleteScene, migrateFirestoreV2,
+  updateElementPos, getCampaignMembers,
+} from './sync/campaignSync2.js';
+import { byId } from './sync/elementDiff.js';
+import { makeLivePublisher, subscribeLive, isFresh } from './sync/live.js';
+import { canMove } from './permissions.js';
+import { anchorOf, findAttachTarget, subtreeIds, wouldCycle, dupSubtree } from './attach.js';
+import { strokeToPoly, pruneContained, hitFogShape } from './fog.js';
+import FogLayer from './FogLayer.jsx';
+import { newElementId } from './schema.js';
+import PingsOverlay from './PingsOverlay.jsx';
 
 const TOOLS = [
   { id: 'select',  label: 'Selecionar (V)', ch: '↖' },
@@ -10,7 +23,9 @@ const TOOLS = [
   { id: 'reveal',  label: 'Revelar (R)',    ch: '👁' },
   { id: 'note',    label: 'Nota (N)',       ch: '📝' },
   { id: 'measure', label: 'Medir (M)',      ch: '📏' },
+  { id: 'pointer', label: 'Apontar',        ch: '👉' },
 ];
+const VIEWER_TOOLS = ['select', 'measure', 'pointer'];
 const COLORS = ['#4ade80','#60a5fa','#f87171','#fbbf24','#c084fc','#f472b6','#34d399','#fb923c','#e2e8f0','#a3e635'];
 
 /* Condições de token (spec 0008 AC-4) e espessuras de desenho (AC-1). */
@@ -70,6 +85,25 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
   const [drawLive,   setDrawLive]   = useState(null);   // preview do traço (coords de mundo)
   const [tokSize,    setTokSize]    = useState(1);      // multiplicador da célula (P/M/G/E)
   const [tokImageId, setTokImageId] = useState(null);   // imagem aplicada aos próximos tokens
+  /* spec 0009 — sync v2 (state → cena ativa → elements) */
+  const [campState,  setCampState]  = useState(null);   // doc map/state ({ v, activeSceneId })
+  const [campScenes, setCampScenes] = useState([]);     // metas kind:'scene' (painel + cena ativa)
+  const [remoteEls,  setRemoteEls]  = useState(null);   // elementos da cena ativa (snapshot)
+  /* spec 0010 — interação do jogador / canal live */
+  const [lives,        setLives]        = useState([]); // docs live_* de todos
+  const [followMaster, setFollowMaster] = useState(true);
+  const [camOn,        setCamOn]        = useState(false);
+  const [assignMenu,   setAssignMenu]   = useState(null); // { elId, members: [{uid,name}] }
+  const livePubRef      = useRef(null);
+  const moveThrottleRef = useRef(0);
+  /* spec 0012 — fog avançada */
+  const [fogShape,      setFogShape]      = useState('rect'); // rect|circle|poly|free
+  const [fogEdit,       setFogEdit]       = useState(false);  // sub-modo edição 🧽
+  const [fogSel,        setFogSel]        = useState(null);   // id da shape de fog selecionada
+  const [fogDraft,      setFogDraft]      = useState(null);   // preview de poly/free pendente
+  const [previewPlayer, setPreviewPlayer] = useState(false);  // 👁 visão do jogador (AC-5)
+  const fogPolyRef = useRef(null);  // polígono clique-a-clique pendente
+  const fogFreeRef = useRef(null);  // traço livre em andamento
 
   const containerRef     = useRef(null);
   const bgInputRef       = useRef(null);
@@ -84,20 +118,22 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
   const drawRef          = useRef(null);
   const fogDragRef       = useRef(null);
   const tokImgInputRef   = useRef(null);
+  const replaceInputRef  = useRef(null); // spec 0011 AC-7: substituir imagem
+  const replaceTargetRef = useRef(null);
   const migrationDoneRef = useRef(false);
   const elementDownRef   = useRef(false);
   const stateRef         = useRef({});
 
   const scene    = scenes.find(s => s.id === activeScene) || scenes[0];
   const elements = scene.elements || [];
-  const gridSize = scene.gridSize || 70;
+  const gridSize = scene.grid?.size || scene.gridSize || 70;
   const bgSize   = scene.bgSize   || { w: 3000, h: 2000 };
   const layers   = scene.layers   || DEFAULT_LAYERS;
   const layerOrder = Object.fromEntries(layers.map((l, i) => [l.id, i]));
   const mapW     = bgSize.w;
   const mapH     = bgSize.h;
 
-  stateRef.current = { pan, scale, scene, tool, selIds, elements, gridSize, snapGrid, imageStore };
+  stateRef.current = { pan, scale, scene, tool, selIds, elements, gridSize, snapGrid, imageStore, fogShape, fogEdit, fogSel };
 
   function screenToWorld(sx, sy) {
     const { pan: p, scale: s } = stateRef.current;
@@ -107,33 +143,59 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
     const r = containerRef.current.getBoundingClientRect();
     return { x: e.clientX - r.left, y: e.clientY - r.top };
   }
-  function fogKey(wx, wy) {
-    const gs = stateRef.current.gridSize;
-    return `${Math.floor(wx / gs)},${Math.floor(wy / gs)}`;
-  }
   function snap(x, y) {
     if (!stateRef.current.snapGrid) return { x, y };
     const gs = stateRef.current.gridSize;
     return { x: Math.round(x / gs) * gs, y: Math.round(y / gs) * gs };
   }
 
-  /* Névoa por área (spec 0008 AC-5): aplica o retângulo de células entre o início do arrasto
-     e o cursor sobre o conjunto-base capturado no mousedown (preview ao vivo, sem acumular). */
-  function applyFogRect(wx, wy) {
+  /* Névoa por arrasto (0009: rect célula-alinhado; 0012 AC-1: círculo centro→raio):
+     o arrasto vira UMA shape aplicada sobre as shapes-base do mousedown (preview ao vivo). */
+  function applyFogDrag(wx, wy) {
     const drag = fogDragRef.current; if (!drag) return;
-    const gs = stateRef.current.gridSize, sc = stateRef.current.scene;
-    const c1 = Math.floor(Math.min(drag.wx, wx) / gs), c2 = Math.floor(Math.max(drag.wx, wx) / gs);
-    const r1 = Math.floor(Math.min(drag.wy, wy) / gs), r2 = Math.floor(Math.max(drag.wy, wy) / gs);
-    const st = new Set(drag.base);
-    for (let r = r1; r <= r2; r++) for (let c = c1; c <= c2; c++) {
-      const k = `${c},${r}`;
-      if (fogModeRef.current === 'add') st.add(k); else st.delete(k);
+    const sc = stateRef.current.scene;
+    const op = fogModeRef.current === 'add' ? 'add' : 'cut';
+    let shape;
+    if (drag.kind === 'circle') {
+      shape = { id: drag.shapeId, op, type: 'circle', cx: Math.round(drag.wx), cy: Math.round(drag.wy), r: Math.max(6, Math.round(Math.hypot(wx - drag.wx, wy - drag.wy))) };
+    } else {
+      const gs = stateRef.current.gridSize;
+      const c1 = Math.floor(Math.min(drag.wx, wx) / gs), c2 = Math.floor(Math.max(drag.wx, wx) / gs);
+      const r1 = Math.floor(Math.min(drag.wy, wy) / gs), r2 = Math.floor(Math.max(drag.wy, wy) / gs);
+      shape = { id: drag.shapeId, op, type: 'rect', x: c1 * gs, y: r1 * gs, w: (c2 - c1 + 1) * gs, h: (r2 - r1 + 1) * gs };
     }
-    dispatch({ type: 'PATCH_SCENE', sceneId: sc.id, patch: { fogCells: [...st] } });
+    dispatch({ type: 'PATCH_SCENE', sceneId: sc.id, patch: {
+      fog: { v: 2, fillAll: !!sc.fog?.fillAll, shapes: [...drag.base, shape] },
+    } });
+  }
+  /* Poda por contenção no commit (spec 0012 AC-6) — dispatch extra só quando muda. */
+  function pruneFog() {
+    const sc = stateRef.current.scene;
+    const shapes = sc.fog?.shapes || [];
+    const pruned = pruneContained(shapes);
+    if (pruned !== shapes) upScene({ fog: { ...sc.fog, shapes: pruned } });
+  }
+  function commitFogShape(op, type, points) {
+    if (!points || points.length < 3) return; // degenerado → sem efeito (borda da spec)
+    const sc = stateRef.current.scene;
+    const shape = { id: 'fog_' + Date.now(), op, type, points };
+    upScene({ fog: { v: 2, fillAll: !!sc.fog?.fillAll, shapes: pruneContained([...(sc.fog?.shapes || []), shape]) } });
+  }
+  function commitFogPoly() {
+    const pend = fogPolyRef.current;
+    fogPolyRef.current = null; setFogDraft(null);
+    if (pend) commitFogShape(pend.op, 'poly', pend.pts.map(p => ({ x: Math.round(p.x), y: Math.round(p.y) })));
+  }
+  function removeFogShape(id) {
+    const sc = stateRef.current.scene;
+    upScene({ fog: { ...sc.fog, shapes: (sc.fog?.shapes || []).filter(s => s.id !== id) } });
+    setFogSel(null);
   }
 
   function upScene(patch) { dispatch({ type: 'PATCH_SCENE', sceneId: stateRef.current.scene.id, patch }); }
-  function addEl(el)       { dispatch({ type: 'ADD_ELEMENT',    sceneId: stateRef.current.scene.id, element: el }); }
+  /* Metadados v2 (ownerId/parentId/z) entram em todo elemento novo; spread do el preserva os
+     campos de um duplicado. */
+  function addEl(el)       { dispatch({ type: 'ADD_ELEMENT',    sceneId: stateRef.current.scene.id, element: { ownerId: uid ?? null, parentId: null, z: Date.now(), rotation: 0, ...el } }); }
   function updateEl(id, p) { dispatch({ type: 'UPDATE_ELEMENT', sceneId: stateRef.current.scene.id, id, patch: p }); }
   function deleteEl(id)    { dispatch({ type: 'DELETE_ELEMENT', sceneId: stateRef.current.scene.id, id }); }
   function deleteEls(ids)  { dispatch({ type: 'DELETE_ELEMENTS', sceneId: stateRef.current.scene.id, ids }); }
@@ -142,37 +204,92 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
   useEffect(() => { if (campaignMode) return; try { localStorage.setItem('nexus_scene_bgs', JSON.stringify(bgImages)); } catch {} }, [bgImages, campaignMode]);
   useEffect(() => { if (campaignMode) return; try { localStorage.setItem('nexus_image_bgs', JSON.stringify(imageStore)); } catch {} }, [imageStore, campaignMode]);
 
-  /* ── modo campanha: hidratação + tempo real (spec 0007) ── */
-  const loadedRef   = useRef(false); // 1ª carga concluída (libera autosave do mestre)
-  const uploadedRef = useRef(new Set()); // imagens já persistidas (evita re-upload/eco)
+  /* ── modo campanha: sync v2 (spec 0009 / ADR 0006) ── */
+  const loadedRef   = useRef(false);      // 1ª carga da cena ativa concluída (libera autosave)
+  const uploadedRef = useRef(new Set());  // imagens já persistidas (evita re-upload/eco)
+  const fetchingRef = useRef(new Set());  // imagens em download (getDoc on-demand)
+  const lastPubRef  = useRef({});         // último byId publicado (base do diff)
+  const lastMetaRef = useRef('');         // último meta JSON salvo (evita write por drag)
+
+  /* migração lazy (mestre) + assinaturas de state e metas de cena */
   useEffect(() => {
     if (!campaignMode || !db) return;
-    const unsub = subscribeCampaignMap(db, campaignId, {
-      onImages: (imgs, fromSelf) => {
-        Object.keys(imgs).forEach((k) => uploadedRef.current.add(k));
-        if (!fromSelf) setImageStore((prev) => ({ ...prev, ...imgs }));
-      },
-      onScene: (remote, fromSelf) => {
-        if (fromSelf) return;
-        if (!remote) { loadedRef.current = true; return; } // mesa nova: mestre cria no 1º autosave
-        // Mestre aplica só a 1ª carga (não clobbera edição local); jogador aplica tudo.
-        if (isMaster && loadedRef.current) return;
-        dispatch({ type: 'LOAD_SCENES', scenes: [remote] });
-        setActiveScene(remote.id);
-        loadedRef.current = true;
-      },
-    });
-    return () => unsub();
+    let unsubState, unsubScenes, cancelled = false;
+    (async () => {
+      if (isMaster) {
+        try { await migrateFirestoreV2(db, campaignId, uid); }
+        catch (e) { console.error('[mesa] migração v2 falhou:', e); }
+      }
+      if (cancelled) return;
+      unsubState  = subscribeMapState(db, campaignId, setCampState);
+      unsubScenes = subscribeScenes(db, campaignId, (metas) => setCampScenes(metas));
+    })();
+    return () => { cancelled = true; unsubState?.(); unsubScenes?.(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [campaignId]);
 
-  /* mestre: autosave debounced da cena ativa */
+  /* elementos da cena ativa (re-assina na troca de cena) */
+  useEffect(() => {
+    if (!campaignMode || !db) return;
+    const sid = campState?.activeSceneId;
+    if (!sid) return;
+    loadedRef.current = false;
+    setRemoteEls(null);
+    const unsub = subscribeElements(db, campaignId, sid, (els, fromSelf) => {
+      // Mestre ignora o eco dos próprios batches após a 1ª carga.
+      if (isMaster && fromSelf && loadedRef.current) return;
+      setRemoteEls(els);
+    });
+    return unsub;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [campState?.activeSceneId]);
+
+  /* montagem: meta + elementos → cena única no reducer (jogador aplica tudo; mestre só 1ª carga) */
+  useEffect(() => {
+    if (!campaignMode) return;
+    const sid = campState?.activeSceneId;
+    if (!sid || remoteEls === null) return;
+    const meta = campScenes.find(s => s.id === sid)
+      || (campScenes.length ? campScenes[0] : null); // cena ativa apagada → 1ª disponível
+    if (!meta) return;
+    if (isMaster && loadedRef.current && activeScene === meta.id) return;
+    const assembled = { ...meta, elements: [...remoteEls].sort((a, b) => (a.z ?? 0) - (b.z ?? 0)) };
+    dispatch({ type: 'LOAD_SCENES', scenes: [assembled] });
+    setActiveScene(meta.id);
+    lastPubRef.current = byId(assembled.elements);
+    const { elements: _e, ...m } = assembled;
+    lastMetaRef.current = JSON.stringify(m);
+    loadedRef.current = true;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [campState, campScenes, remoteEls]);
+
+  /* mestre: autosave v2 — meta da cena (debounce 1s, só quando o meta muda) */
   useEffect(() => {
     if (!campaignMode || !isMaster || !db || !loadedRef.current) return;
     const t = setTimeout(() => {
       const sc = scenes.find((s) => s.id === activeScene) || scenes[0];
-      if (sc) saveScene(db, campaignId, uid, sc);
-    }, 1200);
+      if (!sc) return;
+      const { elements: _e, ...meta } = sc;
+      const json = JSON.stringify(meta);
+      if (json === lastMetaRef.current) return;
+      lastMetaRef.current = json;
+      saveSceneMeta(db, campaignId, uid, sc);
+    }, 1000);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scenes, activeScene]);
+
+  /* mestre: autosave v2 — elementos por diff batcheado (debounce 300ms) */
+  useEffect(() => {
+    if (!campaignMode || !isMaster || !db || !loadedRef.current) return;
+    const t = setTimeout(() => {
+      const sc = scenes.find((s) => s.id === activeScene) || scenes[0];
+      if (!sc) return;
+      const next = byId(sc.elements);
+      const prev = lastPubRef.current;
+      lastPubRef.current = next;
+      publishElements(db, campaignId, sc.id, prev, next);
+    }, 300);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scenes, activeScene]);
@@ -183,12 +300,60 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
     Object.entries(imageStore).forEach(([id, data]) => {
       if (!id.startsWith('img_') || uploadedRef.current.has(id)) return;
       uploadedRef.current.add(id);
-      saveImage(db, campaignId, id, data).then((stored) => {
-        if (stored && stored !== data) setImageStore((prev) => ({ ...prev, [id]: stored }));
+      saveImage(db, campaignId, id, data).then((r) => {
+        if (r && r.data !== data) setImageStore((prev) => ({ ...prev, [id]: r.data }));
       });
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [imageStore]);
+
+  /* ── spec 0010: canal live (ping/apontador/régua/câmera) ── */
+  useEffect(() => {
+    if (!campaignMode || !db || !uid) return;
+    const name = localStorage.getItem('nexus_profile_name') || (isMaster ? 'Mestre' : 'Jogador');
+    const color = COLORS[[...String(uid)].reduce((s, c) => s + c.charCodeAt(0), 0) % COLORS.length];
+    livePubRef.current = makeLivePublisher(db, campaignId, uid, { name, color, master: !!isMaster });
+    const unsub = subscribeLive(db, campaignId, setLives);
+    return () => { unsub(); livePubRef.current?.destroy(); livePubRef.current = null; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [campaignId, uid]);
+
+  /* apontador desliga ao trocar de ferramenta */
+  useEffect(() => {
+    if (tool !== 'pointer') livePubRef.current?.publish({ pointer: null });
+  }, [tool]);
+
+  /* mestre: Sync View — publica a câmera enquanto ligado (AC-6) */
+  useEffect(() => {
+    if (!campaignMode || !isMaster || !livePubRef.current) return;
+    livePubRef.current.publish(camOn ? { cam: { x: pan.x, y: pan.y, s: scale }, camOn: true } : { camOn: false });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [camOn, pan, scale]);
+
+  /* jogador: segue a câmera do mestre até pan/zoom manual (AC-6) */
+  const masterCam = viewer ? lives.find(l => l.master && l.camOn && isFresh(l)) : null;
+  useEffect(() => {
+    if (!viewer || !followMaster || !masterCam?.cam) return;
+    setPan({ x: masterCam.cam.x, y: masterCam.cam.y });
+    setScale(masterCam.cam.s);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewer, followMaster, masterCam?.cam?.x, masterCam?.cam?.y, masterCam?.cam?.s]);
+
+  /* todos: baixa on-demand imagens referenciadas que faltam no store (fim do onSnapshot global) */
+  useEffect(() => {
+    if (!campaignMode || !db) return;
+    elements.forEach((el) => {
+      const id = el.imageId;
+      if (!id || imageStore[id] || fetchingRef.current.has(id)) return;
+      fetchingRef.current.add(id);
+      getImage(db, campaignId, id).then((data) => {
+        uploadedRef.current.add(id); // já existe no servidor — não re-subir
+        if (data) setImageStore((prev) => ({ ...prev, [id]: data }));
+        fetchingRef.current.delete(id);
+      });
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [elements, imageStore]);
 
   /* one-time migration: old single bgImages → image elements */
   useEffect(() => {
@@ -257,6 +422,20 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
     reader.readAsDataURL(file);
   }
 
+  /* Substituir imagem mantendo posição/tamanho/rotação (spec 0011 AC-7). */
+  function replaceImage(file) {
+    const elId = replaceTargetRef.current;
+    if (!file?.type.startsWith('image/') || !elId) return;
+    const reader = new FileReader();
+    reader.onload = ev => {
+      const imageId = 'img_' + Date.now();
+      setImageStore(prev => ({ ...prev, [imageId]: ev.target.result }));
+      updateEl(elId, { imageId });
+      replaceTargetRef.current = null;
+    };
+    reader.readAsDataURL(file);
+  }
+
   function toggleCondition(id, emoji) {
     const el = stateRef.current.elements.find(e => e.id === id);
     if (!el) return;
@@ -264,12 +443,26 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
     updateEl(id, { conditions: cur.includes(emoji) ? cur.filter(c => c !== emoji) : [...cur, emoji] });
   }
 
-  function addScene() {
+  /* Multi-cena (spec 0009 AC-3): no modo campanha as cenas vivem no Firestore
+     (metas em campScenes) e a ativa é o ponteiro map/state. */
+  async function addScene() {
+    if (campaignMode) {
+      const id = await fsCreateScene(db, campaignId, uid, 'Cena ' + (campScenes.length + 1));
+      await fsSetActiveScene(db, campaignId, uid, id);
+      return;
+    }
     const id = 's' + Date.now();
     dispatch({ type: 'ADD_SCENE', id });
     setActiveScene(id);
   }
-  function deleteScene(id) {
+  async function deleteScene(id) {
+    if (campaignMode) {
+      if (campScenes.length <= 1) return;
+      const next = campScenes.find(s => s.id !== id);
+      if (campState?.activeSceneId === id) await fsSetActiveScene(db, campaignId, uid, next.id);
+      await fsDeleteScene(db, campaignId, id);
+      return;
+    }
     if (scenes.length <= 1) return;
     const next = scenes.find(s => s.id !== id);
     dispatch({ type: 'DELETE_SCENE', sceneId: id });
@@ -277,37 +470,57 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
     if (activeScene === id) setActiveScene(next.id);
   }
   function renameScene(id) {
-    const sc = scenes.find(s => s.id === id);
+    const list = campaignMode ? campScenes : scenes;
+    const sc = list.find(s => s.id === id);
     const n = window.prompt('Nome da cena:', sc?.name || 'Cena');
-    if (n?.trim()) dispatch({ type: 'RENAME_SCENE', sceneId: id, name: n.trim() });
+    if (!n?.trim()) return;
+    if (campaignMode && id !== activeScene) { saveSceneMeta(db, campaignId, uid, { ...sc, name: n.trim() }); return; }
+    dispatch({ type: 'RENAME_SCENE', sceneId: id, name: n.trim() });
+  }
+  function switchScene(id) {
+    if (campaignMode) { if (isMaster && id !== campState?.activeSceneId) fsSetActiveScene(db, campaignId, uid, id); return; }
+    setActiveScene(id);
   }
 
   function toggleHide(id)    { const el = stateRef.current.elements.find(e => e.id === id); if (el) updateEl(id, { hidden: !el.hidden }); }
   function toggleLock(id)    { const el = stateRef.current.elements.find(e => e.id === id); if (el) updateEl(id, { locked: !el.locked }); }
   function toggleSpectre(id) { const el = stateRef.current.elements.find(e => e.id === id); if (el) updateEl(id, { spectre: !el.spectre }); }
+  /* Duplicar traz a subárvore junto (spec 0011 AC-5). */
   function dupEl(id) {
-    const el = stateRef.current.elements.find(e => e.id === id);
-    if (el) addEl({ ...el, id: Date.now(), x: el.x + 30, y: el.y + 30 });
+    const { elements: els, scene: sc } = stateRef.current;
+    const copies = dupSubtree(els, id, newElementId);
+    if (copies.length) dispatch({ type: 'ADD_ELEMENTS', sceneId: sc.id, elements: copies });
+  }
+  /* Z-order dentro da camada (spec 0011 AC-6). */
+  function bringToFront(id) {
+    const { elements: els } = stateRef.current;
+    const el = els.find(e => e.id === id); if (!el) return;
+    const zs = els.filter(e => e.layerId === el.layerId).map(e => e.z ?? 0);
+    updateEl(id, { z: Math.max(...zs) + 1 });
+  }
+  function sendToBack(id) {
+    const { elements: els } = stateRef.current;
+    const el = els.find(e => e.id === id); if (!el) return;
+    const zs = els.filter(e => e.layerId === el.layerId).map(e => e.z ?? 0);
+    updateEl(id, { z: Math.min(...zs) - 1 });
   }
   function editLabel(id) {
     const el = stateRef.current.elements.find(e => e.id === id);
     const nl = window.prompt('Rótulo:', el?.label || '');
     if (nl !== null) updateEl(id, { label: nl || '?' });
   }
-  function coverFog() {
-    const { scene: sc } = stateRef.current;
-    const cells = [];
-    for (let r = 0; r < Math.ceil(sc.bgSize.h / sc.gridSize); r++)
-      for (let c = 0; c < Math.ceil(sc.bgSize.w / sc.gridSize); c++) cells.push(`${c},${r}`);
-    upScene({ fogCells: cells });
-  }
+  function coverFog() { upScene({ fog: { v: 2, fillAll: true, shapes: [] } }); }
+  function clearFog() { upScene({ fog: { v: 2, fillAll: false, shapes: [] } }); }
   function autoFog() {
-    const { scene: sc } = stateRef.current;
-    const cols = Math.ceil(sc.bgSize.w / sc.gridSize), rows = Math.ceil(sc.bgSize.h / sc.gridSize);
-    const ex = new Set(sc.fogCells);
-    for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++)
-      if (r < 2 || c < 2 || r >= rows - 2 || c >= cols - 2) ex.add(`${c},${r}`);
-    upScene({ fogCells: [...ex] });
+    const { scene: sc, gridSize: gs } = stateRef.current;
+    const cols = Math.ceil(sc.bgSize.w / gs), rows = Math.ceil(sc.bgSize.h / gs);
+    const border = [
+      { x: 0, y: 0, w: cols * gs, h: 2 * gs },
+      { x: 0, y: (rows - 2) * gs, w: cols * gs, h: 2 * gs },
+      { x: 0, y: 0, w: 2 * gs, h: rows * gs },
+      { x: (cols - 2) * gs, y: 0, w: 2 * gs, h: rows * gs },
+    ].map((r, i) => ({ id: `fog_b${Date.now()}${i}`, op: 'add', type: 'rect', ...r }));
+    upScene({ fog: { v: 2, fillAll: !!sc.fog?.fillAll, shapes: [...(sc.fog?.shapes || []), ...border] } });
   }
   function alignSelected(axis, dir) {
     const { elements: els, selIds: sids, scene: sc } = stateRef.current;
@@ -331,16 +544,41 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
       dispatch({ type: 'UPDATE_ELEMENT', sceneId: sc.id, id: el.id, patch: { layerId } })
     );
   }
+  /* spec 0010 AC-2/AC-3 — controles do mestre */
+  async function openAssignMenu(elId) {
+    const members = await getCampaignMembers(db, campaignId);
+    setAssignMenu({ elId, members });
+  }
+  function cyclePerm(layerId) {
+    const { scene: sc } = stateRef.current;
+    const cur = sc.permissions?.[layerId]?.update || 'none';
+    const next = cur === 'none' ? 'owner' : cur === 'owner' ? 'all' : 'none';
+    upScene({ permissions: { ...(sc.permissions || {}), [layerId]: { ...(sc.permissions?.[layerId] || {}), update: next } } });
+  }
   function dupSelected() {
     const { elements: els, selIds: sids, scene: sc } = stateRef.current;
-    els.filter(el => sids.has(el.id)).forEach(el =>
-      dispatch({ type: 'ADD_ELEMENT', sceneId: sc.id, element: { ...el, id: Date.now() + (Math.random() * 999 | 0), x: el.x + 30, y: el.y + 30 } })
-    );
+    // Descendente de outro selecionado não vira raiz (senão duplicaria 2×).
+    const selected = [...sids];
+    const covered = new Set();
+    selected.forEach(id => subtreeIds(els, id).forEach(d => { if (d !== id) covered.add(d); }));
+    const roots = selected.filter(id => !covered.has(id));
+    const copies = roots.flatMap(id => dupSubtree(els, id, newElementId));
+    if (copies.length) dispatch({ type: 'ADD_ELEMENTS', sceneId: sc.id, elements: copies });
   }
 
   useEffect(() => {
     function onKey(e) {
       const { selIds: sids, elements: els, scene: sc } = stateRef.current;
+      // Jogador (spec 0010): sem atalhos destrutivos/de edição — só Esc limpa a seleção.
+      if (viewer) { if (e.key === 'Escape') setSelIds(new Set()); return; }
+      // Fog 0012: Enter fecha polígono pendente; Esc cancela; Delete apaga forma selecionada.
+      if (fogPolyRef.current) {
+        if (e.key === 'Enter') { e.preventDefault(); commitFogPoly(); return; }
+        if (e.key === 'Escape') { fogPolyRef.current = null; setFogDraft(null); return; }
+      }
+      if (stateRef.current.fogSel && (e.key === 'Delete' || e.key === 'Backspace')) {
+        e.preventDefault(); removeFogShape(stateRef.current.fogSel); return;
+      }
       if ((e.ctrlKey || e.metaKey) && e.key === 'z') { e.preventDefault(); dispatch({ type: 'UNDO' }); return; }
       if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.shiftKey && e.key === 'Z'))) { e.preventDefault(); dispatch({ type: 'REDO' }); return; }
       if ((e.ctrlKey || e.metaKey) && e.key === 'a') {
@@ -383,6 +621,8 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
     e.stopPropagation();
     elementDownRef.current = true;
     if (e.button === 2) return;
+    // Jogador (spec 0010 AC-1): só interage com o que as permissões da cena autorizam.
+    if (viewer && !canMove(sc, el, uid, false)) return;
     if (e.shiftKey) {
       setSelIds(prev => { const n = new Set(prev); n.has(el.id) ? n.delete(el.id) : n.add(el.id); return n; });
       return;
@@ -398,7 +638,15 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
         origins[e2.id] = { ox: wp.x - e2.x, oy: wp.y - e2.y };
         draggableIds.push(e2.id);
       });
-      dragRef.current = { ids: draggableIds, origins, positions: null };
+      // Auto-grudar (spec 0011): a subárvore acompanha o pai no arrasto.
+      const expanded = new Set(draggableIds);
+      draggableIds.forEach(id => subtreeIds(els, id).forEach(d => expanded.add(d)));
+      expanded.forEach(id => {
+        if (origins[id]) return;
+        const e2 = els.find(x => x.id === id);
+        if (e2) origins[id] = { ox: wp.x - e2.x, oy: wp.y - e2.y };
+      });
+      dragRef.current = { ids: [...expanded], rootIds: draggableIds, origins, positions: null };
     }
   }
 
@@ -409,7 +657,7 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
     const { x: sx, y: sy } = clientXY(e);
     const wp = screenToWorld(sx, sy);
 
-    if (e.button === 2) { e.preventDefault(); setCtxMenu({ x: e.clientX, y: e.clientY, type: 'map' }); return; }
+    if (e.button === 2) { e.preventDefault(); if (!viewer) setCtxMenu({ x: e.clientX, y: e.clientY, type: 'map' }); return; }
     if (e.button === 1 || (e.button === 0 && e.altKey)) {
       panRef.current = { mx: e.clientX, my: e.clientY, ox: stateRef.current.pan.x, oy: stateRef.current.pan.y }; return;
     }
@@ -422,18 +670,41 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
       return;
     }
     if (t === 'fog' || t === 'reveal') {
+      const op = t === 'fog' ? 'add' : 'cut';
+      const fs = stateRef.current.fogShape;
+      if (stateRef.current.fogEdit) { // sub-modo edição (spec 0012 AC-7)
+        const hitS = hitFogShape(stateRef.current.scene.fog?.shapes || [], wp.x, wp.y);
+        setFogSel(hitS?.id || null);
+        return;
+      }
+      if (fs === 'poly') { // clique-a-clique (AC-2); fecha perto do 1º ponto
+        const pend = fogPolyRef.current;
+        if (!pend) fogPolyRef.current = { op, pts: [{ x: wp.x, y: wp.y }] };
+        else {
+          const first = pend.pts[0];
+          if (pend.pts.length >= 3 && Math.hypot(wp.x - first.x, wp.y - first.y) < 12 / stateRef.current.scale) { commitFogPoly(); return; }
+          pend.pts.push({ x: wp.x, y: wp.y });
+        }
+        setFogDraft({ type: 'poly', op, pts: [...fogPolyRef.current.pts] });
+        return;
+      }
       fogRef.current = true; fogModeRef.current = t === 'fog' ? 'add' : 'del';
-      fogDragRef.current = { wx: wp.x, wy: wp.y, base: new Set(stateRef.current.scene.fogCells) };
-      applyFogRect(wp.x, wp.y);
+      if (fs === 'free') { // traço livre (AC-3) — commit no onUp
+        fogFreeRef.current = { op, pts: [{ x: wp.x, y: wp.y }] };
+        setFogDraft({ type: 'free', op, pts: [...fogFreeRef.current.pts] });
+        return;
+      }
+      fogDragRef.current = { kind: fs === 'circle' ? 'circle' : 'rect', wx: wp.x, wy: wp.y, base: [...(stateRef.current.scene.fog?.shapes || [])], shapeId: 'fog_' + Date.now() };
+      applyFogDrag(wp.x, wp.y);
     } else if (t === 'token') {
       const sn = snap(wp.x, wp.y);
-      addEl({ id: Date.now(), type: 'token', layerId: 'layer-tokens', x: sn.x, y: sn.y, color: tokColor, label: tokLabel || '?', size: Math.max(18, Math.round(stateRef.current.gridSize * tokSize)), imageId: tokImageId, conditions: [], hidden: false, locked: false, spectre: false });
+      addEl({ id: Date.now(), type: 'token', layerId: 'layer-character', x: sn.x, y: sn.y, color: tokColor, label: tokLabel || '?', size: Math.max(18, Math.round(stateRef.current.gridSize * tokSize)), imageId: tokImageId, conditions: [], hidden: false, locked: false, spectre: false });
     } else if (t === 'draw') {
       drawRef.current = { shape: drawMode, color: drawColor, strokeWidth: drawWidth, pts: [{ x: wp.x, y: wp.y }] };
       setDrawLive({ ...drawRef.current, pts: [...drawRef.current.pts] });
     } else if (t === 'note') {
       const txt = window.prompt('Texto da nota:');
-      if (txt?.trim()) addEl({ id: Date.now(), type: 'note', layerId: 'layer-objects', x: wp.x, y: wp.y, text: txt.trim(), hidden: false, locked: false, spectre: false });
+      if (txt?.trim()) addEl({ id: Date.now(), type: 'note', layerId: 'layer-note', x: wp.x, y: wp.y, text: txt.trim(), hidden: false, locked: false, spectre: false });
     } else if (t === 'measure') {
       measureRef.current = { x1: wp.x, y1: wp.y }; setMeasureLine({ x1: wp.x, y1: wp.y, x2: wp.x, y2: wp.y });
     }
@@ -442,7 +713,20 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
   function onMove(e) {
     if (panRef.current) {
       const { mx, my, ox, oy } = panRef.current;
+      if (viewer) setFollowMaster(false); // pan manual solta o Sync View (AC-6)
       setPan({ x: ox + e.clientX - mx, y: oy + e.clientY - my }); return;
+    }
+    // Polígono de fog pendente: preview do próximo segmento até o cursor (spec 0012 AC-2).
+    if (fogPolyRef.current && !fogRef.current) {
+      const { x: sx, y: sy } = clientXY(e); const wp = screenToWorld(sx, sy);
+      setFogDraft({ type: 'poly', op: fogPolyRef.current.op, pts: [...fogPolyRef.current.pts], cursor: wp });
+      return;
+    }
+    // Apontador (spec 0010 AC-5): publica a posição contínua, sem depender de drag.
+    if (stateRef.current.tool === 'pointer') {
+      const { x: sx, y: sy } = clientXY(e); const wp = screenToWorld(sx, sy);
+      livePubRef.current?.publish({ pointer: { x: wp.x, y: wp.y } });
+      return;
     }
     if (resizeRef.current) {
       const { x: sx, y: sy } = clientXY(e); const wp = screenToWorld(sx, sy);
@@ -473,6 +757,16 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
         positions[id] = { x: sn.x, y: sn.y };
       });
       dragRef.current.positions = positions;
+      // Jogador movendo o próprio token: sync ao vivo com throttle ~300ms (AC-1);
+      // subárvore filtrada pelo canMove (rules negariam o resto).
+      if (viewer && campaignMode && Date.now() - moveThrottleRef.current > 300) {
+        moveThrottleRef.current = Date.now();
+        const sid = stateRef.current.scene.id;
+        Object.entries(positions).forEach(([id, pos]) => {
+          const e2 = stateRef.current.elements.find(x => x.id === id);
+          if (e2 && canMove(stateRef.current.scene, e2, uid, false)) updateElementPos(db, campaignId, sid, id, pos);
+        });
+      }
       setDragTick(t => t + 1); return;
     }
     if (boxRef.current) {
@@ -481,7 +775,12 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
     }
     if (fogRef.current) {
       const { x: sx, y: sy } = clientXY(e); const wp = screenToWorld(sx, sy);
-      applyFogRect(wp.x, wp.y); return;
+      if (fogFreeRef.current) { // traço livre acumula pontos; commit no onUp (AC-3)
+        fogFreeRef.current.pts.push({ x: wp.x, y: wp.y });
+        setFogDraft({ type: 'free', op: fogFreeRef.current.op, pts: [...fogFreeRef.current.pts] });
+        return;
+      }
+      applyFogDrag(wp.x, wp.y); return;
     }
     if (drawRef.current) {
       const { x: sx, y: sy } = clientXY(e); const wp = screenToWorld(sx, sy);
@@ -493,6 +792,8 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
     if (measureRef.current) {
       const { x: sx, y: sy } = clientXY(e); const wp = screenToWorld(sx, sy);
       setMeasureLine({ ...measureRef.current, x2: wp.x, y2: wp.y });
+      // Régua compartilhada (AC-5)
+      livePubRef.current?.publish({ ruler: { x1: measureRef.current.x1, y1: measureRef.current.y1, x2: wp.x, y2: wp.y } });
     }
   }
 
@@ -506,6 +807,28 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
     }
     if (dragRef.current?.positions) {
       dispatch({ type: 'MOVE_ELEMENTS', sceneId: stateRef.current.scene.id, positions: dragRef.current.positions });
+      // Jogador: posição final no soltar — só dos elementos que as permissões autorizam (AC-1).
+      if (viewer && campaignMode) {
+        const sid = stateRef.current.scene.id;
+        Object.entries(dragRef.current.positions).forEach(([id, pos]) => {
+          const e2 = stateRef.current.elements.find(x => x.id === id);
+          if (e2 && canMove(stateRef.current.scene, e2, uid, false)) updateElementPos(db, campaignId, sid, id, pos);
+        });
+      }
+      // Auto-grudar no soltar (spec 0011, só editor): 1 raiz arrastada decide grudar/desanexar.
+      const roots = dragRef.current.rootIds || [];
+      if (!viewer && roots.length === 1) {
+        const els = stateRef.current.elements;
+        const el = els.find(e2 => e2.id === roots[0]);
+        const pos = dragRef.current.positions[roots[0]];
+        if (el && pos) {
+          const moved = { ...el, x: pos.x, y: pos.y };
+          const a = anchorOf(moved);
+          const target = findAttachTarget(stateRef.current.scene, els, moved, a.x, a.y);
+          const newParent = target && !wouldCycle(els, el.id, target.id) ? target.id : null;
+          if ((el.parentId ?? null) !== newParent) updateEl(el.id, { parentId: newParent });
+        }
+      }
     }
     if (boxRef.current && boxSel && !wasInteracting) {
       const { x1, y1, x2, y2 } = boxSel;
@@ -539,13 +862,32 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
       }
       drawRef.current = null; setDrawLive(null);
     }
+    // Fog 0012: commit do traço livre (AC-3) e poda pós-arrasto rect/círculo (AC-6).
+    if (fogFreeRef.current) {
+      const { op, pts } = fogFreeRef.current;
+      fogFreeRef.current = null; setFogDraft(null);
+      commitFogShape(op, 'free', strokeToPoly(pts, 4));
+    } else if (fogRef.current && fogDragRef.current) {
+      pruneFog();
+    }
     elementDownRef.current = false;
     panRef.current = null; dragRef.current = null; resizeRef.current = null; rotateRef.current = null;
+    if (measureRef.current) livePubRef.current?.publish({ ruler: null });
     fogRef.current = false; fogDragRef.current = null; measureRef.current = null; boxRef.current = null; setBoxSel(null);
+  }
+
+  /* Duplo-clique: fecha polígono de fog pendente (spec 0012 AC-2) ou pinga (spec 0010 AC-4). */
+  function onDoubleClick(e) {
+    if (fogPolyRef.current) { commitFogPoly(); return; }
+    if (!campaignMode) return;
+    const { x: sx, y: sy } = clientXY(e);
+    const wp = screenToWorld(sx, sy);
+    livePubRef.current?.publish({ ping: { x: wp.x, y: wp.y, at: Date.now() } });
   }
 
   function onWheel(e) {
     e.preventDefault();
+    if (viewer) setFollowMaster(false); // zoom manual solta o Sync View (AC-6)
     const r = containerRef.current.getBoundingClientRect();
     const sx = e.clientX - r.left, sy = e.clientY - r.top;
     const { pan: p, scale: s } = stateRef.current;
@@ -556,7 +898,8 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
   const measureDist = measureLine
     ? Math.round(Math.hypot(measureLine.x2 - measureLine.x1, measureLine.y2 - measureLine.y1) / gridSize * 10) / 10
     : 0;
-  const fogRects   = (scene.fogCells || []).map(k => { const [c, r] = k.split(',').map(Number); return { x: c * gridSize, y: r * gridSize }; });
+  const fog        = scene.fog || { v: 2, fillAll: false, shapes: [] };
+  const asViewer   = viewer || previewPlayer; // spec 0012 AC-5 (preview visão do jogador)
   const gridHalf   = 50000; // world-px padding in each direction for "infinite" grid illusion
   const gridPatOff = gridHalf % gridSize; // aligns pattern so world (0,0) stays on a grid line
   const cursor     = panRef.current ? 'grabbing' : tool === 'fog' || tool === 'reveal' ? 'cell' : tool === 'token' || tool === 'note' || tool === 'measure' || tool === 'draw' ? 'crosshair' : 'default';
@@ -601,6 +944,7 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
         <div style={{ width: 1, height: 20, background: 'rgba(255,255,255,0.08)' }} />
         <button style={topBtn} onClick={() => bgInputRef.current?.click()}>🖼 Adicionar Imagem</button>
         <input ref={bgInputRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={e => { loadBg(e.target.files?.[0]); e.target.value = ''; }} />
+        <input ref={replaceInputRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={e => { replaceImage(e.target.files?.[0]); e.target.value = ''; }} />
         <div style={{ width: 1, height: 20, background: 'rgba(255,255,255,0.08)' }} />
         </>)}
         <button style={{ ...topBtn, padding: '5px 8px' }} onClick={() => { setScale(1); setPan({ x: 60, y: 60 }); }}>⌂</button>
@@ -617,11 +961,11 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
               <button onClick={addScene} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.5)', cursor: 'pointer', fontSize: 20, lineHeight: 1, padding: '0 4px' }} title="Nova cena">+</button>
             </div>
             <div style={{ display: 'flex', overflowX: 'auto', padding: '0 8px 8px', gap: 6, flexShrink: 0 }}>
-              {scenes.map(sc => {
-                const firstImgEl = (sc.elements || []).find(el => el.type === 'image');
+              {(campaignMode ? campScenes : scenes).map(sc => {
+                const firstImgEl = ((sc.id === activeScene ? elements : sc.elements) || []).find(el => el.type === 'image');
                 const thumbSrc = firstImgEl ? imageStore[firstImgEl.imageId] : bgImages[sc.id];
                 return (
-                  <div key={sc.id} onClick={() => setActiveScene(sc.id)}
+                  <div key={sc.id} onClick={() => switchScene(sc.id)}
                     style={{ flexShrink: 0, width: 72, borderRadius: 6, cursor: 'pointer', border: `1px solid ${sc.id === activeScene ? 'rgba(168,85,247,0.5)' : 'rgba(255,255,255,0.06)'}`, background: sc.id === activeScene ? 'rgba(168,85,247,0.1)' : 'rgba(255,255,255,0.02)', overflow: 'hidden' }}>
                     <div style={{ aspectRatio: '16/9', background: '#0d0d1a', position: 'relative', overflow: 'hidden' }}>
                       {thumbSrc ? <img src={thumbSrc} alt="" draggable={false} style={{ width: '100%', height: '100%', objectFit: 'cover', opacity: 0.8 }} /> : <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, opacity: 0.15 }}>🗺</div>}
@@ -630,7 +974,7 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
                     <div style={{ padding: '3px 4px 4px', display: 'flex', alignItems: 'center', gap: 2 }}>
                       <span style={{ flex: 1, fontSize: 9, color: sc.id === activeScene ? '#fff' : 'rgba(255,255,255,0.55)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{sc.name}</span>
                       <button onClick={e => { e.stopPropagation(); renameScene(sc.id); }} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.25)', cursor: 'pointer', fontSize: 9, padding: '1px 2px' }} title="Renomear">✏</button>
-                      {scenes.length > 1 && <button onClick={e => { e.stopPropagation(); deleteScene(sc.id); }} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.25)', cursor: 'pointer', fontSize: 9, padding: '1px 2px' }} title="Excluir">✕</button>}
+                      {(campaignMode ? campScenes : scenes).length > 1 && <button onClick={e => { e.stopPropagation(); deleteScene(sc.id); }} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.25)', cursor: 'pointer', fontSize: 9, padding: '1px 2px' }} title="Excluir">✕</button>}
                     </div>
                   </div>
                 );
@@ -650,6 +994,16 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
                         style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, padding: 0, opacity: layer.visible ? 1 : 0.3, color: 'rgba(255,255,255,0.7)' }} title="Visibilidade">👁</button>
                       <button onClick={() => dispatch({ type: 'SET_LAYER_PROP', sceneId: scene.id, layerId: layer.id, prop: 'locked', value: !layer.locked })}
                         style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, padding: 0, opacity: layer.locked ? 1 : 0.3, color: 'rgba(255,255,255,0.7)' }} title="Travar">🔒</button>
+                      {campaignMode && (() => {
+                        const p = scene.permissions?.[layer.id]?.update || 'none';
+                        const icon = p === 'owner' ? '👤' : p === 'all' ? '👥' : '🚷';
+                        const label = p === 'owner' ? 'dono move' : p === 'all' ? 'todos movem' : 'só o mestre';
+                        return (
+                          <button onClick={() => cyclePerm(layer.id)}
+                            style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, padding: 0, opacity: p === 'none' ? 0.3 : 1, color: 'rgba(255,255,255,0.7)' }}
+                            title={`Jogadores: ${label} (clique para alternar)`}>{icon}</button>
+                        );
+                      })()}
                       <span style={{ flex: 1, fontSize: 11, color: 'rgba(255,255,255,0.65)' }}>{layer.name}</span>
                       <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.25)', fontFamily: 'monospace' }}>{cnt}</span>
                     </div>
@@ -669,6 +1023,7 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
         <div ref={containerRef}
           style={{ flex: 1, position: 'relative', overflow: 'hidden', cursor }}
           onMouseDown={onDown} onMouseMove={onMove} onMouseUp={onUp} onMouseLeave={onUp}
+          onDoubleClick={onDoubleClick}
           onWheel={onWheel} onContextMenu={e => e.preventDefault()}
           onDrop={e => { e.preventDefault(); loadBg(e.dataTransfer.files?.[0]); }} onDragOver={e => e.preventDefault()}>
 
@@ -684,11 +1039,11 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
             </div>
           )}
 
-          {/* viewer: elementos sem pointer-events ⇒ clique cai no container (pan/zoom apenas) */}
-          <div style={{ position: 'absolute', top: 0, left: 0, transform: `translate(${pan.x}px,${pan.y}px) scale(${scale})`, transformOrigin: '0 0', width: mapW, height: mapH, pointerEvents: viewer ? 'none' : undefined }}>
+          {/* spec 0010: viewer interage por elemento (canMove) — sem pointer-events global */}
+          <div style={{ position: 'absolute', top: 0, left: 0, transform: `translate(${pan.x}px,${pan.y}px) scale(${scale})`, transformOrigin: '0 0', width: mapW, height: mapH }}>
 
             {/* IMAGE ELEMENTS */}
-            {elements.filter(el => el.type === 'image' && (!viewer || (!el.hidden && !el.spectre))).map(img => {
+            {elements.filter(el => el.type === 'image' && (!asViewer || (!el.hidden && !el.spectre))).sort((a, b) => (a.z ?? 0) - (b.z ?? 0)).map(img => {
               const layer = layers.find(l => l.id === img.layerId);
               if (layer && !layer.visible) return null;
               const src = imageStore[img.imageId];
@@ -747,15 +1102,12 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
               </svg>
             )}
 
-            {/* FOG */}
-            {fogRects.length > 0 && (
-              <svg style={{ position: 'absolute', top: 0, left: 0, width: mapW, height: mapH, pointerEvents: 'none', zIndex: 200 }} xmlns="http://www.w3.org/2000/svg">
-                {fogRects.map(({ x, y }, i) => <rect key={i} x={x} y={y} width={gridSize} height={gridSize} fill={viewer ? 'rgba(0,0,0,0.98)' : 'rgba(0,0,0,0.88)'} />)}
-              </svg>
-            )}
+            {/* FOG v2 (spec 0012) — mask sequencial + draft + seleção no FogLayer */}
+            <FogLayer fog={fog} mapW={mapW} mapH={mapH} gridHalf={gridHalf} asViewer={asViewer}
+              draft={fogDraft} selectedId={fogEdit ? fogSel : null} scale={scale} />
 
             {/* TOKENS */}
-            {elements.filter(el => el.type === 'token' && (!viewer || (!el.hidden && !el.spectre))).map(t => {
+            {elements.filter(el => el.type === 'token' && (!asViewer || (!el.hidden && !el.spectre))).sort((a, b) => (a.z ?? 0) - (b.z ?? 0)).map(t => {
               const tokLayer = layers.find(l => l.id === t.layerId);
               if (tokLayer && !tokLayer.visible) return null;
               const isSel = selIds.has(t.id);
@@ -771,11 +1123,12 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
                   border: isSel ? '2.5px solid #a855f7' : `2.5px solid ${tokImg ? t.color : 'rgba(255,255,255,0.85)'}`,
                   boxShadow: isSel ? `0 0 0 3px rgba(168,85,247,0.5),0 0 14px ${t.color}99` : `0 0 14px ${t.color}99,0 2px 8px rgba(0,0,0,0.5)`,
                   display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: Math.max(11, Math.round(t.size * 0.3)), fontWeight: 700, color: '#fff',
-                  filter: t.spectre ? 'blur(1.5px)' : 'none', cursor: (t.locked || tokLayer?.locked) ? 'not-allowed' : 'grab', zIndex: (layerOrder[t.layerId] ?? 0) * 10 + 5,
+                  filter: t.spectre ? 'blur(1.5px)' : 'none', cursor: viewer ? (canMove(scene, t, uid, false) ? 'grab' : 'not-allowed') : ((t.locked || tokLayer?.locked) ? 'not-allowed' : 'grab'), zIndex: (layerOrder[t.layerId] ?? 0) * 10 + 5,
+                  pointerEvents: viewer && !canMove(scene, t, uid, false) ? 'none' : undefined,
                   textShadow: '0 1px 3px rgba(0,0,0,0.8)', transition: 'opacity 0.2s,box-shadow 0.15s',
                 }}
                   onMouseDown={e => onElementDown(e, t)}
-                  onContextMenu={e => { e.preventDefault(); e.stopPropagation(); setSelIds(new Set([t.id])); setCtxMenu({ x: e.clientX, y: e.clientY, type: 'token', tokenId: t.id }); }}>
+                  onContextMenu={e => { e.preventDefault(); e.stopPropagation(); if (viewer) return; setSelIds(new Set([t.id])); setCtxMenu({ x: e.clientX, y: e.clientY, type: 'token', tokenId: t.id }); }}>
                   {tokImg
                     ? <img src={tokImg} draggable={false} style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '50%', pointerEvents: 'none' }} />
                     : (t.label || '?').charAt(0).toUpperCase()}
@@ -793,7 +1146,7 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
             })}
 
             {/* DRAWINGS (spec 0008 AC-1) */}
-            {elements.filter(el => el.type === 'drawing' && (!viewer || (!el.hidden && !el.spectre))).map(d => {
+            {elements.filter(el => el.type === 'drawing' && (!asViewer || (!el.hidden && !el.spectre))).sort((a, b) => (a.z ?? 0) - (b.z ?? 0)).map(d => {
               const dLayer = layers.find(l => l.id === d.layerId);
               if (dLayer && !dLayer.visible) return null;
               const isSel = selIds.has(d.id);
@@ -826,7 +1179,7 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
             )}
 
             {/* NOTES */}
-            {elements.filter(el => el.type === 'note' && (!viewer || (!el.hidden && !el.spectre))).map(n => {
+            {elements.filter(el => el.type === 'note' && (!asViewer || (!el.hidden && !el.spectre))).sort((a, b) => (a.z ?? 0) - (b.z ?? 0)).map(n => {
               const noteLayer = layers.find(l => l.id === n.layerId);
               if (noteLayer && !noteLayer.visible) return null;
               const isSel = selIds.has(n.id);
@@ -839,10 +1192,10 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
                   onMouseDown={e => onElementDown(e, n)}>
                   {n.text}
                   {n.locked && <span style={{ position: 'absolute', top: -5, right: -5, fontSize: 9, background: 'rgba(0,0,0,0.75)', borderRadius: '50%', width: 14, height: 14, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>🔒</span>}
-                  <button
+                  {!viewer && <button
                     onMouseDown={e => e.stopPropagation()}
                     onClick={e => { e.stopPropagation(); deleteEl(n.id); }}
-                    style={{ position: 'absolute', top: -7, right: -7, width: 17, height: 17, borderRadius: '50%', background: '#222', border: 'none', color: '#fff', fontSize: 10, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 11 }}>×</button>
+                    style={{ position: 'absolute', top: -7, right: -7, width: 17, height: 17, borderRadius: '50%', background: '#222', border: 'none', color: '#fff', fontSize: 10, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 11 }}>×</button>}
                 </div>
               );
             })}
@@ -855,6 +1208,11 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
                 <circle cx={measureLine.x2} cy={measureLine.y2} r={5 / scale} fill="#fbbf24" />
                 {measureDist > 0 && <text x={(measureLine.x1 + measureLine.x2) / 2} y={(measureLine.y1 + measureLine.y2) / 2 - 10 / scale} fill="#fbbf24" fontSize={13 / scale} textAnchor="middle" fontFamily="Inter,system-ui,sans-serif" fontWeight="700">{measureDist} cel</text>}
               </svg>
+            )}
+
+            {/* PRESENÇA AO VIVO (spec 0010): pings, apontadores e réguas dos participantes */}
+            {campaignMode && lives.length > 0 && (
+              <PingsOverlay lives={lives} selfUid={uid} scale={scale} mapW={mapW} mapH={mapH} />
             )}
           </div>
 
@@ -871,17 +1229,21 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
 
         {/* RIGHT TOOLBAR */}
         <div style={{ position: 'absolute', right: 14, top: '50%', transform: 'translateY(-50%)', zIndex: 30, display: 'flex', flexDirection: 'column', gap: 2, background: 'rgba(22,22,46,0.92)', backdropFilter: 'blur(16px)', border: '1px solid rgba(255,255,255,0.14)', borderRadius: 14, padding: 6 }}>
-          {!viewer && (<>
-          {TOOLS.map(t => <button key={t.id} title={t.label} onClick={() => setTool(t.id)} style={TB(tool === t.id)}>{t.ch}</button>)}
+          {(viewer ? TOOLS.filter(t => VIEWER_TOOLS.includes(t.id)) : TOOLS).map(t => <button key={t.id} title={t.label} onClick={() => setTool(t.id)} style={TB(tool === t.id)}>{t.ch}</button>)}
           <div style={{ height: 1, background: 'rgba(255,255,255,0.08)', margin: '4px 0' }} />
-          </>)}
+          {!viewer && campaignMode && (
+            <button title={camOn ? 'Parar transmissão de câmera' : 'Sync View — transmitir minha câmera'} onClick={() => setCamOn(v => !v)} style={TB(camOn)}>📡</button>
+          )}
+          {viewer && masterCam && !followMaster && (
+            <button title="Seguir a câmera do mestre" onClick={() => setFollowMaster(true)} style={TB(false)}>📡</button>
+          )}
           <button title="Zoom +" onClick={() => setScale(s => Math.min(6, s * 1.2))} style={TB(false)}>＋</button>
           <button title="Zoom -" onClick={() => setScale(s => Math.max(0.08, s / 1.2))} style={TB(false)}>－</button>
           <div style={{ height: 1, background: 'rgba(255,255,255,0.08)', margin: '4px 0' }} />
           <button title="Grade" onClick={() => setShowGrid(g => !g)} style={TB(showGrid)}>⊞</button>
           {!viewer && (<>
           <button title={snapGrid ? 'Snap ativo' : 'Snap à grade'} onClick={() => setSnapGrid(g => !g)} style={TB(snapGrid)}>⊡</button>
-          <button title="Revelar tudo" onClick={() => upScene({ fogCells: [] })} style={TB(false)}>☀</button>
+          <button title="Revelar tudo" onClick={clearFog} style={TB(false)}>☀</button>
           <button title="Cobrir tudo" onClick={coverFog} style={TB(false)}>🌑</button>
           <button title="Painel" onClick={() => setShowLeft(v => !v)} style={TB(showLeft)}>🗂</button>
           </>)}
@@ -928,22 +1290,35 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
         )}
 
         {(tool === 'fog' || tool === 'reveal') && (
-          <div style={{ position: 'absolute', bottom: 16, left: '50%', transform: 'translateX(-50%)', zIndex: 30, background: 'rgba(22,22,46,0.95)', backdropFilter: 'blur(16px)', border: '1px solid rgba(255,255,255,0.14)', borderRadius: 14, padding: '10px 18px', display: 'flex', alignItems: 'center', gap: 10 }}>
-            <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)' }}>Célula:</span>
-            <button onClick={() => upScene({ gridSize: Math.max(20, gridSize - 10) })} style={{ ...TB(false), width: 28, height: 28, borderRadius: 6, fontSize: 14 }}>-</button>
-            <span style={{ fontSize: 13, color: '#fff', fontFamily: 'monospace', minWidth: 32, textAlign: 'center' }}>{gridSize}</span>
-            <button onClick={() => upScene({ gridSize: Math.min(200, gridSize + 10) })} style={{ ...TB(false), width: 28, height: 28, borderRadius: 6, fontSize: 14 }}>+</button>
+          <div style={{ position: 'absolute', bottom: 16, left: '50%', transform: 'translateX(-50%)', zIndex: 30, background: 'rgba(22,22,46,0.95)', backdropFilter: 'blur(16px)', border: '1px solid rgba(255,255,255,0.14)', borderRadius: 14, padding: '10px 18px', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            {/* Formas (spec 0012 AC-1..3) */}
+            {[['rect', '▭', 'Retângulo (células)'], ['circle', '◯', 'Círculo'], ['poly', '⬠', 'Polígono (clique a clique; Enter/duplo-clique fecha; Esc cancela)'], ['free', '✏', 'Traço livre']].map(([m, ch, tt]) => (
+              <button key={m} title={tt} onClick={() => { setFogShape(m); setFogEdit(false); fogPolyRef.current = null; setFogDraft(null); }} style={{ ...TB(fogShape === m && !fogEdit), width: 30, height: 30, borderRadius: 8 }}>{ch}</button>
+            ))}
+            <div style={{ width: 1, height: 20, background: 'rgba(255,255,255,0.1)' }} />
+            <button title="Editar formas de fog (clique seleciona; Delete apaga)" onClick={() => { setFogEdit(v => !v); setFogSel(null); fogPolyRef.current = null; setFogDraft(null); }} style={{ ...TB(fogEdit), width: 30, height: 30, borderRadius: 8 }}>🧽</button>
+            {fogEdit && fogSel && (
+              <button title="Apagar forma selecionada" onClick={() => removeFogShape(fogSel)} style={{ ...TB(false), width: 'auto', padding: '0 10px', height: 30, borderRadius: 8, fontSize: 11, color: 'rgba(248,113,113,0.85)' }}>🗑 Apagar forma</button>
+            )}
+            <button title={previewPlayer ? 'Voltar à visão do mestre' : 'Visão do jogador (preview)'} onClick={() => setPreviewPlayer(v => !v)} style={{ ...TB(previewPlayer), width: 30, height: 30, borderRadius: 8 }}>👁</button>
+            {fogShape === 'rect' && !fogEdit && (<>
+              <div style={{ width: 1, height: 20, background: 'rgba(255,255,255,0.1)' }} />
+              <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)' }}>Célula:</span>
+              <button onClick={() => upScene({ grid: { ...scene.grid, size: Math.max(20, gridSize - 10) } })} style={{ ...TB(false), width: 28, height: 28, borderRadius: 6, fontSize: 14 }}>-</button>
+              <span style={{ fontSize: 13, color: '#fff', fontFamily: 'monospace', minWidth: 32, textAlign: 'center' }}>{gridSize}</span>
+              <button onClick={() => upScene({ grid: { ...scene.grid, size: Math.min(200, gridSize + 10) } })} style={{ ...TB(false), width: 28, height: 28, borderRadius: 6, fontSize: 14 }}>+</button>
+            </>)}
           </div>
         )}
 
         {measureLine && measureDist > 0 && (
           <div style={{ position: 'absolute', bottom: 16, left: '50%', transform: 'translateX(-50%)', zIndex: 30, background: 'rgba(251,191,36,0.12)', border: '1px solid rgba(251,191,36,0.35)', borderRadius: 10, padding: '8px 18px', fontSize: 13, color: '#fbbf24', fontFamily: 'monospace' }}>
-            {measureDist} cel ({Math.round(measureDist * 1.5 * 10) / 10} m)
+            {measureDist} cel ({Math.round(measureDist * (scene.grid?.scale?.value ?? 1.5) * 10) / 10} {scene.grid?.scale?.unit || 'm'})
           </div>
         )}
 
         {/* UNIFIED ACTION TOOLBAR */}
-        {selIds.size > 0 && !measureLine && tool === 'select' && (
+        {!viewer && selIds.size > 0 && !measureLine && tool === 'select' && (
           <div style={{ position: 'absolute', bottom: 16, left: '50%', transform: 'translateX(-50%)', zIndex: 50, background: 'rgba(13,13,24,0.95)', backdropFilter: 'blur(20px)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 14, padding: '8px 12px', display: 'flex', alignItems: 'center', gap: 4 }}
             onClick={e => e.stopPropagation()}>
 
@@ -1019,6 +1394,30 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
           </div>
         )}
 
+        {/* ATRIBUIR DONO (spec 0010 AC-2) */}
+        {assignMenu && (
+          <div style={{ position: 'absolute', inset: 0, zIndex: 2100, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.5)' }}
+            onClick={() => setAssignMenu(null)}>
+            <div style={{ background: 'rgba(13,13,24,0.98)', border: '1px solid rgba(255,255,255,0.14)', borderRadius: 12, padding: '14px 0', minWidth: 240, maxHeight: '60%', overflowY: 'auto' }}
+              onClick={e => e.stopPropagation()}>
+              <div style={{ padding: '0 18px 10px', fontSize: 11, color: 'rgba(255,255,255,0.4)', letterSpacing: 1, textTransform: 'uppercase' }}>Atribuir token a…</div>
+              {assignMenu.members.map(m => {
+                const isOwner = elements.find(e2 => e2.id === assignMenu.elId)?.ownerId === m.uid;
+                return (
+                  <button key={m.uid}
+                    onClick={() => { updateEl(assignMenu.elId, { ownerId: m.uid }); setAssignMenu(null); }}
+                    style={{ display: 'block', width: '100%', textAlign: 'left', padding: '9px 18px', background: isOwner ? 'rgba(168,85,247,0.12)' : 'none', border: 'none', color: isOwner ? '#a855f7' : 'rgba(255,255,255,0.85)', cursor: 'pointer', fontSize: 13 }}
+                    onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.06)'; }}
+                    onMouseLeave={e => { e.currentTarget.style.background = isOwner ? 'rgba(168,85,247,0.12)' : 'none'; }}>
+                    {isOwner ? '✓ ' : ''}{m.name}{m.uid === uid ? ' (você)' : ''}
+                  </button>
+                );
+              })}
+              {!assignMenu.members.length && <div style={{ padding: '6px 18px', fontSize: 12, color: 'rgba(255,255,255,0.35)' }}>Nenhum membro encontrado.</div>}
+            </div>
+          </div>
+        )}
+
         {/* CONTEXT MENU */}
         {ctxMenu && (
           <div style={{ position: 'fixed', left: Math.min(ctxMenu.x, window.innerWidth - 220), top: Math.min(ctxMenu.y, window.innerHeight - 340), zIndex: 2000, background: 'rgba(13,13,24,0.97)', backdropFilter: 'blur(20px)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 10, padding: '6px 0', minWidth: 210, boxShadow: '0 8px 32px rgba(0,0,0,0.6)', fontFamily: 'Inter,system-ui,sans-serif' }}
@@ -1030,6 +1429,10 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
                 { label: '⬚ Duplicar', action: () => { dupEl(ctxMenu.tokenId); setCtxMenu(null); } },
                 { label: 'Tt Editar Rótulo', action: () => { editLabel(ctxMenu.tokenId); setCtxMenu(null); } },
                 { label: elements.find(e => e.id === ctxMenu.tokenId)?.spectre ? '👻 Remover Espectro' : '👻 Espectro', action: () => { toggleSpectre(ctxMenu.tokenId); setCtxMenu(null); } },
+                ...(campaignMode ? [{ label: '🎯 Atribuir a…', action: () => { openAssignMenu(ctxMenu.tokenId); setCtxMenu(null); } }] : []),
+                ...(elements.find(e => e.id === ctxMenu.tokenId)?.parentId ? [{ label: '🔗 Desanexar', action: () => { updateEl(ctxMenu.tokenId, { parentId: null }); setCtxMenu(null); } }] : []),
+                { label: '⬆ Trazer para frente', action: () => { bringToFront(ctxMenu.tokenId); setCtxMenu(null); } },
+                { label: '⬇ Enviar para trás', action: () => { sendToBack(ctxMenu.tokenId); setCtxMenu(null); } },
               ].map((item, i) => (
                 <button key={i} onClick={item.action} style={{ display: 'block', width: '100%', textAlign: 'left', padding: '8px 16px', background: 'none', border: 'none', color: 'rgba(255,255,255,0.8)', cursor: 'pointer', fontSize: 13 }}
                   onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.06)'; }} onMouseLeave={e => { e.currentTarget.style.background = 'none'; }}>{item.label}</button>
@@ -1054,6 +1457,10 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
                 { label: elements.find(e => e.id === ctxMenu.elId)?.hidden ? '👁 Mostrar' : '👁 Ocultar', action: () => { toggleHide(ctxMenu.elId); setCtxMenu(null); } },
                 { label: elements.find(e => e.id === ctxMenu.elId)?.locked ? '🔓 Destravar' : '🔒 Travar', action: () => { toggleLock(ctxMenu.elId); setCtxMenu(null); } },
                 { label: '⬚ Duplicar', action: () => { dupEl(ctxMenu.elId); setCtxMenu(null); } },
+                ...(elements.find(e => e.id === ctxMenu.elId)?.parentId ? [{ label: '🔗 Desanexar', action: () => { updateEl(ctxMenu.elId, { parentId: null }); setCtxMenu(null); } }] : []),
+                { label: '⬆ Trazer para frente', action: () => { bringToFront(ctxMenu.elId); setCtxMenu(null); } },
+                { label: '⬇ Enviar para trás', action: () => { sendToBack(ctxMenu.elId); setCtxMenu(null); } },
+                ...(elements.find(e => e.id === ctxMenu.elId)?.type === 'image' ? [{ label: '🖼 Substituir imagem…', action: () => { replaceTargetRef.current = ctxMenu.elId; replaceInputRef.current?.click(); setCtxMenu(null); } }] : []),
               ].map((item, i) => (
                 <button key={i} onClick={item.action} style={{ display: 'block', width: '100%', textAlign: 'left', padding: '8px 16px', background: 'none', border: 'none', color: 'rgba(255,255,255,0.8)', cursor: 'pointer', fontSize: 13 }}
                   onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.06)'; }} onMouseLeave={e => { e.currentTarget.style.background = 'none'; }}>{item.label}</button>
@@ -1083,7 +1490,7 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
               {[
                 { label: '🌑 Cobrir com Névoa', action: () => { coverFog(); setCtxMenu(null); } },
                 { label: '🌒 Auto Névoa (bordas)', action: () => { autoFog(); setCtxMenu(null); } },
-                { label: '☀ Revelar Tudo', action: () => { upScene({ fogCells: [] }); setCtxMenu(null); } },
+                { label: '☀ Revelar Tudo', action: () => { clearFog(); setCtxMenu(null); } },
               ].map((item, i) => (
                 <button key={i} onClick={item.action} style={{ display: 'block', width: '100%', textAlign: 'left', padding: '8px 16px', background: 'none', border: 'none', color: 'rgba(255,255,255,0.8)', cursor: 'pointer', fontSize: 13 }}
                   onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.06)'; }} onMouseLeave={e => { e.currentTarget.style.background = 'none'; }}>{item.label}</button>

@@ -1,3 +1,7 @@
+import { newScene } from './schema';
+import { migrateSceneV2 } from './migrations';
+
+/* Camadas v1 — mantidas só para as fases 1/2 da migração (cenas pré-v2). */
 export const DEFAULT_LAYERS = [
   { id: 'layer-map',     name: 'Mapa',    type: 'map',     visible: true, locked: true,  opacity: 1 },
   { id: 'layer-tokens',  name: 'Tokens',  type: 'tokens',  visible: true, locked: false, opacity: 1 },
@@ -26,6 +30,8 @@ export function migrateScene(sc) {
   }
   // Phase 2: add layers if still missing (scenes saved before layers were introduced)
   if (!out.layers) out = { ...out, layers: DEFAULT_LAYERS };
+  // Phase 3: schema v2 (spec 0009 / ADR 0006) — 7 camadas, fog shapes, grid objeto
+  out = migrateSceneV2(out);
   return out;
 }
 
@@ -35,11 +41,8 @@ function coreReducer(scenes, action) {
 
   switch (action.type) {
     case 'ADD_SCENE': {
-      const id = action.id || ('s' + Date.now());
-      return [...scenes, {
-        id, name: 'Cena ' + (scenes.length + 1),
-        layers: DEFAULT_LAYERS, elements: [], fogCells: [], gridSize: 70, bgSize: { w: 3000, h: 2000 },
-      }];
+      const sc = newScene('Cena ' + (scenes.length + 1), action.id);
+      return [...scenes, sc];
     }
     case 'DELETE_SCENE':
       return scenes.filter(s => s.id !== sid);
@@ -57,12 +60,15 @@ function coreReducer(scenes, action) {
     }
     case 'DELETE_ELEMENT': {
       const sc = scenes.find(s => s.id === sid);
-      return patch(sid, { elements: sc.elements.filter(el => el.id !== action.id) });
+      // Apagar pai DESANEXA os filhos (spec 0011 AC-4) — não os apaga.
+      return patch(sid, { elements: sc.elements.filter(el => el.id !== action.id)
+        .map(el => el.parentId === action.id ? { ...el, parentId: null } : el) });
     }
     case 'DELETE_ELEMENTS': {
       const sc = scenes.find(s => s.id === sid);
       const ids = new Set(action.ids);
-      return patch(sid, { elements: sc.elements.filter(el => !ids.has(el.id)) });
+      return patch(sid, { elements: sc.elements.filter(el => !ids.has(el.id))
+        .map(el => ids.has(el.parentId) ? { ...el, parentId: null } : el) });
     }
     case 'MOVE_ELEMENTS': {
       const sc = scenes.find(s => s.id === sid);
@@ -119,7 +125,7 @@ export function initialHistoryState(mode) {
     if (raw && raw.length) scenes = raw.map(migrateScene);
   } catch {}
   if (!scenes) {
-    scenes = [{ id: 's1', name: 'Cena 1', layers: DEFAULT_LAYERS, elements: [], fogCells: [], gridSize: 70, bgSize: { w: 3000, h: 2000 } }];
+    scenes = [newScene('Cena 1', 's1')];
   }
   return { past: [], present: scenes, future: [] };
 }
