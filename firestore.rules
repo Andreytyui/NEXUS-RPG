@@ -19,6 +19,13 @@ service cloud.firestore {
       match /characters/{charId} {
         allow read, write: if request.auth != null && request.auth.uid == userId;
       }
+
+      // ── Assets (biblioteca de mapa do usuário — spec 0013 / ADR 0006 §4) ──────
+      // Coleção do próprio usuário, reutilizável entre campanhas. Só o dono lê/escreve;
+      // imagens colocadas na cena são copiadas para a campanha (jogadores nunca leem daqui).
+      match /assets/{assetId} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+      }
     }
 
     // ── Campaigns ─────────────────────────────────────────────────────────────

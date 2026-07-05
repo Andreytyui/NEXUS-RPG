@@ -14,6 +14,11 @@ import { strokeToPoly, pruneContained, hitFogShape } from './fog.js';
 import FogLayer from './FogLayer.jsx';
 import { newElementId } from './schema.js';
 import PingsOverlay from './PingsOverlay.jsx';
+import AssetDock from './AssetDock.jsx';
+import {
+  subscribeAssets, saveAsset, deleteAsset, ASSET_SOFT_CAP,
+  layerForAssetType, assetTypeForElement, assetPlacesAsToken, assetPlacesAsNote,
+} from './assets/assetLib.js';
 
 const TOOLS = [
   { id: 'select',  label: 'Selecionar (V)', ch: '↖' },
@@ -104,6 +109,9 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
   const [previewPlayer, setPreviewPlayer] = useState(false);  // 👁 visão do jogador (AC-5)
   const fogPolyRef = useRef(null);  // polígono clique-a-clique pendente
   const fogFreeRef = useRef(null);  // traço livre em andamento
+  /* spec 0013 — biblioteca de assets do usuário */
+  const [assets,   setAssets]   = useState([]);     // docs users/{uid}/assets/*
+  const [dockOpen, setDockOpen] = useState(false);  // dock 🎒 aberto
 
   const containerRef     = useRef(null);
   const bgInputRef       = useRef(null);
@@ -307,6 +315,12 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [imageStore]);
 
+  /* spec 0013: biblioteca do usuário (independe de campanha — coleção users/{uid}) */
+  useEffect(() => {
+    if (!db || !uid || viewer) return;
+    return subscribeAssets(db, uid, setAssets);
+  }, [db, uid, viewer]);
+
   /* ── spec 0010: canal live (ping/apontador/régua/câmera) ── */
   useEffect(() => {
     if (!campaignMode || !db || !uid) return;
@@ -434,6 +448,79 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
       replaceTargetRef.current = null;
     };
     reader.readAsDataURL(file);
+  }
+
+  /* ── spec 0013: biblioteca de assets ─────────────────────────────────────── */
+  /* Reduz a ~256px p/ thumbnail de asset; devolve {data,w,h,hash} (hash barato p/ dedup local). */
+  function reduceForAsset(dataUrl) {
+    return new Promise(resolve => {
+      if (!dataUrl) { resolve(null); return; }
+      const img = new Image();
+      img.onload = () => {
+        const r = Math.min(1, 256 / Math.max(img.width, img.height));
+        const c = document.createElement('canvas');
+        c.width = Math.max(1, Math.round(img.width * r));
+        c.height = Math.max(1, Math.round(img.height * r));
+        c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+        const data = c.toDataURL('image/jpeg', 0.85);
+        let h = 5381; for (let i = 0; i < data.length; i += 97) h = ((h * 33) ^ data.charCodeAt(i)) >>> 0;
+        resolve({ data, w: c.width, h: c.height, hash: h.toString(16) });
+      };
+      img.onerror = () => resolve(null);
+      img.src = dataUrl;
+    });
+  }
+
+  /* Salvar um token/imagem/nota da cena na biblioteca (AC-1). */
+  async function saveToLibrary(el) {
+    if (!el) return;
+    if (!db || !uid) { alert('Faça login para usar a biblioteca de assets.'); return; }
+    if (assets.length >= ASSET_SOFT_CAP) { alert(`Limite de ${ASSET_SOFT_CAP} assets atingido — remova alguns antes de salvar.`); return; }
+    const type = assetTypeForElement(el);
+    const raw = el.imageId ? stateRef.current.imageStore[el.imageId] : null;
+    if (!raw && type !== 'note') { alert('Este elemento não tem imagem para salvar na biblioteca.'); return; }
+    const name = window.prompt('Nome do asset:', el.label || (el.text || '').slice(0, 24) || 'Asset');
+    if (name == null) return;
+    const tags = (window.prompt('Tags (separadas por vírgula):', '') || '').split(',').map(t => t.trim()).filter(Boolean);
+    const red = raw ? await reduceForAsset(raw) : null;
+    saveAsset(db, uid, {
+      type, name: name.trim() || 'Asset', tags, folder: null,
+      data: red?.data || null, hash: red?.hash || null, w: red?.w || null, h: red?.h || null,
+    });
+  }
+
+  /* Colocar um asset na cena (AC-3/AC-4): imagem copiada p/ a campanha com dedup por hash. */
+  async function placeAsset(asset, worldPos) {
+    if (!asset) return;
+    const wp = worldPos || screenToWorld(
+      (containerRef.current?.clientWidth || 800) / 2,
+      (containerRef.current?.clientHeight || 600) / 2,
+    );
+    const type = asset.type;
+    const layerId = layerForAssetType(type);
+    let imageId = null;
+    if (asset.data) {
+      if (campaignMode) {
+        const r = await saveImage(db, campaignId, null, asset.data); // null → img_a_<hash16> com dedup (0009)
+        if (!r) return;
+        imageId = r.imageId;
+        uploadedRef.current.add(imageId); // já no servidor — não re-subir
+        setImageStore(prev => (prev[imageId] ? prev : { ...prev, [imageId]: r.data }));
+      } else {
+        imageId = 'img_a_' + (asset.hash || asset.id || Date.now().toString(36)); // dedup local por hash
+        setImageStore(prev => (prev[imageId] ? prev : { ...prev, [imageId]: asset.data }));
+      }
+    }
+    const base = { id: Date.now() + (Math.random() * 999 | 0), layerId, hidden: false, locked: false, spectre: false };
+    if (assetPlacesAsNote(type)) {
+      addEl({ ...base, type: 'note', x: Math.round(wp.x), y: Math.round(wp.y), text: asset.name || 'Nota' });
+    } else if (assetPlacesAsToken(type)) {
+      addEl({ ...base, type: 'token', x: Math.round(wp.x), y: Math.round(wp.y),
+        color: tokColor, label: (asset.name || '?').slice(0, 12), size: Math.max(18, Math.round(gridSize)), imageId, conditions: [] });
+    } else {
+      const w = asset.w || 200, h = asset.h || 200;
+      addEl({ ...base, type: 'image', x: Math.round(wp.x - w / 2), y: Math.round(wp.y - h / 2), w, h, imageId });
+    }
   }
 
   function toggleCondition(id, emoji) {
@@ -1025,7 +1112,16 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
           onMouseDown={onDown} onMouseMove={onMove} onMouseUp={onUp} onMouseLeave={onUp}
           onDoubleClick={onDoubleClick}
           onWheel={onWheel} onContextMenu={e => e.preventDefault()}
-          onDrop={e => { e.preventDefault(); loadBg(e.dataTransfer.files?.[0]); }} onDragOver={e => e.preventDefault()}>
+          onDrop={e => {
+            e.preventDefault();
+            const assetId = e.dataTransfer.getData('application/x-nexus-asset'); // spec 0013 AC-3
+            if (assetId) {
+              const asset = assets.find(a => a.id === assetId);
+              if (asset) { const { x: sx, y: sy } = clientXY(e); placeAsset(asset, screenToWorld(sx, sy)); }
+              return;
+            }
+            loadBg(e.dataTransfer.files?.[0]);
+          }} onDragOver={e => e.preventDefault()}>
 
           {!hasImgEls && !bgImages[scene.id] && (
             <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 16, pointerEvents: 'none' }}>
@@ -1246,6 +1342,9 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
           <button title="Revelar tudo" onClick={clearFog} style={TB(false)}>☀</button>
           <button title="Cobrir tudo" onClick={coverFog} style={TB(false)}>🌑</button>
           <button title="Painel" onClick={() => setShowLeft(v => !v)} style={TB(showLeft)}>🗂</button>
+          {db && uid && (
+            <button title="Biblioteca de assets" onClick={() => setDockOpen(v => !v)} style={TB(dockOpen)}>🎒</button>
+          )}
           </>)}
         </div>
 
@@ -1419,6 +1518,12 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
         )}
 
         {/* CONTEXT MENU */}
+        {/* BIBLIOTECA DE ASSETS (spec 0013) — dock inferior, só mestre logado */}
+        {dockOpen && !viewer && db && uid && (
+          <AssetDock assets={assets} onPlace={placeAsset}
+            onDelete={id => deleteAsset(db, uid, id)} onClose={() => setDockOpen(false)} />
+        )}
+
         {ctxMenu && (
           <div style={{ position: 'fixed', left: Math.min(ctxMenu.x, window.innerWidth - 220), top: Math.min(ctxMenu.y, window.innerHeight - 340), zIndex: 2000, background: 'rgba(13,13,24,0.97)', backdropFilter: 'blur(20px)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 10, padding: '6px 0', minWidth: 210, boxShadow: '0 8px 32px rgba(0,0,0,0.6)', fontFamily: 'Inter,system-ui,sans-serif' }}
             onClick={e => e.stopPropagation()}>
@@ -1433,6 +1538,7 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
                 ...(elements.find(e => e.id === ctxMenu.tokenId)?.parentId ? [{ label: '🔗 Desanexar', action: () => { updateEl(ctxMenu.tokenId, { parentId: null }); setCtxMenu(null); } }] : []),
                 { label: '⬆ Trazer para frente', action: () => { bringToFront(ctxMenu.tokenId); setCtxMenu(null); } },
                 { label: '⬇ Enviar para trás', action: () => { sendToBack(ctxMenu.tokenId); setCtxMenu(null); } },
+                ...(db && uid ? [{ label: '🎒 Salvar na biblioteca', action: () => { saveToLibrary(elements.find(e => e.id === ctxMenu.tokenId)); setCtxMenu(null); } }] : []),
               ].map((item, i) => (
                 <button key={i} onClick={item.action} style={{ display: 'block', width: '100%', textAlign: 'left', padding: '8px 16px', background: 'none', border: 'none', color: 'rgba(255,255,255,0.8)', cursor: 'pointer', fontSize: 13 }}
                   onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.06)'; }} onMouseLeave={e => { e.currentTarget.style.background = 'none'; }}>{item.label}</button>
@@ -1461,6 +1567,7 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
                 { label: '⬆ Trazer para frente', action: () => { bringToFront(ctxMenu.elId); setCtxMenu(null); } },
                 { label: '⬇ Enviar para trás', action: () => { sendToBack(ctxMenu.elId); setCtxMenu(null); } },
                 ...(elements.find(e => e.id === ctxMenu.elId)?.type === 'image' ? [{ label: '🖼 Substituir imagem…', action: () => { replaceTargetRef.current = ctxMenu.elId; replaceInputRef.current?.click(); setCtxMenu(null); } }] : []),
+                ...(db && uid ? [{ label: '🎒 Salvar na biblioteca', action: () => { saveToLibrary(elements.find(e => e.id === ctxMenu.elId)); setCtxMenu(null); } }] : []),
               ].map((item, i) => (
                 <button key={i} onClick={item.action} style={{ display: 'block', width: '100%', textAlign: 'left', padding: '8px 16px', background: 'none', border: 'none', color: 'rgba(255,255,255,0.8)', cursor: 'pointer', fontSize: 13 }}
                   onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.06)'; }} onMouseLeave={e => { e.currentTarget.style.background = 'none'; }}>{item.label}</button>

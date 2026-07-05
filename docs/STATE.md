@@ -10,8 +10,21 @@ alwaysApply: true
 > todo. Diferente do **ADR** (decisão durável e imutável). Decisão estrutural → ADR; estado do
 > trabalho → aqui. Atualize ao **pausar/encerrar**; leia ao **retomar**. Use a skill `/handoff`.
 
-**Última atualização:** 2026-07-05 por Claude (0012 — fog avançada implementada)
+**Última atualização:** 2026-07-05 por Claude (0013 — biblioteca de assets implementada)
 
+> **2026-07-05 (6): 0013 (biblioteca de assets) IMPLEMENTADA** — coleção do usuário
+> `users/{uid}/assets/{assetId}` (`{type,name,tags[],folder,data,hash,w,h}`), reutilizável entre
+> campanhas. Dock inferior 🎒 (AssetDock.jsx): abas por tipo (mapa/prop/montaria/personagem/
+> anexo/nota), busca por nome + chips de tag (client-side via `filterAssets`/`assetTags`), grid de
+> miniaturas draggable. "🎒 Salvar na biblioteca" no ctx menu de token/imagem (reduz a ~256px +
+> `saveAsset`, respeita `ASSET_SOFT_CAP=300`). `placeAsset` cria elemento na camada certa
+> (mapa/prop/montaria→image; personagem/anexo→token c/ imagem; nota→note) por clique/drop;
+> em campanha copia a imagem via `saveImage(db,cid,null,data)` → **dedup por hash** `img_a_<hash16>`
+> (reusa 0009; jogador lê da campanha, nunca de `users/`); modo pessoal grava direto no
+> `imageStore`. Novos: `assets/assetLib.js` (puro + Firestore, 9 testes) + `AssetDock.jsx`.
+> Gates: 13 suítes/92 testes + build verdes. **Rule NOVA (`users/{uid}/assets`) — precisa
+> `firebase deploy --only firestore:rules` ANTES do app (manual do Andre).** Pendência: validação
+> de mesa (checklist tasks.md 0013: salvar→dock · arrastar cria · mesmo asset 2×=1 img_a · jogador vê · busca/tag).
 > **2026-07-05 (4): 0012 (fog avançada) IMPLEMENTADA** — formas círculo (arrasto centro→raio),
 > polígono (clique-a-clique; fecha no 1º ponto/duplo-clique/Enter; Esc cancela) e traço livre
 > (Douglas-Peucker ε=4px) em Cobrir/Cortar; poda por contenção no commit (substituiu Join/Trim
@@ -20,6 +33,10 @@ alwaysApply: true
 > igual). Novos: fog.js (geometria pura, 11 testes) + FogLayer.jsx (mask memoizada extraída
 > do index.jsx — decomposição transversal avançou). Gates: 12 suítes/83 testes + build verdes.
 > **Sem mudança de rules/schema.** Pendência: validação de mesa (checklist tasks.md 0012).
+> **2026-07-05 (5): DEPLOY** — commits `6456999` (F7 App.jsx) + `efd7e11` (Owlbear 0009-0012)
+> em `origin/main` (github.com/Andreytyui/NEXUS-RPG); Firebase Hosting deployado
+> (nexus-rpg-app.web.app / playnexusrpg.com). Rules v2 já estavam no ar desde a 0009. Próximo:
+> fase 0013 (biblioteca de assets).
 
 > **2026-07-05 (3): 0011 (camadas Owlbear + anexos) IMPLEMENTADA** — auto-grudar (anexo→
 > personagem, personagem→montaria) por drop; mover pai arrasta a subárvore; apagar pai
@@ -128,3 +145,4 @@ alwaysApply: true
 - [x] Configurar GitHub Actions (ci.yml — build + testes + cobertura)
 - [x] Secrets do Firebase configurados no GitHub
 - [ ] Adicionar testes para `rules.js` (cálculos OP) — pós-split
+- [ ] Deploy 0013 (Firebase): `firebase deploy --only firestore:rules` (regra nova `users/{uid}/assets`) ANTES do app + hosting (manual do Andre)
