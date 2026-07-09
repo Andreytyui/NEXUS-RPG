@@ -1,0 +1,113 @@
+{
+  "_comment": "Ativos gerados via Higgsfield MCP (spec 0017 — redesign animado, Onda 2). Rastreabilidade: cada item guarda job_id, modelo e prompt para regerar. PNGs/MP4/WAV crus foram descartados; só os .webp/.webm/.mp4/.mp3 otimizados vão para o build. Loops idle usam o emblema estático .webp como fallback de prefers-reduced-motion.",
+  "generatedAt": "2026-07-08",
+  "plan": "higgsfield-plus",
+  "creditsSpentApprox": 55.6,
+  "images": [
+    {
+      "file": "img/fog-embers.webp",
+      "role": "Fundo estático (login / seleção)",
+      "briefItem": 1,
+      "jobId": "1efbb74f-871d-4f28-81da-6bbf88625927",
+      "model": "nano_banana_2",
+      "prompt": "Ambient fog and glowing embers texture, near-black background, gothic occult atmosphere, antique gold particles..."
+    },
+    {
+      "file": "img/emblem-op.webp",
+      "role": "Emblema Ordem Paranormal (card seleção / idle) — alfa real",
+      "briefItem": 2,
+      "jobId": "5510e148-4382-49da-864d-6807dc18e168",
+      "bgRemovalJobId": "34d43834-90e3-4825-b0b2-02ece79f0195",
+      "model": "nano_banana_2 + image_background_remover",
+      "prompt": "Ornate arcane occult ritual sigil emblem, glowing violet 'other side' energy, circular seal of cryptic runes and a fractured eye, NOT a pentagram...",
+      "note": "Versão fiel ao clima OP (Outro Lado), substituiu o pentagrama genérico da 1a tentativa."
+    },
+    {
+      "file": "img/emblem-dnd.webp",
+      "role": "Emblema D&D (card seleção / idle) — alfa real",
+      "briefItem": 3,
+      "jobId": "02ee39d9-e999-4e11-ba71-6dea5aefe0e1",
+      "bgRemovalJobId": "ceff7875-8cf6-47f3-a8e2-9d6b4f24cbfc",
+      "model": "nano_banana_2 + image_background_remover",
+      "prompt": "Ornate gothic emblem icon, fierce heraldic dragon coiled around a blade, dragon-red ember energy..."
+    },
+    {
+      "file": "img/emblem-tormenta.webp",
+      "role": "Emblema Tormenta 20 (card seleção / idle) — alfa real",
+      "briefItem": 4,
+      "jobId": "3c51a1f1-d344-4dc5-b40d-f02c58dda4d0",
+      "bgRemovalJobId": "42b6e62e-7f29-48c1-9556-0066b9e0012e",
+      "model": "nano_banana_2 + image_background_remover",
+      "prompt": "Ornate emblem icon, radiant sun-and-leaf motif, verdant emerald green energy with warm gold core...",
+      "note": "Verde (decisão spec 0017) + sol dourado — casa a decisão do accent com o motivo solar do brief."
+    },
+    {
+      "file": "img/logo-n.webp",
+      "role": "Logo letra N (login) — ouro envelhecido com runas, alfa real",
+      "briefItem": 5,
+      "jobId": "2b96128a-1c4c-4488-b51f-1f5b5cfed7b6",
+      "bgRemovalJobId": "cc8f1d45-a91e-4c3c-beba-8cc29e8bda1a",
+      "model": "nano_banana_2 + image_background_remover",
+      "prompt": "The capital letter N as an ornate emblem, antique gold metal with engraved occult runes..."
+    }
+  ],
+  "videos": [
+    {
+      "file": "video/fog-loop.mp4 + .webm",
+      "poster": "video/fog-poster.jpg",
+      "role": "Loop ambiente de fundo (login/seleção)",
+      "briefItem": 6,
+      "jobId": "1d1bed7a-aff3-4ee7-a8fe-e001c6ea4e16",
+      "model": "kling3_0_turbo (image-to-video de fog-embers)",
+      "duration": 5, "resolution": "720p"
+    },
+    {
+      "file": "video/idle-op.mp4 + .webm",
+      "role": "Idle do card OP (sigilo girando, runas pulsando, olho brilha)",
+      "briefItem": 7,
+      "jobId": "362c8407-e18b-4ee7-bd2f-33bb51413a43",
+      "model": "kling3_0_turbo (image-to-video de emblem OP)",
+      "duration": 5, "resolution": "720p"
+    },
+    {
+      "file": "video/idle-dnd.mp4 + .webm",
+      "role": "Idle do card D&D (dragão respira brasa)",
+      "briefItem": 7,
+      "jobId": "db5f46d2-23d3-4705-89af-31d955c4b041",
+      "model": "kling3_0_turbo", "duration": 5, "resolution": "720p"
+    },
+    {
+      "file": "video/idle-tormenta.mp4 + .webm",
+      "role": "Idle do card Tormenta (folhas balançam, sol pulsa)",
+      "briefItem": 7,
+      "jobId": "ad4571d0-ce83-48e2-81f1-40d24249e10e",
+      "model": "kling3_0_turbo", "duration": 5, "resolution": "720p"
+    },
+    {
+      "file": "video/logo-n.mp4 + .webm",
+      "role": "Logo N giratório (login) — substitui o GLB 3D do brief p/ nao exigir three.js",
+      "briefItem": 5,
+      "jobId": "cbdc5f8a-b135-4eec-badc-4ae5c1cf7c56",
+      "model": "kling3_0_turbo (image-to-video de logo-n)",
+      "duration": 5, "resolution": "720p"
+    }
+  ],
+  "audio": [
+    {
+      "file": "audio/narracao-mestre.mp3",
+      "role": "Voz do 'Ajudante do Mestre' (narração de amostra, tom grave)",
+      "briefItem": 9,
+      "jobId": "1609fd4f-f611-407f-ac29-ff40174d1bef",
+      "model": "seed_audio (voz preset 'Vlad')",
+      "durationSec": 11.5,
+      "lang": "pt-BR",
+      "note": "Pronúncia PT-BR não verificada auditivamente pelo agente; validar de ouvido."
+    }
+  ],
+  "notImplemented": [
+    "briefItem 8 — explainer video 30s (caro; adiado por orçamento)",
+    "briefItem 10 — dublagem (depende do explainer)",
+    "briefItem 11 — trilha ambiente/música: IMPOSSÍVEL neste conector (generate_audio só faz fala; modelos de música/SFX são exclusivos do pipeline de jogos). Usar biblioteca de trilha licenciada.",
+    "briefItem 12 — SFX de UI: IMPOSSÍVEL neste conector (mesma limitação). Usar biblioteca de SFX."
+  ]
+}

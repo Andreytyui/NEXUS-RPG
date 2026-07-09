@@ -31,6 +31,8 @@ export const SYSTEM_THEMES = {
       accent: "#c9a84c",          // corrupted gold
       accent2: "#e8c96d",
       accentDim: "#a07830",
+      cardAccent: "#b030d8",      // arcane 'Outro Lado' purple — card/selection identity only (spec 0017 Q1)
+      cardAccent2: "#d870f8",
       secondary: "#8e6dbf",       // keeps legacy --purple readable
       secondaryText: "#c8a8f0",
       paranormal: "#4a0e6e",      // deep Outro Lado violet (fills/rituals)
@@ -139,3 +141,24 @@ export const getTheme = (systemId) =>
 
 /** Which fully-themed sheet component a system maps to (used for lazy routing). */
 export const getSheetComponent = (systemId) => getTheme(systemId).sheetComponent;
+
+/**
+ * Resolve the accent a system shows on the SELECTION SCREEN / cards.
+ * Single source of truth for AC-6: the card accent derives from the same
+ * registry that themes the system from the inside. `cardAccent` lets a system
+ * carry a distinct selection-screen identity (OP = arcane purple) while its
+ * in-system chrome stays on `accent` (gold); systems without it fall back to
+ * `accent`, so D&D = red and Tormenta = green with no divergence.
+ * @returns {{ accent: string, accentText: string, accentGlow: string }}
+ */
+export const getCardAccent = (systemId) => {
+  const c = getTheme(systemId).colors;
+  const accent = c.cardAccent || c.accent;
+  const accentText = c.cardAccent2 || c.accent2;
+  const h = String(accent).replace("#", "");
+  const n = h.length === 3 ? h.split("").map((x) => x + x).join("") : h;
+  const r = parseInt(n.slice(0, 2), 16);
+  const g = parseInt(n.slice(2, 4), 16);
+  const b = parseInt(n.slice(4, 6), 16);
+  return { accent, accentText, accentGlow: `rgba(${r},${g},${b},0.32)` };
+};

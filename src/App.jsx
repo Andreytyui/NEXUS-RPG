@@ -1,6 +1,8 @@
-import { useState, useEffect, useRef, lazy, Suspense } from "react";
+import { useState, useEffect, useLayoutEffect, useRef, lazy, Suspense } from "react";
 import { createPortal } from "react-dom";
 import { ThemeStyles } from "./themes/ThemeProvider";
+import { SYSTEM_THEMES, getCardAccent } from "./themes";
+import { EASE_HOVER, DUR_ENTER } from "./themes/motion";
 import { ELEMENTOS, getElementTheme } from "./components/systems/OrdemParanormal/elementos";
 import ElementoSymbol from "./components/systems/OrdemParanormal/ElementoSymbol";
 import DossierCard from "./components/systems/OrdemParanormal/DossierCard";
@@ -479,8 +481,98 @@ const G = () => (
       .login-logo-mobile{display:none !important}
       .login-quote-mobile{display:none !important}
     }
+
+    /* ══ SPEC 0017 — MOTION LANGUAGE + AMBIENT (Higgsfield assets) ══ */
+    /* Ambient video/poster backdrop (login + seleção) */
+    .nx-ambient{position:fixed;inset:0;z-index:0;pointer-events:none;overflow:hidden}
+    .nx-ambient video,.nx-ambient img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;opacity:0.45}
+    .nx-ambient::after{content:"";position:absolute;inset:0;
+      background:radial-gradient(ellipse at 50% 25%,transparent 0%,var(--bg) 88%),
+                 linear-gradient(to bottom,rgba(0,0,0,0.55),transparent 35%,var(--bg))}
+    /* Staggered entrance — parent sets --i on children via inline style */
+    @keyframes nx-stagger-in{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:translateY(0)}}
+    .nx-stagger>*{opacity:0;animation:nx-stagger-in 0.5s cubic-bezier(0.16,1,0.3,1) both;
+      animation-delay:calc(var(--i,0)*70ms)}
+    /* Diagonal shimmer sweep (botão / selo) via pseudo-element */
+    @keyframes nx-shimmer{0%{transform:translateX(-130%) skewX(-18deg)}60%,100%{transform:translateX(240%) skewX(-18deg)}}
+    .nx-shimmer{position:relative;overflow:hidden}
+    .nx-shimmer::after{content:"";position:absolute;top:0;left:0;height:100%;width:38%;
+      background:linear-gradient(100deg,transparent,rgba(255,255,255,0.35),transparent);
+      transform:translateX(-130%) skewX(-18deg);animation:nx-shimmer 4.5s ease-in-out infinite;pointer-events:none}
+    /* Per-system idle video inside the selection card icon, revealed on hover */
+    .card-idle-vid{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;
+      opacity:0;transition:opacity 0.35s ease}
+    .sys-card:hover .card-idle-vid,.sys-card:focus-visible .card-idle-vid{opacity:1}
+    /* Carrossel: dot ativo preenche com o tempo (7s = intervalo do quote) */
+    @keyframes nx-dot-fill{from{width:0}to{width:100%}}
+    .nx-progress-dot{position:relative;overflow:hidden}
+    .nx-progress-dot::after{content:"";position:absolute;left:0;top:0;bottom:0;width:0;
+      background:linear-gradient(90deg,var(--gold3),var(--gold2));border-radius:3px;
+      animation:nx-dot-fill 7s linear forwards}
+    /* Login field — gold underline that DRAWS in on focus (AC-2); focus is essential so it stays under reduced-motion, just snaps */
+    .nx-field{position:relative}
+    .nx-field::after{content:"";position:absolute;left:0;right:0;bottom:0;height:2px;border-radius:2px;
+      background:linear-gradient(90deg,var(--gold3),var(--gold2),var(--gold3));
+      transform:scaleX(0);transform-origin:center;pointer-events:none;
+      transition:transform 0.35s cubic-bezier(0.16,1,0.3,1)}
+    .nx-field:focus-within::after{transform:scaleX(1)}
+    /* Login sigil ring — draws itself once, then breathes; ticks rotate slowly (AC-2) */
+    @keyframes nx-sigil-draw{from{stroke-dashoffset:290}to{stroke-dashoffset:0}}
+    @keyframes nx-sigil-breathe{0%,100%{opacity:0.5}50%{opacity:0.92}}
+    @keyframes nx-sigil-spin{to{transform:rotate(360deg)}}
+    .nx-sigil-ring{stroke-dasharray:290;stroke-dashoffset:0;
+      animation:nx-sigil-draw 1.5s cubic-bezier(0.16,1,0.3,1) both,nx-sigil-breathe 5s ease-in-out 1.6s infinite}
+    .nx-sigil-ticks{transform-origin:50% 50%;animation:nx-sigil-spin 44s linear infinite}
+
+    /* AC-5 — respeitar prefers-reduced-motion: corta movimento ambiente/loops/stagger */
+    @media(prefers-reduced-motion:reduce){
+      *,*::before,*::after{animation-duration:0.001ms !important;animation-iteration-count:1 !important;
+        transition-duration:0.001ms !important;scroll-behavior:auto !important}
+      .nx-ambient video{display:none}
+      .nx-shimmer::after{display:none}
+      .nx-stagger>*{opacity:1 !important;transform:none !important}
+      .card-idle-vid{display:none}
+    }
   `}</style>
 );
+
+/* Reactive prefers-reduced-motion hook (spec 0017 AC-5). Guards JS-driven
+   effects (video autoplay, tilt) that CSS @media alone can't stop. */
+function useReducedMotion() {
+  const [reduced, setReduced] = useState(
+    () => typeof window !== "undefined" && typeof window.matchMedia === "function"
+      && window.matchMedia("(prefers-reduced-motion: reduce)").matches
+  );
+  useEffect(() => {
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") return;
+    const mq = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const on = () => setReduced(mq.matches);
+    mq.addEventListener ? mq.addEventListener("change", on) : mq.addListener(on);
+    return () => (mq.removeEventListener ? mq.removeEventListener("change", on) : mq.removeListener(on));
+  }, []);
+  return reduced;
+}
+
+/* Ambient fog backdrop (Higgsfield item 1+6). Static poster under reduced
+   motion / slow connections; looping video otherwise. */
+function AmbientBackdrop() {
+  const reduced = useReducedMotion();
+  return (
+    <div className="nx-ambient" aria-hidden="true">
+      {reduced ? (
+        <img src="/assets/higgsfield/video/fog-poster.jpg" alt="" />
+      ) : (
+        <video
+          autoPlay muted loop playsInline
+          poster="/assets/higgsfield/video/fog-poster.jpg"
+        >
+          <source src="/assets/higgsfield/video/fog-loop.webm" type="video/webm" />
+          <source src="/assets/higgsfield/video/fog-loop.mp4" type="video/mp4" />
+        </video>
+      )}
+    </div>
+  );
+}
 
 /* ─── LOGO IMAGE — NEXUS N ─── */
 const NexusLogo = ({ size = 40, animate = false }) => (
@@ -493,6 +585,31 @@ const NexusLogo = ({ size = 40, animate = false }) => (
     style={{ display:"block", objectFit:"contain" }}
   />
 );
+
+/* Arcane rune ring around the login logo — draws itself, then breathes (spec 0017 AC-2).
+   Net-new decorative element; reduced-motion is handled by the global @media (ring settles
+   static, no spin/breathe). Purely visual: aria-hidden + pointer-events none. */
+const NexusSigilRing = ({ size = 160, children }) => {
+  const box = Math.round(size * 1.36);
+  return (
+    <div style={{ position:"relative", width:size, height:size, display:"inline-flex", alignItems:"center", justifyContent:"center" }}>
+      <svg width={box} height={box} viewBox="0 0 100 100" aria-hidden="true"
+        style={{ position:"absolute", left:"50%", top:"50%", transform:"translate(-50%,-50%)", pointerEvents:"none", overflow:"visible" }}>
+        <g className="nx-sigil-ticks">
+          {Array.from({ length:24 }).map((_, i) => {
+            const a = (i / 24) * Math.PI * 2, r1 = 40.5, r2 = i % 2 ? 44 : 42.5;
+            return <line key={i} x1={50 + r1 * Math.cos(a)} y1={50 + r1 * Math.sin(a)}
+              x2={50 + r2 * Math.cos(a)} y2={50 + r2 * Math.sin(a)}
+              stroke="rgba(201,168,76,0.4)" strokeWidth="0.5" strokeLinecap="round" />;
+          })}
+        </g>
+        <circle cx="50" cy="50" r="38" fill="none" stroke="rgba(201,168,76,0.16)" strokeWidth="0.5" strokeDasharray="1.4 3" />
+        <circle className="nx-sigil-ring" cx="50" cy="50" r="46" fill="none" stroke="rgba(201,168,76,0.55)" strokeWidth="0.7" />
+      </svg>
+      {children}
+    </div>
+  );
+};
 
 /* ─── DECORATIVE LINES ─── */
 const Deco = () => (
@@ -591,10 +708,10 @@ function NexusQuote() {
         {/* Progress dots */}
         <div style={{ display:"flex", gap:5, justifyContent:"center", marginTop:14 }}>
           {NEXUS_QUOTES.map((_,i) => (
-            <div key={i} onClick={() => { setVisible(false); setTimeout(()=>{ setIdx(i); setVisible(true); },300); }}
+            <div key={i} className={i===idx ? "nx-progress-dot" : ""} onClick={() => { setVisible(false); setTimeout(()=>{ setIdx(i); setVisible(true); },300); }}
               style={{
                 width: i===idx ? 16 : 5, height:5, borderRadius:3,
-                background: i===idx ? "var(--gold)" : "rgba(201,168,76,0.2)",
+                background: i===idx ? "rgba(201,168,76,0.25)" : "rgba(201,168,76,0.2)",
                 transition:"all 0.4s ease", cursor:"pointer",
               }}
             />
@@ -682,6 +799,7 @@ function Login({ onLogin }) {
 
   return (
     <div style={{minHeight:"100vh", background:"var(--bg)", position:"relative", overflow:"hidden"}}>
+      <AmbientBackdrop />
       <Deco />
 
       <div className="login-layout">
@@ -691,7 +809,7 @@ function Login({ onLogin }) {
           <div style={{position:"absolute",inset:0,background:"radial-gradient(ellipse at 60% 50%,rgba(201,168,76,0.07) 0%,transparent 65%)",pointerEvents:"none"}}/>
           <div style={{position:"relative",zIndex:1}}>
             <div style={{display:"flex",justifyContent:"center",marginBottom:12}}>
-              <NexusLogo size={160} animate />
+              <NexusSigilRing size={160}><NexusLogo size={160} /></NexusSigilRing>
             </div>
             <div style={{textAlign:"center",marginBottom:20}}>
               <div style={{fontFamily:"'Cinzel Decorative',serif",fontSize:38,fontWeight:700,
@@ -703,14 +821,14 @@ function Login({ onLogin }) {
               </div>
             </div>
 
-            <div style={{display:"flex",flexDirection:"column",gap:10,marginBottom:20}}>
+            <div className="nx-stagger" style={{display:"flex",flexDirection:"column",gap:10,marginBottom:20}}>
               {[
                 {icon:"◈",title:"Fichas Digitais",desc:"Gerencie personagens com atributos, perícias e inventário completos"},
                 {icon:"◉",title:"Ajudante do Mestre",desc:"Narração assistida por inteligência artificial para suas campanhas"},
                 {icon:"⬙",title:"Mapas Interativos",desc:"Crie e explore mapas colaborativos com sua mesa"},
                 {icon:"♪",title:"Trilhas Sonoras",desc:"Atmosfera imersiva com músicas e ambientações para cada cena"},
-              ].map(({icon,title,desc})=>(
-                <div key={title} style={{display:"flex",gap:16,alignItems:"flex-start"}}>
+              ].map(({icon,title,desc},i)=>(
+                <div key={title} style={{display:"flex",gap:16,alignItems:"flex-start","--i":i}}>
                   <div style={{width:40,height:40,borderRadius:8,background:"rgba(201,168,76,0.08)",border:"1px solid var(--border)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:17,flexShrink:0,color:"var(--gold)"}}>
                     {icon}
                   </div>
@@ -743,7 +861,7 @@ function Login({ onLogin }) {
             {/* Logo block — hidden on desktop */}
             <div className="login-logo-mobile" style={{textAlign:"center", marginBottom:32}}>
               <div style={{display:"flex", justifyContent:"center", marginBottom:14, animation:"float 4s ease-in-out infinite"}}>
-                <NexusLogo size={72} animate />
+                <NexusSigilRing size={72}><NexusLogo size={72} /></NexusSigilRing>
               </div>
               <div style={{fontFamily:"'Cinzel Decorative',serif", fontSize:26, fontWeight:700,
                 background:"linear-gradient(135deg,#c9a84c,#e8c96d,#a07830)",
@@ -771,16 +889,16 @@ function Login({ onLogin }) {
               {tab==="register" && (
                 <div>
                   <div style={{fontFamily:"Cinzel,serif", fontSize:9, letterSpacing:2, color:"var(--muted2)", textTransform:"uppercase", marginBottom:7}}>Nome de Agente</div>
-                  <input value={name} onChange={e=>setName(e.target.value)} placeholder="Seu nome ou codinome" />
+                  <div className="nx-field"><input value={name} onChange={e=>setName(e.target.value)} placeholder="Seu nome ou codinome" /></div>
                 </div>
               )}
               <div>
                 <div style={{fontFamily:"Cinzel,serif", fontSize:9, letterSpacing:2, color:"var(--muted2)", textTransform:"uppercase", marginBottom:7}}>E-mail</div>
-                <input type="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="agente@ordo.com" onKeyDown={e=>e.key==="Enter"&&handle()} />
+                <div className="nx-field"><input type="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="agente@ordo.com" onKeyDown={e=>e.key==="Enter"&&handle()} /></div>
               </div>
               <div>
                 <div style={{fontFamily:"Cinzel,serif", fontSize:9, letterSpacing:2, color:"var(--muted2)", textTransform:"uppercase", marginBottom:7}}>Senha</div>
-                <div style={{position:"relative"}}>
+                <div className="nx-field" style={{position:"relative"}}>
                   <input type={showPass?"text":"password"} value={pass} onChange={e=>setPass(e.target.value)} placeholder="••••••••" onKeyDown={e=>e.key==="Enter"&&handle()} style={{paddingRight:42,width:"100%"}} />
                   <button type="button" onClick={()=>setShowPass(v=>!v)} aria-label={showPass?"Ocultar senha":"Mostrar senha"} style={{
                     position:"absolute", right:10, top:"50%", transform:"translateY(-50%)",
@@ -823,7 +941,7 @@ function Login({ onLogin }) {
               )}
               {resetSent && <div style={{fontFamily:"Cinzel,serif",fontSize:10,color:"#7aad6e",textAlign:"center"}}>E-mail de recuperação enviado!</div>}
               {error && <div style={{fontFamily:"Cinzel,serif",fontSize:10,color:"#c96a6a",textAlign:"center"}}>{error}</div>}
-              <button className="btn-gold" onClick={handle} disabled={loading} style={{marginTop:8, width:"100%", display:"flex", alignItems:"center", justifyContent:"center", gap:8}}>
+              <button className="btn-gold nx-shimmer" onClick={handle} disabled={loading} style={{marginTop:8, width:"100%", display:"flex", alignItems:"center", justifyContent:"center", gap:8}}>
                 {loading ? (
                   <div style={{width:16,height:16,border:"2px solid rgba(0,0,0,0.3)",borderTopColor:"#050505",borderRadius:"50%",animation:"spin 0.7s linear infinite"}}/>
                 ) : (tab==="login"?"Acessar o Nexus":"Registrar Agente")}
@@ -1009,6 +1127,22 @@ function Sidebar({ active, onNav, collapsed, setCollapsed, system, onChangeSyste
   };
   const avatarLetter = profileName.trim().charAt(0).toUpperCase() || "A";
 
+  // Shared-layout nav indicator (spec 0017 AC-4): a single pill that glides to
+  // the active item instead of each button snapping its own background on/off.
+  // Measured from the live DOM so it survives collapse/lang-driven size changes;
+  // the global @media(prefers-reduced-motion) neutralizes the transform slide.
+  const navRef = useRef(null);
+  const itemRefs = useRef({});
+  const [pill, setPill] = useState(null);
+  useLayoutEffect(() => {
+    const el = itemRefs.current[active];
+    if (el) {
+      setPill({ top: el.offsetTop, left: el.offsetLeft, width: el.offsetWidth, height: el.offsetHeight, visible: true });
+    } else {
+      setPill(prev => (prev ? { ...prev, visible: false } : null));
+    }
+  }, [active, collapsed, lang]);
+
   return (
     <div className="sidebar-desktop" style={{
       width: collapsed ? 60 : 220,
@@ -1082,24 +1216,36 @@ function Sidebar({ active, onNav, collapsed, setCollapsed, system, onChangeSyste
       )}
 
       {/* Nav */}
-      <nav style={{flex:1, padding:"8px 8px", display:"flex", flexDirection:"column", gap:1}}>
+      <nav ref={navRef} style={{flex:1, padding:"8px 8px", display:"flex", flexDirection:"column", gap:1, position:"relative"}}>
+        {/* Sliding active-indicator pill (AC-4) — glides behind the buttons */}
+        {pill && (
+          <div aria-hidden="true" style={{
+            position:"absolute", top:0, left:0, zIndex:0, pointerEvents:"none",
+            width: pill.width, height: pill.height, borderRadius:8,
+            transform:`translate(${pill.left}px, ${pill.top}px)`,
+            opacity: pill.visible ? 1 : 0,
+            background: system?.accent ? `${system.accent}18` : "var(--purple-dim)",
+            boxShadow:`inset 0 0 0 1px ${system?.accent ? system.accent+"40" : "var(--purple-glow)"}`,
+            transition:`transform ${DUR_ENTER}ms ${EASE_HOVER}, opacity 0.18s ease`,
+          }}/>
+        )}
         {navItems.map(item => {
           const isActive = active === item.id;
           return (
-            <button key={item.id} onClick={()=>onNav(item.id)}
+            <button key={item.id} ref={el=>{ itemRefs.current[item.id] = el; }} onClick={()=>onNav(item.id)}
               title={collapsed ? t("nav."+item.id) : ""}
               style={{
                 display:"flex", alignItems:"center",
                 justifyContent: collapsed ? "center" : "flex-start",
                 gap:10, padding: collapsed ? "10px 0" : "10px 12px",
-                background: isActive ? (system?.accent ? `${system.accent}18` : "var(--purple-dim)") : "transparent",
+                background:"transparent",
                 border:"none", borderRadius:8,
-                cursor:"pointer", position:"relative",
+                cursor:"pointer", position:"relative", zIndex:1,
                 fontFamily:"Cinzel,serif", fontSize:11, letterSpacing:"0.05em",
                 color: isActive ? (system?.accent || "var(--purple2)") : "var(--muted2)",
                 fontWeight: isActive ? 600 : 400,
-                transition:"all 0.18s",
-                boxShadow: isActive ? `inset 0 0 0 1px ${system?.accent ? system.accent+"40" : "var(--purple-glow)"}` : "none",
+                transition:"color 0.18s, font-weight 0.18s",
+                boxShadow:"none",
               }}
               onMouseEnter={e=>{ if(!isActive){ e.currentTarget.style.background="rgba(255,255,255,0.05)"; e.currentTarget.style.color="var(--text)"; }}}
               onMouseLeave={e=>{ if(!isActive){ e.currentTarget.style.background="transparent"; e.currentTarget.style.color="var(--muted2)"; }}}>
@@ -4635,9 +4781,26 @@ function Dashboard({ system, onCreateChar, characters, sessions, onSelectChar, o
       <div style={{display:"flex", justifyContent:"space-between", alignItems:"flex-end", flexWrap:"wrap", gap:12, marginTop:8}}>
         <div>
           <div style={{fontFamily:"Cinzel,serif", fontSize:12, letterSpacing:"0.08em", color:"var(--muted)", textTransform:"uppercase", marginBottom:6}}>{sT("dashboard.welcome")}</div>
-          <h1 style={{fontFamily:"'Cinzel Decorative',serif", fontSize:24, fontWeight:700,
-            background:`linear-gradient(135deg,${accent},#e8c96d)`,
-            WebkitBackgroundClip:"text", WebkitTextFillColor:"transparent", backgroundClip:"text"}}>Painel do Agente</h1>
+          <div style={{display:"flex", alignItems:"center", gap:12, flexWrap:"wrap"}}>
+            <h1 style={{fontFamily:"'Cinzel Decorative',serif", fontSize:24, fontWeight:700,
+              background:`linear-gradient(135deg,${accent},#e8c96d)`,
+              WebkitBackgroundClip:"text", WebkitTextFillColor:"transparent", backgroundClip:"text"}}>Painel do Agente</h1>
+            {/* Subscription seal — shimmering gold when PRO, static when free (AC-4) */}
+            <span className={isSubscribed ? "nx-shimmer" : ""}
+              title={isSubscribed ? "Assinante deste sistema" : "Plano gratuito — assine para desbloquear"}
+              style={{
+                display:"inline-flex", alignItems:"center", gap:5, flexShrink:0,
+                padding:"4px 11px", borderRadius:20,
+                fontFamily:"Cinzel,serif", fontSize:9, fontWeight:700,
+                letterSpacing:"0.14em", textTransform:"uppercase",
+                background: isSubscribed ? "linear-gradient(135deg,#c9a84c,#e8c96d)" : "rgba(255,255,255,0.05)",
+                color: isSubscribed ? "#1a1410" : "var(--muted)",
+                border: isSubscribed ? "none" : "1px solid var(--border2)",
+                boxShadow: isSubscribed ? "0 2px 12px rgba(201,168,76,0.4)" : "none",
+              }}>
+              {isSubscribed ? "★ Pro" : "Livre"}
+            </span>
+          </div>
         </div>
         <button
           className="btn-gold"
@@ -6402,12 +6565,12 @@ const SYSTEMS = [
     name: "Ordem Paranormal",
     subtitle: "Ordem Paranormal",
     icon: null,
+    emblem: "/assets/higgsfield/img/emblem-op.webp",
+    idle: "/assets/higgsfield/video/idle-op",
     svgIcon: (glow) => <OPEnergyIcon size={48} glow={glow} />,
     desc: "Enfrente o Outro Lado. Investigue o inexplicável. Sobreviva ao horror sobrenatural.",
     tags: ["Terror","Investigação","Sobrenatural"],
-    accent: "#b030d8",
-    accentText: "#d870f8",
-    accentGlow: "rgba(180,50,220,0.35)",
+    /* accent derived from theme registry — see getCardAccent overlay below (spec 0017 AC-6) */
     available: true,
   },
   {
@@ -6415,12 +6578,12 @@ const SYSTEMS = [
     name: "Dungeons & Dragons",
     subtitle: "5ª Edição",
     icon: null,
+    emblem: "/assets/higgsfield/img/emblem-dnd.webp",
+    idle: "/assets/higgsfield/video/idle-dnd",
     svgIcon: (glow) => <DnDDemonIcon size={48} glow={glow} />,
     desc: "A aventura épica de fantasia mais jogada do mundo. Masmorras, dragões e heróis lendários.",
     tags: ["Fantasia","Combate","Épico"],
-    accent: "#4a6fa5",
-    accentText: "#7ab8f5",
-    accentGlow: "rgba(74,111,165,0.25)",
+    /* accent derived from theme registry (dragon red) — getCardAccent overlay (spec 0017 AC-6) */
     available: true,
   },
   {
@@ -6428,12 +6591,12 @@ const SYSTEMS = [
     name: "Tormenta 20",
     subtitle: "Sistema Nacional",
     icon: null,
+    emblem: "/assets/higgsfield/img/emblem-tormenta.webp",
+    idle: "/assets/higgsfield/video/idle-tormenta",
     svgIcon: (glow) => <svg width="48" height="48" viewBox="0 0 48 48" fill="none"><circle cx="24" cy="24" r="20" fill={glow?"rgba(210,100,30,0.18)":"rgba(210,100,30,0.08)"} stroke={glow?"#e8622a":"#c45520"} strokeWidth={glow?2:1.5}/><path d="M24 10 L28 20 L38 20 L30 27 L33 37 L24 31 L15 37 L18 27 L10 20 L20 20 Z" fill={glow?"rgba(232,98,42,0.5)":"rgba(196,85,32,0.35)"} stroke={glow?"#ff8c42":"#e8622a"} strokeWidth="1.2"/></svg>,
     desc: "O maior RPG nacional. Fantasia épica com heróis, deuses e a sombra da Tormenta sobre Arton.",
     tags: ["Fantasia","Épico","Nacional"],
-    accent: "#d4621e",
-    accentText: "#f0884a",
-    accentGlow: "rgba(212,98,30,0.3)",
+    /* accent derived from theme registry (verdant green) — getCardAccent overlay (spec 0017 AC-6) */
     available: true,
   },
   {
@@ -6484,11 +6647,17 @@ const SYSTEMS = [
     accentGlow: "rgba(90,90,58,0.2)",
     available: false,
   },
-];
+]
+  /* AC-6: for every system that has a theme in the registry, its card accent is
+   * DERIVED from that same registry (single source of truth) — killing the old
+   * divergence (D&D card was blue, theme red). Systems without a theme yet
+   * (3D&T, Call, Vampire, Custom) keep their literal accent until themed. */
+  .map((s) => (SYSTEM_THEMES[s.id] ? { ...s, ...getCardAccent(s.id) } : s));
 
 function SystemSelect({ onSelect, onLogout }) {
   const [hovered, setHovered] = useState(null);
   const [selected, setSelected] = useState(null);
+  const reduced = useReducedMotion();
 
   const handleSelect = (sys) => {
     if (!sys.available) return;
@@ -6498,6 +6667,7 @@ function SystemSelect({ onSelect, onLogout }) {
 
   return (
     <div style={{minHeight:"100vh", background:"var(--bg)", display:"flex", flexDirection:"column", position:"relative", overflow:"hidden"}}>
+      <AmbientBackdrop />
       <Deco/>
 
       {/* Ambient glow */}
@@ -6570,6 +6740,7 @@ function SystemSelect({ onSelect, onLogout }) {
               return (
                 <div
                   key={sys.id}
+                  className="sys-card"
                   role={sys.available ? "button" : undefined}
                   tabIndex={sys.available ? 0 : undefined}
                   aria-label={sys.available ? `Acessar sistema ${sys.name}` : `${sys.name} — em breve`}
@@ -6584,7 +6755,7 @@ function SystemSelect({ onSelect, onLogout }) {
                       ? `linear-gradient(135deg, ${sys.accent}12, rgba(5,5,5,0.95))`
                       : "var(--card)",
                     cursor: sys.available ? "pointer" : "not-allowed",
-                    opacity: sys.available ? 1 : 0.55,
+                    opacity: sys.available ? 1 : 0.9,
                     transition:"all 0.25s ease",
                     transform: isHov && sys.available ? "translateY(-4px)" : "none",
                     boxShadow: isHov && sys.available
@@ -6637,9 +6808,19 @@ function SystemSelect({ onSelect, onLogout }) {
                             ? "0 0 20px rgba(180,60,220,0.5), 0 0 40px rgba(140,30,200,0.25)"
                             : `0 0 16px ${sys.accentGlow}`
                           : "none",
-                        transition:"box-shadow 0.25s",
+                        transition:"box-shadow 0.25s", position:"relative",
                       }}>
-                        {sys.svgIcon ? sys.svgIcon(isHov || isSel) : sys.icon}
+                        {sys.emblem ? (
+                          <>
+                            <img src={sys.emblem} alt="" style={{width:"100%", height:"100%", objectFit:"contain"}} />
+                            {isHov && sys.available && sys.idle && !reduced && (
+                              <video className="card-idle-vid" autoPlay muted loop playsInline preload="none">
+                                <source src={sys.idle + ".webm"} type="video/webm" />
+                                <source src={sys.idle + ".mp4"} type="video/mp4" />
+                              </video>
+                            )}
+                          </>
+                        ) : sys.svgIcon ? sys.svgIcon(isHov || isSel) : sys.icon}
                       </div>
                       <div>
                         <div style={{
@@ -6655,27 +6836,42 @@ function SystemSelect({ onSelect, onLogout }) {
                       </div>
                     </div>
 
-                    {/* Description */}
-                    <p style={{
-                      fontFamily:"Crimson Pro,serif", fontSize:14,
-                      color: sys.available ? "var(--muted2)" : "#a89070",
-                      lineHeight:1.65, marginBottom:14, fontStyle:"italic", flex:1,
-                    }}>{sys.desc}</p>
+                    {/* Description — skeleton shimmer while the system is "coming soon" (AC-3) */}
+                    {sys.available ? (
+                      <p style={{
+                        fontFamily:"Crimson Pro,serif", fontSize:14,
+                        color:"var(--muted2)",
+                        lineHeight:1.65, marginBottom:14, fontStyle:"italic", flex:1,
+                      }}>{sys.desc}</p>
+                    ) : (
+                      <div style={{display:"flex", flexDirection:"column", gap:8, marginBottom:14, flex:1}} aria-hidden="true">
+                        <div className="skeleton" style={{height:11, width:"92%"}}/>
+                        <div className="skeleton" style={{height:11, width:"84%"}}/>
+                        <div className="skeleton" style={{height:11, width:"70%"}}/>
+                      </div>
+                    )}
 
-                    {/* Tags */}
-                    <div style={{display:"flex", gap:6, flexWrap:"wrap", marginBottom:16}}>
-                      {sys.tags.map(t => (
-                        <span key={t} style={{
-                          fontFamily:"Cinzel,serif", fontSize:11, letterSpacing:1,
-                          textTransform:"uppercase", padding:"4px 10px",
-                          minHeight:24, display:"inline-flex", alignItems:"center",
-                          borderRadius:20,
-                          border:`1px solid ${isHov && sys.available ? sys.accent+"60" : "rgba(201,168,76,0.15)"}`,
-                          color: isHov && sys.available ? sys.accent : "var(--muted)",
-                          transition:"all 0.25s",
-                        }}>{t}</span>
-                      ))}
-                    </div>
+                    {/* Tags — skeleton pills when unavailable (AC-3) */}
+                    {sys.available ? (
+                      <div style={{display:"flex", gap:6, flexWrap:"wrap", marginBottom:16}}>
+                        {sys.tags.map(t => (
+                          <span key={t} style={{
+                            fontFamily:"Cinzel,serif", fontSize:11, letterSpacing:1,
+                            textTransform:"uppercase", padding:"4px 10px",
+                            minHeight:24, display:"inline-flex", alignItems:"center",
+                            borderRadius:20,
+                            border:`1px solid ${isHov ? sys.accent+"60" : "rgba(201,168,76,0.15)"}`,
+                            color: isHov ? sys.accent : "var(--muted)",
+                            transition:"all 0.25s",
+                          }}>{t}</span>
+                        ))}
+                      </div>
+                    ) : (
+                      <div style={{display:"flex", gap:6, marginBottom:16}} aria-hidden="true">
+                        <div className="skeleton" style={{height:24, width:66, borderRadius:20}}/>
+                        <div className="skeleton" style={{height:24, width:52, borderRadius:20}}/>
+                      </div>
+                    )}
 
                     {/* CTA footer */}
                     <div style={{
@@ -11872,7 +12068,7 @@ export default function App() {
             <div style={{ display: screen === "music" ? "block" : "none" }}>
               <MusicScreen nowPlaying={nowPlaying} onNowPlaying={setNowPlaying} musicTokens={musicTokens} onMusicTokens={setMusicTokens} ytPlayerRef={ytPlayerRef} />
             </div>
-            {screen !== "music" && <div style={(screen==="master" || (screen==="sheet" && createdChar && activeSystem?.id==="op")) ? {flex:1, display:"flex", flexDirection:"column", minHeight:0} : {}}>{renderScreen()}</div>}
+            {screen !== "music" && <div key={screen} className="fade" style={(screen==="master" || (screen==="sheet" && createdChar && activeSystem?.id==="op")) ? {flex:1, display:"flex", flexDirection:"column", minHeight:0} : {}}>{renderScreen()}</div>}
           </main>
           {nowPlaying && <MusicPlayerBar nowPlaying={nowPlaying} onNowPlaying={setNowPlaying} ytPlayerRef={ytPlayerRef} />}
           <MobileBottomNav active={screen} onNav={setScreen}/>
