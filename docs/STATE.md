@@ -10,7 +10,14 @@ alwaysApply: true
 > todo. Diferente do **ADR** (decisão durável e imutável). Decisão estrutural → ADR; estado do
 > trabalho → aqui. Atualize ao **pausar/encerrar**; leia ao **retomar**. Use a skill `/handoff`.
 
-**Última atualização:** 2026-07-08 por Claude (0017 — pílula de nav deslizante feita; Onda 1 CSS completa)
+**Última atualização:** 2026-07-09 por Claude (0017 Onda 1 completa — DEPLOYADO)
+
+> **2026-07-09: DEPLOY 0017** — commit `f90a316` em `origin/main` (github.com/Andreytyui/NEXUS-RPG,
+> 28 arquivos) + `firebase deploy --only firestore:rules,hosting` no projeto `nexus-rpg-app`
+> (nexus-rpg-app.web.app / playnexusrpg.com). Regras já estavam up-to-date no servidor ("skipping
+> upload" — o todo de deploy das rules 0013 estava obsoleto, já estavam no ar); rules recompiladas
+> e re-lançadas OK; 30 arquivos de hosting no ar (inclui `public/assets/higgsfield/`). Build via
+> predeploy exit 0. Toda a Onda 1 do 0017 está em produção.
 
 > **2026-07-08: SPEC 0017 (redesign animado gótico-arcano) — spec escrita + Onda 2 (ativos) FEITA;
 > Onda 1 (CSS) parcial e integração PENDENTES (bloqueio: Node quebrado).**
