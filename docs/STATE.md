@@ -10,7 +10,23 @@ alwaysApply: true
 > todo. Diferente do **ADR** (decisão durável e imutável). Decisão estrutural → ADR; estado do
 > trabalho → aqui. Atualize ao **pausar/encerrar**; leia ao **retomar**. Use a skill `/handoff`.
 
-**Última atualização:** 2026-07-09 por Claude (fix: editor de mapas quebrado por regressão da 0017)
+**Última atualização:** 2026-07-09 por Claude (spec 0019 — correções de usabilidade do Editor de Mapas)
+
+> **2026-07-09: SPEC 0019 (correções do Editor de Mapas) IMPLEMENTADA + DEPLOYADA.** Andre reportou
+> "as funções não funcionam direito", prioridade em CAMADAS e ÍCONES ilegíveis. 3 explorações
+> auditaram camadas/ferramentas/persistência. Corrigido em 5 grupos (AC-1..12): **A-camadas** (toast
+> ao clicar em camada travada; reordenar ↑/↓ via `REORDER_LAYERS` que estava morto; zIndex agora
+> `layerZIndex(idx,z)` — empilha entre tipos; furos de lock em clique/subtree); **B-seleção** (imagem
+> clicável quando camada destravada; desenho só o traço é clicável via `visiblePainted`);
+> **C-ferramentas** (régua limpa no soltar; fog/opacidade coalescem em 1 undo via `coalesceKey` no
+> `historyReducer`; wheel vira listener não-passivo; +/− e ⌂ centram/enquadram; snap de token no
+> centro da célula + snap ON por padrão); **D-persistência** (catches de `localStorage` agora logam
+> + toast de quota; `loadBg` faz downscale 2048/JPEG; `collectOrphanImageIds` varre imagens órfãs no
+> mount); **E-ícones** novo `icons.jsx` (SVG) substitui os emojis nas toolbars/painel/action-bar.
+> Novos puros testados: `mapHelpers.js` (snap/zindex/orphan, 10 testes) + `reducer.test.js` (coalesce/
+> reorder, 6 testes). Gates: **18 suítes/132 testes** + build exit 0. ACs de UI (1..9/12) = checklist
+> manual do Andre no `tasks.md`. **Deixado como follow-up:** emojis do context-menu e condições de token
+> (secundários); criar/deletar camada (fora de escopo — 7 fixas Owlbear).
 
 > **2026-07-09: FIX — Editor de Mapas quebrado (regressão da spec 0017, commit `852d5e1`, DEPLOYADO
 > no Firebase Hosting).** Sintoma: ao abrir o Editor de Mapas, só aparecia o header + canvas vazio;

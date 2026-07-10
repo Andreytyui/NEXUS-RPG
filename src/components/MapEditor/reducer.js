@@ -95,25 +95,33 @@ const MAX_HISTORY = 50;
 export function historyReducer(state, action) {
   // Carga vinda do Firestore (modo campanha, spec 0007): substitui tudo e zera o histórico.
   if (action.type === 'LOAD_SCENES') {
-    return { past: [], present: action.scenes.map(migrateScene), future: [] };
+    return { past: [], present: action.scenes.map(migrateScene), future: [], coalesceKey: null };
   }
   if (action.type === 'UNDO') {
     if (!state.past.length) return state;
     const past = [...state.past];
     const present = past.pop();
-    return { past, present, future: [state.present, ...state.future].slice(0, MAX_HISTORY) };
+    return { past, present, future: [state.present, ...state.future].slice(0, MAX_HISTORY), coalesceKey: null };
   }
   if (action.type === 'REDO') {
     if (!state.future.length) return state;
     const [present, ...future] = state.future;
-    return { past: [...state.past, state.present].slice(-MAX_HISTORY), present, future };
+    return { past: [...state.past, state.present].slice(-MAX_HISTORY), present, future, coalesceKey: null };
   }
   const next = coreReducer(state.present, action);
   if (next === state.present) return state;
+  // Coalescência (spec 0019 AC-7): passos consecutivos do MESMO arrasto (fog, slider de
+  // opacidade) substituem a última entrada em vez de empilhar dezenas de passos de undo.
+  // O `coalesceKey` é único por interação (ex.: id da shape de fog), então arrastos distintos
+  // não se fundem.
+  if (action.coalesceKey && action.coalesceKey === state.coalesceKey) {
+    return { ...state, present: next, future: [] };
+  }
   return {
     past: [...state.past, state.present].slice(-MAX_HISTORY),
     present: next,
     future: [],
+    coalesceKey: action.coalesceKey || null,
   };
 }
 
@@ -123,9 +131,9 @@ export function initialHistoryState(mode) {
   if (mode !== 'campaign') try {
     const raw = JSON.parse(localStorage.getItem('nexus_scenes_v1') || 'null');
     if (raw && raw.length) scenes = raw.map(migrateScene);
-  } catch {}
+  } catch (e) { console.error('[MapEditor] falha ao carregar cenas do localStorage:', e); }
   if (!scenes) {
     scenes = [newScene('Cena 1', 's1')];
   }
-  return { past: [], present: scenes, future: [] };
+  return { past: [], present: scenes, future: [], coalesceKey: null };
 }

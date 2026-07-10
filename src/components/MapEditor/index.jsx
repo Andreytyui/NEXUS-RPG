@@ -13,6 +13,8 @@ import { anchorOf, findAttachTarget, subtreeIds, wouldCycle, dupSubtree } from '
 import { strokeToPoly, pruneContained, hitFogShape } from './fog.js';
 import FogLayer from './FogLayer.jsx';
 import { newElementId } from './schema.js';
+import { cellCenterSnap, layerZIndex, collectOrphanImageIds } from './mapHelpers.js';
+import { MapIcon } from './icons.jsx';
 import PingsOverlay from './PingsOverlay.jsx';
 import AssetDock from './AssetDock.jsx';
 import {
@@ -21,14 +23,14 @@ import {
 } from './assets/assetLib.js';
 
 const TOOLS = [
-  { id: 'select',  label: 'Selecionar (V)', ch: '↖' },
-  { id: 'token',   label: 'Token (T)',      ch: '⬤' },
-  { id: 'draw',    label: 'Desenhar (D)',   ch: '✏' },
-  { id: 'fog',     label: 'Névoa (F)',      ch: '☁' },
-  { id: 'reveal',  label: 'Revelar (R)',    ch: '👁' },
-  { id: 'note',    label: 'Nota (N)',       ch: '📝' },
-  { id: 'measure', label: 'Medir (M)',      ch: '📏' },
-  { id: 'pointer', label: 'Apontar',        ch: '👉' },
+  { id: 'select',  label: 'Selecionar (V)', icon: 'select' },
+  { id: 'token',   label: 'Token (T)',      icon: 'token' },
+  { id: 'draw',    label: 'Desenhar (D)',   icon: 'draw' },
+  { id: 'fog',     label: 'Névoa — cobrir (F)', icon: 'fog' },
+  { id: 'reveal',  label: 'Revelar névoa (R)',  icon: 'reveal' },
+  { id: 'note',    label: 'Nota (N)',       icon: 'note' },
+  { id: 'measure', label: 'Medir (M)',      icon: 'measure' },
+  { id: 'pointer', label: 'Apontar',        icon: 'pointer' },
 ];
 const VIEWER_TOOLS = ['select', 'measure', 'pointer'];
 const COLORS = ['#4ade80','#60a5fa','#f87171','#fbbf24','#c084fc','#f472b6','#34d399','#fb923c','#e2e8f0','#a3e635'];
@@ -79,7 +81,8 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
   const [ctxMenu,         setCtxMenu]         = useState(null);
   const [weather,         setWeather]         = useState(null);
   const [showLeft,        setShowLeft]        = useState(true);
-  const [snapGrid,        setSnapGrid]        = useState(false);
+  const [snapGrid,        setSnapGrid]        = useState(true);   // spec 0019: snap ligado por padrão
+  const [flash,           setFlash]           = useState(null);  // aviso temporário (camada travada, quota…)
   const [boxSel,          setBoxSel]          = useState(null);
   const [layerPickerOpen, setLayerPickerOpen] = useState(false);
   const [,                setDragTick]        = useState(0);
@@ -130,6 +133,7 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
   const replaceTargetRef = useRef(null);
   const migrationDoneRef = useRef(false);
   const elementDownRef   = useRef(false);
+  const flashTimerRef    = useRef(null);
   const stateRef         = useRef({});
 
   const scene    = scenes.find(s => s.id === activeScene) || scenes[0];
@@ -156,6 +160,26 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
     const gs = stateRef.current.gridSize;
     return { x: Math.round(x / gs) * gs, y: Math.round(y / gs) * gs };
   }
+  /* Snap de token: centro da célula (não a interseção) — spec 0019 AC-9. */
+  function snapToken(x, y) {
+    if (!stateRef.current.snapGrid) return { x, y };
+    return cellCenterSnap(x, y, stateRef.current.gridSize);
+  }
+  /* Aviso temporário no canto (camada travada, quota de armazenamento…). */
+  function showFlash(msg) {
+    setFlash(msg);
+    clearTimeout(flashTimerRef.current);
+    flashTimerRef.current = setTimeout(() => setFlash(null), 2600);
+  }
+  /* Reordena camadas (spec 0019 AC-2). delta>0 = sobe no empilhamento (topo do painel). */
+  function moveLayer(id, delta) {
+    const arr = [...(stateRef.current.scene.layers || DEFAULT_LAYERS)];
+    const i = arr.findIndex(l => l.id === id);
+    const j = i + delta;
+    if (i < 0 || j < 0 || j >= arr.length) return;
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+    dispatch({ type: 'REORDER_LAYERS', sceneId: stateRef.current.scene.id, layers: arr });
+  }
 
   /* Névoa por arrasto (0009: rect célula-alinhado; 0012 AC-1: círculo centro→raio):
      o arrasto vira UMA shape aplicada sobre as shapes-base do mousedown (preview ao vivo). */
@@ -172,7 +196,7 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
       const r1 = Math.floor(Math.min(drag.wy, wy) / gs), r2 = Math.floor(Math.max(drag.wy, wy) / gs);
       shape = { id: drag.shapeId, op, type: 'rect', x: c1 * gs, y: r1 * gs, w: (c2 - c1 + 1) * gs, h: (r2 - r1 + 1) * gs };
     }
-    dispatch({ type: 'PATCH_SCENE', sceneId: sc.id, patch: {
+    dispatch({ type: 'PATCH_SCENE', sceneId: sc.id, coalesceKey: drag.shapeId, patch: {
       fog: { v: 2, fillAll: !!sc.fog?.fillAll, shapes: [...drag.base, shape] },
     } });
   }
@@ -208,9 +232,30 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
   function deleteEl(id)    { dispatch({ type: 'DELETE_ELEMENT', sceneId: stateRef.current.scene.id, id }); }
   function deleteEls(ids)  { dispatch({ type: 'DELETE_ELEMENTS', sceneId: stateRef.current.scene.id, ids }); }
 
-  useEffect(() => { if (campaignMode) return; try { localStorage.setItem('nexus_scenes_v1', JSON.stringify(scenes)); } catch {} }, [scenes, campaignMode]);
-  useEffect(() => { if (campaignMode) return; try { localStorage.setItem('nexus_scene_bgs', JSON.stringify(bgImages)); } catch {} }, [bgImages, campaignMode]);
-  useEffect(() => { if (campaignMode) return; try { localStorage.setItem('nexus_image_bgs', JSON.stringify(imageStore)); } catch {} }, [imageStore, campaignMode]);
+  // Persistência local (spec 0019 AC-10): a falha de quota NÃO é mais engolida em silêncio —
+  // loga e avisa, senão o usuário perde trabalho sem sinal (política da spec quick/001).
+  const persistLocal = (key, value) => {
+    if (campaignMode) return;
+    try { localStorage.setItem(key, value); }
+    catch (e) {
+      console.error(`[MapEditor] falha ao salvar ${key} (quota?):`, e);
+      showFlash('⚠ Armazenamento cheio — o mapa pode não ser salvo. Apague cenas/imagens grandes.');
+    }
+  };
+  useEffect(() => { persistLocal('nexus_scenes_v1', JSON.stringify(scenes)); }, [scenes, campaignMode]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { persistLocal('nexus_scene_bgs', JSON.stringify(bgImages)); }, [bgImages, campaignMode]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { persistLocal('nexus_image_bgs', JSON.stringify(imageStore)); }, [imageStore, campaignMode]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Varre imagens órfãs UMA vez na montagem (spec 0019 AC-11) — sem histórico ainda, o que
+  // não está em `scenes` é lixo real acumulado (undo/delete/migração v1→v2 que vazaram).
+  useEffect(() => {
+    if (campaignMode) return;
+    const orphans = collectOrphanImageIds(scenes, imageStore);
+    if (!orphans.length) return;
+    const drop = (obj) => { const n = { ...obj }; orphans.forEach(id => delete n[id]); return n; };
+    setImageStore(prev => drop(prev));
+    setBgImages(prev => (orphans.some(id => id in prev) ? drop(prev) : prev));
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   /* ── modo campanha: sync v2 (spec 0009 / ADR 0006) ── */
   const loadedRef   = useRef(false);      // 1ª carga da cena ativa concluída (libera autosave)
@@ -396,18 +441,30 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
       const img = new Image();
       img.onload = () => {
         const { scene: sc } = stateRef.current;
+        // Downscale (spec 0019 AC-11): cap ~2048px + JPEG — evita estourar a quota do
+        // localStorage com fundos em resolução total (o maior ofensor de perda de trabalho).
+        const cap = 2048;
+        const r = Math.min(1, cap / Math.max(img.width, img.height));
+        let dataUrl = ev.target.result, w = img.width, h = img.height;
+        if (r < 1) {
+          const c = document.createElement('canvas');
+          c.width = Math.max(1, Math.round(img.width * r));
+          c.height = Math.max(1, Math.round(img.height * r));
+          c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+          dataUrl = c.toDataURL('image/jpeg', 0.85); w = c.width; h = c.height;
+        }
         const imageId = 'img_' + Date.now();
-        setImageStore(prev => ({ ...prev, [imageId]: ev.target.result }));
-        dispatch({ type: 'PATCH_SCENE', sceneId: sc.id, patch: { bgSize: { w: img.width, h: img.height } } });
-        dispatch({ type: 'ADD_ELEMENT', sceneId: sc.id, element: {
-          id: Date.now() + 1, type: 'image', layerId: 'layer-map',
-          x: 0, y: 0, w: img.width, h: img.height,
-          rotation: 0, imageId,
+        const ck = 'loadbg:' + imageId; // coalesce as 2 dispatches num único passo de undo
+        setImageStore(prev => ({ ...prev, [imageId]: dataUrl }));
+        dispatch({ type: 'PATCH_SCENE', sceneId: sc.id, coalesceKey: ck, patch: { bgSize: { w, h } } });
+        dispatch({ type: 'ADD_ELEMENT', sceneId: sc.id, coalesceKey: ck, element: {
+          id: newElementId(), type: 'image', layerId: 'layer-map',
+          x: 0, y: 0, w, h, rotation: 0, imageId,
           hidden: false, locked: false, spectre: false,
         }});
         const maxW = (containerRef.current?.clientWidth  || window.innerWidth  - 80) * 0.9;
         const maxH = (containerRef.current?.clientHeight || window.innerHeight - 120) * 0.9;
-        setScale(Math.min(1, maxW / img.width, maxH / img.height));
+        setScale(Math.min(1, maxW / w, maxH / h));
         setPan({ x: 30, y: 30 });
       };
       img.src = ev.target.result;
@@ -714,8 +771,16 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
       setSelIds(prev => { const n = new Set(prev); n.has(el.id) ? n.delete(el.id) : n.add(el.id); return n; });
       return;
     }
+    // Camada/elemento travado (spec 0019 AC-1/AC-4): não seleciona nem arrasta por clique
+    // — coerente com o marquee, que já ignora travados —, mas dá feedback em vez de silêncio.
+    if (el.locked || layerLocked) {
+      showFlash(layerLocked
+        ? `🔒 Camada "${lm[el.layerId]?.name || ''}" travada — destrave no painel para editar`
+        : '🔒 Elemento travado — destrave para editar');
+      return;
+    }
     if (!sids.has(el.id)) setSelIds(new Set([el.id]));
-    if (!el.locked && !layerLocked) {
+    {
       const { x: sx, y: sy } = clientXY(e); const wp = screenToWorld(sx, sy);
       const sel = sids.has(el.id) ? sids : new Set([el.id]);
       const origins = {};
@@ -725,15 +790,16 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
         origins[e2.id] = { ox: wp.x - e2.x, oy: wp.y - e2.y };
         draggableIds.push(e2.id);
       });
-      // Auto-grudar (spec 0011): a subárvore acompanha o pai no arrasto.
+      // Auto-grudar (spec 0011): a subárvore acompanha o pai no arrasto, MAS filhos travados
+      // ficam parados (spec 0019 AC-4) — não driblam o cadeado por estarem anexados.
       const expanded = new Set(draggableIds);
       draggableIds.forEach(id => subtreeIds(els, id).forEach(d => expanded.add(d)));
       expanded.forEach(id => {
         if (origins[id]) return;
         const e2 = els.find(x => x.id === id);
-        if (e2) origins[id] = { ox: wp.x - e2.x, oy: wp.y - e2.y };
+        if (e2 && !e2.locked && !lm[e2.layerId]?.locked) origins[id] = { ox: wp.x - e2.x, oy: wp.y - e2.y };
       });
-      dragRef.current = { ids: [...expanded], rootIds: draggableIds, origins, positions: null };
+      dragRef.current = { ids: [...expanded].filter(id => origins[id]), rootIds: draggableIds, origins, positions: null };
     }
   }
 
@@ -784,14 +850,14 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
       fogDragRef.current = { kind: fs === 'circle' ? 'circle' : 'rect', wx: wp.x, wy: wp.y, base: [...(stateRef.current.scene.fog?.shapes || [])], shapeId: 'fog_' + Date.now() };
       applyFogDrag(wp.x, wp.y);
     } else if (t === 'token') {
-      const sn = snap(wp.x, wp.y);
-      addEl({ id: Date.now(), type: 'token', layerId: 'layer-character', x: sn.x, y: sn.y, color: tokColor, label: tokLabel || '?', size: Math.max(18, Math.round(stateRef.current.gridSize * tokSize)), imageId: tokImageId, conditions: [], hidden: false, locked: false, spectre: false });
+      const sn = snapToken(wp.x, wp.y);
+      addEl({ id: newElementId(), type: 'token', layerId: 'layer-character', x: sn.x, y: sn.y, color: tokColor, label: tokLabel || '?', size: Math.max(18, Math.round(stateRef.current.gridSize * tokSize)), imageId: tokImageId, conditions: [], hidden: false, locked: false, spectre: false });
     } else if (t === 'draw') {
       drawRef.current = { shape: drawMode, color: drawColor, strokeWidth: drawWidth, pts: [{ x: wp.x, y: wp.y }] };
       setDrawLive({ ...drawRef.current, pts: [...drawRef.current.pts] });
     } else if (t === 'note') {
       const txt = window.prompt('Texto da nota:');
-      if (txt?.trim()) addEl({ id: Date.now(), type: 'note', layerId: 'layer-note', x: wp.x, y: wp.y, text: txt.trim(), hidden: false, locked: false, spectre: false });
+      if (txt?.trim()) addEl({ id: newElementId(), type: 'note', layerId: 'layer-note', x: wp.x, y: wp.y, text: txt.trim(), hidden: false, locked: false, spectre: false });
     } else if (t === 'measure') {
       measureRef.current = { x1: wp.x, y1: wp.y }; setMeasureLine({ x1: wp.x, y1: wp.y, x2: wp.x, y2: wp.y });
     }
@@ -840,7 +906,10 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
       const positions = {};
       ids.forEach(id => {
         const orig = origins[id]; if (!orig) return;
-        const sn = snap(wp.x - orig.ox, wp.y - orig.oy);
+        const el2 = stateRef.current.elements.find(x => x.id === id);
+        const sn = el2?.type === 'token'
+          ? snapToken(wp.x - orig.ox, wp.y - orig.oy)
+          : snap(wp.x - orig.ox, wp.y - orig.oy);
         positions[id] = { x: sn.x, y: sn.y };
       });
       dragRef.current.positions = positions;
@@ -941,7 +1010,7 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
         const w = Math.max(d.strokeWidth + 2, Math.max(...xs) - minX);
         const h = Math.max(d.strokeWidth + 2, Math.max(...ys) - minY);
         addEl({
-          id: Date.now(), type: 'drawing', layerId: 'layer-drawing', x: minX, y: minY, w, h,
+          id: newElementId(), type: 'drawing', layerId: 'layer-drawing', x: minX, y: minY, w, h,
           shape: d.shape, color: d.color, strokeWidth: d.strokeWidth,
           points: d.pts.map(p => ({ x: Math.round(p.x - minX), y: Math.round(p.y - minY) })),
           hidden: false, locked: false, spectre: false,
@@ -959,7 +1028,7 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
     }
     elementDownRef.current = false;
     panRef.current = null; dragRef.current = null; resizeRef.current = null; rotateRef.current = null;
-    if (measureRef.current) livePubRef.current?.publish({ ruler: null });
+    if (measureRef.current) { livePubRef.current?.publish({ ruler: null }); setMeasureLine(null); } // spec 0019 AC-6: régua não gruda
     fogRef.current = false; fogDragRef.current = null; measureRef.current = null; boxRef.current = null; setBoxSel(null);
   }
 
@@ -972,14 +1041,44 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
     livePubRef.current?.publish({ ping: { x: wp.x, y: wp.y, at: Date.now() } });
   }
 
-  function onWheel(e) {
-    e.preventDefault();
-    if (viewer) setFollowMaster(false); // zoom manual solta o Sync View (AC-6)
-    const r = containerRef.current.getBoundingClientRect();
-    const sx = e.clientX - r.left, sy = e.clientY - r.top;
+  /* Zoom pela roda: listener NÃO-passivo (spec 0019 AC-8) — o onWheel do React é passivo,
+     então preventDefault era ignorado e a página rolava junto. Centra no cursor. */
+  useEffect(() => {
+    const node = containerRef.current;
+    if (!node) return;
+    const handler = (e) => {
+      e.preventDefault();
+      if (viewer) setFollowMaster(false);
+      const r = node.getBoundingClientRect();
+      const sx = e.clientX - r.left, sy = e.clientY - r.top;
+      const { pan: p, scale: s } = stateRef.current;
+      const ns = Math.max(0.08, Math.min(6, s * (e.deltaY < 0 ? 1.12 : 0.89)));
+      setPan({ x: sx - (sx - p.x) * ns / s, y: sy - (sy - p.y) * ns / s });
+      setScale(ns);
+    };
+    node.addEventListener('wheel', handler, { passive: false });
+    return () => node.removeEventListener('wheel', handler);
+  }, [viewer]);
+
+  /* Zoom centrado num ponto de tela (px do container). Usado por +/− (centro da viewport). */
+  function zoomAt(px, py, factor) {
     const { pan: p, scale: s } = stateRef.current;
-    const ns = Math.max(0.08, Math.min(6, s * (e.deltaY < 0 ? 1.12 : 0.89)));
-    setPan({ x: sx - (sx - p.x) * ns / s, y: sy - (sy - p.y) * ns / s }); setScale(ns);
+    const ns = Math.max(0.08, Math.min(6, s * factor));
+    setPan({ x: px - (px - p.x) * ns / s, y: py - (py - p.y) * ns / s });
+    setScale(ns);
+  }
+  function zoomButton(factor) {
+    const r = containerRef.current?.getBoundingClientRect();
+    zoomAt((r?.width || 0) / 2, (r?.height || 0) / 2, factor);
+  }
+  /* Enquadra o mapa (bgSize) dentro do container — botão "home" (AC-8). */
+  function fitToScreen() {
+    const r = containerRef.current?.getBoundingClientRect();
+    if (!r) { setScale(1); setPan({ x: 60, y: 60 }); return; }
+    const { w, h } = stateRef.current.scene.bgSize || { w: mapW, h: mapH };
+    const ns = Math.max(0.08, Math.min(6, Math.min((r.width - 80) / w, (r.height - 80) / h)));
+    setScale(ns);
+    setPan({ x: (r.width - w * ns) / 2, y: (r.height - h * ns) / 2 });
   }
 
   const measureDist = measureLine
@@ -1016,7 +1115,7 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
         {onBack && (
           <button onClick={onBack} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.45)', cursor: 'pointer', fontSize: 13, display: 'flex', alignItems: 'center', gap: 5, padding: '4px 8px', borderRadius: 6, transition: 'color 0.12s' }}
             onMouseEnter={e => { e.currentTarget.style.color = '#fff'; }} onMouseLeave={e => { e.currentTarget.style.color = 'rgba(255,255,255,0.45)'; }}
-            title="Voltar">← Voltar</button>
+            title="Voltar"><MapIcon name="back" size={15} /> Voltar</button>
         )}
         <div style={{ width: 1, height: 20, background: 'rgba(255,255,255,0.08)' }} />
         <span style={{ fontFamily: 'Cinzel Decorative,serif', fontSize: 11, color: '#c9a84c', letterSpacing: 2, whiteSpace: 'nowrap' }}>⚔ NEXUS</span>
@@ -1026,15 +1125,15 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
         <span style={{ fontSize: 13, color: 'rgba(255,255,255,0.85)' }}>{scene.name}</span>
         <div style={{ flex: 1 }} />
         {!viewer && (<>
-        <button disabled={!canUndo} onClick={() => dispatch({ type: 'UNDO' })} style={{ ...topBtn, opacity: canUndo ? 1 : 0.3 }}>↩ Desfazer</button>
-        <button disabled={!canRedo} onClick={() => dispatch({ type: 'REDO' })} style={{ ...topBtn, opacity: canRedo ? 1 : 0.3 }}>↪ Refazer</button>
+        <button disabled={!canUndo} onClick={() => dispatch({ type: 'UNDO' })} style={{ ...topBtn, opacity: canUndo ? 1 : 0.3 }}><MapIcon name="undo" size={15} /> Desfazer</button>
+        <button disabled={!canRedo} onClick={() => dispatch({ type: 'REDO' })} style={{ ...topBtn, opacity: canRedo ? 1 : 0.3 }}><MapIcon name="redo" size={15} /> Refazer</button>
         <div style={{ width: 1, height: 20, background: 'rgba(255,255,255,0.08)' }} />
-        <button style={topBtn} onClick={() => bgInputRef.current?.click()}>🖼 Adicionar Imagem</button>
+        <button style={topBtn} onClick={() => bgInputRef.current?.click()}><MapIcon name="image" size={15} /> Adicionar Imagem</button>
         <input ref={bgInputRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={e => { loadBg(e.target.files?.[0]); e.target.value = ''; }} />
         <input ref={replaceInputRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={e => { replaceImage(e.target.files?.[0]); e.target.value = ''; }} />
         <div style={{ width: 1, height: 20, background: 'rgba(255,255,255,0.08)' }} />
         </>)}
-        <button style={{ ...topBtn, padding: '5px 8px' }} onClick={() => { setScale(1); setPan({ x: 60, y: 60 }); }}>⌂</button>
+        <button title="Enquadrar o mapa na tela" style={{ ...topBtn, padding: '5px 8px' }} onClick={fitToScreen}><MapIcon name="fit" /></button>
         <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.25)', fontFamily: 'monospace', minWidth: 36 }}>{Math.round(scale * 100)}%</span>
       </div>
 
@@ -1074,13 +1173,15 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
             <div style={{ flex: 1, overflowY: 'auto', padding: '0 8px 8px' }}>
               {[...layers].reverse().map(layer => {
                 const cnt = elements.filter(el => el.layerId === layer.id).length;
+                const idx = layers.findIndex(l => l.id === layer.id);
+                const lbtn = { background: 'none', border: 'none', cursor: 'pointer', padding: 2, display: 'flex', alignItems: 'center', color: 'rgba(255,255,255,0.7)' };
                 return (
                   <div key={layer.id} style={{ marginBottom: 4, borderRadius: 6, border: '1px solid rgba(255,255,255,0.06)', background: 'rgba(255,255,255,0.02)' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '5px 6px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 2, padding: '5px 6px' }}>
                       <button onClick={() => dispatch({ type: 'SET_LAYER_PROP', sceneId: scene.id, layerId: layer.id, prop: 'visible', value: !layer.visible })}
-                        style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, padding: 0, opacity: layer.visible ? 1 : 0.3, color: 'rgba(255,255,255,0.7)' }} title="Visibilidade">👁</button>
+                        style={{ ...lbtn, opacity: layer.visible ? 1 : 0.35 }} title={layer.visible ? 'Ocultar camada' : 'Mostrar camada'}><MapIcon name={layer.visible ? 'eye' : 'eyeOff'} size={15} /></button>
                       <button onClick={() => dispatch({ type: 'SET_LAYER_PROP', sceneId: scene.id, layerId: layer.id, prop: 'locked', value: !layer.locked })}
-                        style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, padding: 0, opacity: layer.locked ? 1 : 0.3, color: 'rgba(255,255,255,0.7)' }} title="Travar">🔒</button>
+                        style={{ ...lbtn, opacity: layer.locked ? 1 : 0.35, color: layer.locked ? '#fbbf24' : 'rgba(255,255,255,0.7)' }} title={layer.locked ? 'Destravar camada' : 'Travar camada'}><MapIcon name={layer.locked ? 'lock' : 'unlock'} size={15} /></button>
                       {campaignMode && (() => {
                         const p = scene.permissions?.[layer.id]?.update || 'none';
                         const icon = p === 'owner' ? '👤' : p === 'all' ? '👥' : '🚷';
@@ -1091,12 +1192,16 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
                             title={`Jogadores: ${label} (clique para alternar)`}>{icon}</button>
                         );
                       })()}
-                      <span style={{ flex: 1, fontSize: 11, color: 'rgba(255,255,255,0.65)' }}>{layer.name}</span>
-                      <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.25)', fontFamily: 'monospace' }}>{cnt}</span>
+                      <span style={{ flex: 1, fontSize: 11, color: 'rgba(255,255,255,0.65)', marginLeft: 2 }}>{layer.name}</span>
+                      <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.25)', fontFamily: 'monospace', marginRight: 2 }}>{cnt}</span>
+                      <button onClick={() => moveLayer(layer.id, +1)} disabled={idx >= layers.length - 1}
+                        style={{ ...lbtn, opacity: idx >= layers.length - 1 ? 0.15 : 0.6, cursor: idx >= layers.length - 1 ? 'default' : 'pointer' }} title="Subir camada"><MapIcon name="chevUp" size={13} /></button>
+                      <button onClick={() => moveLayer(layer.id, -1)} disabled={idx <= 0}
+                        style={{ ...lbtn, opacity: idx <= 0 ? 0.15 : 0.6, cursor: idx <= 0 ? 'default' : 'pointer' }} title="Descer camada"><MapIcon name="chevDown" size={13} /></button>
                     </div>
                     <div style={{ padding: '0 6px 4px' }}>
                       <input type="range" min={0} max={1} step={0.05} value={layer.opacity}
-                        onChange={e => dispatch({ type: 'SET_LAYER_PROP', sceneId: scene.id, layerId: layer.id, prop: 'opacity', value: +e.target.value })}
+                        onChange={e => dispatch({ type: 'SET_LAYER_PROP', sceneId: scene.id, layerId: layer.id, prop: 'opacity', value: +e.target.value, coalesceKey: 'op:' + layer.id })}
                         style={{ width: '100%', height: 3, cursor: 'pointer', accentColor: '#a855f7' }} />
                     </div>
                   </div>
@@ -1111,7 +1216,7 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
           style={{ flex: 1, position: 'relative', overflow: 'hidden', cursor }}
           onMouseDown={onDown} onMouseMove={onMove} onMouseUp={onUp} onMouseLeave={onUp}
           onDoubleClick={onDoubleClick}
-          onWheel={onWheel} onContextMenu={e => e.preventDefault()}
+          onContextMenu={e => e.preventDefault()}
           onDrop={e => {
             e.preventDefault();
             const assetId = e.dataTransfer.getData('application/x-nexus-asset'); // spec 0013 AC-3
@@ -1156,7 +1261,7 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
               const opacity = (img.hidden ? 0.25 : 1) * (layer?.opacity ?? 1);
               return (
                 <div key={img.id}
-                  style={{ position: 'absolute', left: px, top: py, width: pw, height: ph, transform: `rotate(${liveRot}deg)`, transformOrigin: 'center center', opacity, outline: isSel ? '2px solid #a855f7' : 'none', outlineOffset: 1, cursor: (img.locked || layer?.locked) ? 'default' : 'grab', zIndex: (layerOrder[img.layerId] ?? 0) * 10 + 5, pointerEvents: isSel ? 'auto' : 'none' }}
+                  style={{ position: 'absolute', left: px, top: py, width: pw, height: ph, transform: `rotate(${liveRot}deg)`, transformOrigin: 'center center', opacity, outline: isSel ? '2px solid #a855f7' : 'none', outlineOffset: 1, cursor: (img.locked || layer?.locked) ? 'default' : 'grab', zIndex: layerZIndex(layerOrder[img.layerId] ?? 0, img.z), pointerEvents: (viewer || img.locked || layer?.locked) ? 'none' : 'auto' }}
                   onMouseDown={e => onElementDown(e, img)}
                   onContextMenu={e => { e.preventDefault(); e.stopPropagation(); setSelIds(new Set([img.id])); setCtxMenu({ x: e.clientX, y: e.clientY, type: 'image', elId: img.id }); }}>
                   <img src={src} draggable={false} style={{ width: '100%', height: '100%', display: 'block', pointerEvents: 'none' }} />
@@ -1219,7 +1324,7 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
                   border: isSel ? '2.5px solid #a855f7' : `2.5px solid ${tokImg ? t.color : 'rgba(255,255,255,0.85)'}`,
                   boxShadow: isSel ? `0 0 0 3px rgba(168,85,247,0.5),0 0 14px ${t.color}99` : `0 0 14px ${t.color}99,0 2px 8px rgba(0,0,0,0.5)`,
                   display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: Math.max(11, Math.round(t.size * 0.3)), fontWeight: 700, color: '#fff',
-                  filter: t.spectre ? 'blur(1.5px)' : 'none', cursor: viewer ? (canMove(scene, t, uid, false) ? 'grab' : 'not-allowed') : ((t.locked || tokLayer?.locked) ? 'not-allowed' : 'grab'), zIndex: (layerOrder[t.layerId] ?? 0) * 10 + 5,
+                  filter: t.spectre ? 'blur(1.5px)' : 'none', cursor: viewer ? (canMove(scene, t, uid, false) ? 'grab' : 'not-allowed') : ((t.locked || tokLayer?.locked) ? 'not-allowed' : 'grab'), zIndex: layerZIndex(layerOrder[t.layerId] ?? 0, t.z),
                   pointerEvents: viewer && !canMove(scene, t, uid, false) ? 'none' : undefined,
                   textShadow: '0 1px 3px rgba(0,0,0,0.8)', transition: 'opacity 0.2s,box-shadow 0.15s',
                 }}
@@ -1252,10 +1357,13 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
               const opacity = (d.hidden ? 0.3 : d.spectre ? 0.5 : 1) * (dLayer?.opacity ?? 1);
               return (
                 <div key={d.id}
-                  style={{ position: 'absolute', left: px, top: py, width: d.w, height: d.h, opacity, zIndex: (layerOrder[d.layerId] ?? 0) * 10 + 5, outline: isSel ? '1.5px dashed #a855f7' : 'none', outlineOffset: 2, cursor: (d.locked || dLayer?.locked) ? 'default' : 'grab', pointerEvents: viewer ? 'none' : (isSel ? 'auto' : 'none'), filter: d.spectre ? 'blur(1px)' : 'none' }}
-                  onMouseDown={e => onElementDown(e, d)}
-                  onContextMenu={e => { e.preventDefault(); e.stopPropagation(); setSelIds(new Set([d.id])); setCtxMenu({ x: e.clientX, y: e.clientY, type: 'image', elId: d.id }); }}>
-                  <svg width={Math.max(1, d.w)} height={Math.max(1, d.h)} style={{ display: 'block', overflow: 'visible', pointerEvents: 'none' }} xmlns="http://www.w3.org/2000/svg"><DrawingShape d={d} /></svg>
+                  style={{ position: 'absolute', left: px, top: py, width: d.w, height: d.h, opacity, zIndex: layerZIndex(layerOrder[d.layerId] ?? 0, d.z), outline: isSel ? '1.5px dashed #a855f7' : 'none', outlineOffset: 2, cursor: (d.locked || dLayer?.locked) ? 'default' : 'grab', pointerEvents: 'none', filter: d.spectre ? 'blur(1px)' : 'none' }}>
+                  {/* Só o TRAÇO é clicável (não a bbox transparente) — spec 0019 AC-5 */}
+                  <svg width={Math.max(1, d.w)} height={Math.max(1, d.h)} style={{ display: 'block', overflow: 'visible', pointerEvents: (viewer || d.locked || dLayer?.locked) ? 'none' : 'visiblePainted', cursor: 'grab' }} xmlns="http://www.w3.org/2000/svg"
+                    onMouseDown={e => onElementDown(e, d)}
+                    onContextMenu={e => { e.preventDefault(); e.stopPropagation(); setSelIds(new Set([d.id])); setCtxMenu({ x: e.clientX, y: e.clientY, type: 'image', elId: d.id }); }}>
+                    <DrawingShape d={d} />
+                  </svg>
                 </div>
               );
             })}
@@ -1284,7 +1392,7 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
               const py = livePos ? livePos.y : n.y;
               return (
                 <div key={n.id}
-                  style={{ position: 'absolute', left: px, top: py, background: '#fbbf24', color: '#1a1500', padding: '8px 10px', borderRadius: 4, fontSize: 12, maxWidth: 160, wordBreak: 'break-word', boxShadow: isSel ? '0 0 0 2px #a855f7,3px 4px 12px rgba(0,0,0,0.5)' : '3px 4px 12px rgba(0,0,0,0.5)', zIndex: (layerOrder[n.layerId] ?? 0) * 10 + 5, opacity: (n.hidden ? 0.35 : 1) * (noteLayer?.opacity ?? 1), cursor: (n.locked || noteLayer?.locked) ? 'default' : 'grab' }}
+                  style={{ position: 'absolute', left: px, top: py, background: '#fbbf24', color: '#1a1500', padding: '8px 10px', borderRadius: 4, fontSize: 12, maxWidth: 160, wordBreak: 'break-word', boxShadow: isSel ? '0 0 0 2px #a855f7,3px 4px 12px rgba(0,0,0,0.5)' : '3px 4px 12px rgba(0,0,0,0.5)', zIndex: layerZIndex(layerOrder[n.layerId] ?? 0, n.z), opacity: (n.hidden ? 0.35 : 1) * (noteLayer?.opacity ?? 1), cursor: (n.locked || noteLayer?.locked) ? 'default' : 'grab' }}
                   onMouseDown={e => onElementDown(e, n)}>
                   {n.text}
                   {n.locked && <span style={{ position: 'absolute', top: -5, right: -5, fontSize: 9, background: 'rgba(0,0,0,0.75)', borderRadius: '50%', width: 14, height: 14, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>🔒</span>}
@@ -1321,29 +1429,34 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
           {weather === 'fog' && <div style={{ position: 'absolute', inset: 0, overflow: 'hidden', pointerEvents: 'none', zIndex: 25 }}>{[0, 1, 2].map(i => <div key={i} style={{ position: 'absolute', inset: 0, background: `radial-gradient(ellipse ${150 + i * 60}% ${80 + i * 30}% at ${20 + i * 30}% ${30 + i * 20}%, rgba(180,190,200,0.18) 0%, transparent 70%)`, animation: `fogDrift ${8 + i * 4}s ease-in-out ${i * 3}s infinite` }} />)}<div style={{ position: 'absolute', inset: 0, background: 'rgba(150,170,190,0.08)' }} /></div>}
 
           <div style={{ position: 'absolute', bottom: 10, left: 10, fontSize: 10, color: 'rgba(255,255,255,0.2)', fontFamily: 'monospace', pointerEvents: 'none' }}>{Math.round(scale * 100)}% · {gridSize}px{snapGrid ? ' · snap' : ''}</div>
+
+          {/* Aviso temporário (spec 0019 AC-1/AC-10): camada travada, quota cheia… */}
+          {flash && (
+            <div style={{ position: 'absolute', bottom: 20, left: '50%', transform: 'translateX(-50%)', zIndex: 400, background: 'rgba(13,13,24,0.96)', border: '1px solid rgba(251,191,36,0.4)', color: '#fde68a', borderRadius: 10, padding: '9px 18px', fontSize: 12.5, fontFamily: 'Inter,system-ui,sans-serif', boxShadow: '0 8px 30px rgba(0,0,0,0.6)', pointerEvents: 'none', maxWidth: '80%', textAlign: 'center' }}>{flash}</div>
+          )}
         </div>
 
         {/* RIGHT TOOLBAR */}
         <div style={{ position: 'absolute', right: 14, top: '50%', transform: 'translateY(-50%)', zIndex: 30, display: 'flex', flexDirection: 'column', gap: 2, background: 'rgba(22,22,46,0.92)', backdropFilter: 'blur(16px)', border: '1px solid rgba(255,255,255,0.14)', borderRadius: 14, padding: 6 }}>
-          {(viewer ? TOOLS.filter(t => VIEWER_TOOLS.includes(t.id)) : TOOLS).map(t => <button key={t.id} title={t.label} onClick={() => setTool(t.id)} style={TB(tool === t.id)}>{t.ch}</button>)}
+          {(viewer ? TOOLS.filter(t => VIEWER_TOOLS.includes(t.id)) : TOOLS).map(t => <button key={t.id} title={t.label} onClick={() => setTool(t.id)} style={TB(tool === t.id)}><MapIcon name={t.icon} size={20} /></button>)}
           <div style={{ height: 1, background: 'rgba(255,255,255,0.08)', margin: '4px 0' }} />
           {!viewer && campaignMode && (
-            <button title={camOn ? 'Parar transmissão de câmera' : 'Sync View — transmitir minha câmera'} onClick={() => setCamOn(v => !v)} style={TB(camOn)}>📡</button>
+            <button title={camOn ? 'Parar transmissão de câmera' : 'Sync View — transmitir minha câmera'} onClick={() => setCamOn(v => !v)} style={TB(camOn)}><MapIcon name="cast" size={20} /></button>
           )}
           {viewer && masterCam && !followMaster && (
-            <button title="Seguir a câmera do mestre" onClick={() => setFollowMaster(true)} style={TB(false)}>📡</button>
+            <button title="Seguir a câmera do mestre" onClick={() => setFollowMaster(true)} style={TB(false)}><MapIcon name="follow" size={20} /></button>
           )}
-          <button title="Zoom +" onClick={() => setScale(s => Math.min(6, s * 1.2))} style={TB(false)}>＋</button>
-          <button title="Zoom -" onClick={() => setScale(s => Math.max(0.08, s / 1.2))} style={TB(false)}>－</button>
+          <button title="Aproximar (zoom +)" onClick={() => zoomButton(1.2)} style={TB(false)}><MapIcon name="zoomIn" /></button>
+          <button title="Afastar (zoom −)" onClick={() => zoomButton(1 / 1.2)} style={TB(false)}><MapIcon name="zoomOut" /></button>
           <div style={{ height: 1, background: 'rgba(255,255,255,0.08)', margin: '4px 0' }} />
-          <button title="Grade" onClick={() => setShowGrid(g => !g)} style={TB(showGrid)}>⊞</button>
+          <button title="Mostrar/ocultar grade" onClick={() => setShowGrid(g => !g)} style={TB(showGrid)}><MapIcon name="grid" size={20} /></button>
           {!viewer && (<>
-          <button title={snapGrid ? 'Snap ativo' : 'Snap à grade'} onClick={() => setSnapGrid(g => !g)} style={TB(snapGrid)}>⊡</button>
-          <button title="Revelar tudo" onClick={clearFog} style={TB(false)}>☀</button>
-          <button title="Cobrir tudo" onClick={coverFog} style={TB(false)}>🌑</button>
-          <button title="Painel" onClick={() => setShowLeft(v => !v)} style={TB(showLeft)}>🗂</button>
+          <button title={snapGrid ? 'Snap à grade: ligado' : 'Snap à grade: desligado'} onClick={() => setSnapGrid(g => !g)} style={TB(snapGrid)}><MapIcon name="snap" size={19} /></button>
+          <button title="Revelar toda a névoa" onClick={clearFog} style={TB(false)}><MapIcon name="revealAll" size={20} /></button>
+          <button title="Cobrir tudo com névoa" onClick={coverFog} style={TB(false)}><MapIcon name="coverAll" size={19} /></button>
+          <button title="Painel de cenas e camadas" onClick={() => setShowLeft(v => !v)} style={TB(showLeft)}><MapIcon name="panel" size={20} /></button>
           {db && uid && (
-            <button title="Biblioteca de assets" onClick={() => setDockOpen(v => !v)} style={TB(dockOpen)}>🎒</button>
+            <button title="Biblioteca de assets" onClick={() => setDockOpen(v => !v)} style={TB(dockOpen)}><MapIcon name="library" size={20} /></button>
           )}
           </>)}
         </div>
@@ -1395,11 +1508,11 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
               <button key={m} title={tt} onClick={() => { setFogShape(m); setFogEdit(false); fogPolyRef.current = null; setFogDraft(null); }} style={{ ...TB(fogShape === m && !fogEdit), width: 30, height: 30, borderRadius: 8 }}>{ch}</button>
             ))}
             <div style={{ width: 1, height: 20, background: 'rgba(255,255,255,0.1)' }} />
-            <button title="Editar formas de fog (clique seleciona; Delete apaga)" onClick={() => { setFogEdit(v => !v); setFogSel(null); fogPolyRef.current = null; setFogDraft(null); }} style={{ ...TB(fogEdit), width: 30, height: 30, borderRadius: 8 }}>🧽</button>
+            <button title="Editar formas de fog (clique seleciona; Delete apaga)" onClick={() => { setFogEdit(v => !v); setFogSel(null); fogPolyRef.current = null; setFogDraft(null); }} style={{ ...TB(fogEdit), width: 30, height: 30, borderRadius: 8 }}><MapIcon name="brush" size={17} /></button>
             {fogEdit && fogSel && (
               <button title="Apagar forma selecionada" onClick={() => removeFogShape(fogSel)} style={{ ...TB(false), width: 'auto', padding: '0 10px', height: 30, borderRadius: 8, fontSize: 11, color: 'rgba(248,113,113,0.85)' }}>🗑 Apagar forma</button>
             )}
-            <button title={previewPlayer ? 'Voltar à visão do mestre' : 'Visão do jogador (preview)'} onClick={() => setPreviewPlayer(v => !v)} style={{ ...TB(previewPlayer), width: 30, height: 30, borderRadius: 8 }}>👁</button>
+            <button title={previewPlayer ? 'Voltar à visão do mestre' : 'Ver como o jogador vê (preview)'} onClick={() => setPreviewPlayer(v => !v)} style={{ ...TB(previewPlayer), width: 30, height: 30, borderRadius: 8 }}><MapIcon name="eye" size={17} /></button>
             {fogShape === 'rect' && !fogEdit && (<>
               <div style={{ width: 1, height: 20, background: 'rgba(255,255,255,0.1)' }} />
               <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)' }}>Célula:</span>
@@ -1423,8 +1536,8 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
 
             {selIds.size > 1 && <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', marginRight: 4, whiteSpace: 'nowrap' }}>{selIds.size} sel</span>}
 
-            <button title={anyHidden ? 'Mostrar' : 'Ocultar'} onClick={() => batchToggle('hidden')} style={actBtn(anyHidden)}>👁</button>
-            <button title={anyLocked ? 'Destravar' : 'Travar'} onClick={() => batchToggle('locked')} style={actBtn(anyLocked)}>🔒</button>
+            <button title={anyHidden ? 'Mostrar' : 'Ocultar'} onClick={() => batchToggle('hidden')} style={actBtn(anyHidden)}><MapIcon name={anyHidden ? 'eyeOff' : 'eye'} /></button>
+            <button title={anyLocked ? 'Destravar' : 'Travar'} onClick={() => batchToggle('locked')} style={actBtn(anyLocked)}><MapIcon name={anyLocked ? 'lock' : 'unlock'} /></button>
 
             {/* Layer picker */}
             <div style={{ position: 'relative' }}>
@@ -1445,11 +1558,11 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
               )}
             </div>
 
-            <button title="Duplicar (Ctrl+D)" onClick={dupSelected} style={actBtn(false)}>⬚</button>
+            <button title="Duplicar (Ctrl+D)" onClick={dupSelected} style={actBtn(false)}><MapIcon name="duplicate" /></button>
 
             {singleSel?.type === 'token' && (<>
-              <button title="Editar Rótulo" onClick={() => editLabel(singleSel.id)} style={actBtn(false)}>Tt</button>
-              <button title={singleSel.spectre ? 'Remover Espectro' : 'Espectro'} onClick={() => toggleSpectre(singleSel.id)} style={actBtn(singleSel.spectre)}>👻</button>
+              <button title="Editar rótulo" onClick={() => editLabel(singleSel.id)} style={actBtn(false)}><MapIcon name="text" /></button>
+              <button title={singleSel.spectre ? 'Remover espectro' : 'Espectro (visível só p/ o mestre)'} onClick={() => toggleSpectre(singleSel.id)} style={actBtn(singleSel.spectre)}><MapIcon name="spectre" /></button>
               <div style={{ width: 1, height: 24, background: 'rgba(255,255,255,0.1)', margin: '0 2px' }} />
               {[['P', 0.5], ['M', 1], ['G', 2], ['E', 3]].map(([l, v]) => (
                 <button key={l} title={`Tamanho ${v}× célula`} onClick={() => updateEl(singleSel.id, { size: Math.max(18, Math.round(gridSize * v)) })}
@@ -1464,20 +1577,20 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
             {selIds.size > 1 && (<>
               <div style={{ width: 1, height: 24, background: 'rgba(255,255,255,0.1)', margin: '0 2px' }} />
               {[
-                { label: '⇤', title: 'Alinhar esquerda',       action: () => alignSelected('x', 'min') },
-                { label: '↔', title: 'Centralizar horizontal',  action: () => alignSelected('x', 'mid') },
-                { label: '⇥', title: 'Alinhar direita',         action: () => alignSelected('x', 'max') },
-                { label: '⇡', title: 'Alinhar topo',            action: () => alignSelected('y', 'min') },
-                { label: '↕', title: 'Centralizar vertical',    action: () => alignSelected('y', 'mid') },
-                { label: '⇣', title: 'Alinhar base',            action: () => alignSelected('y', 'max') },
+                { icon: 'alignL',  title: 'Alinhar à esquerda',    action: () => alignSelected('x', 'min') },
+                { icon: 'alignCX', title: 'Centralizar horizontal', action: () => alignSelected('x', 'mid') },
+                { icon: 'alignR',  title: 'Alinhar à direita',      action: () => alignSelected('x', 'max') },
+                { icon: 'alignT',  title: 'Alinhar ao topo',        action: () => alignSelected('y', 'min') },
+                { icon: 'alignCY', title: 'Centralizar vertical',   action: () => alignSelected('y', 'mid') },
+                { icon: 'alignB',  title: 'Alinhar à base',         action: () => alignSelected('y', 'max') },
               ].map((btn, i) => (
-                <button key={i} title={btn.title} onClick={btn.action} style={{ width: 32, height: 32, borderRadius: 8, border: 'none', cursor: 'pointer', fontSize: 14, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(255,255,255,0.04)', color: 'rgba(255,255,255,0.5)' }}>{btn.label}</button>
+                <button key={i} title={btn.title} onClick={btn.action} style={{ width: 32, height: 32, borderRadius: 8, border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(255,255,255,0.04)', color: 'rgba(255,255,255,0.5)' }}><MapIcon name={btn.icon} size={16} /></button>
               ))}
             </>)}
 
             <div style={{ width: 1, height: 24, background: 'rgba(255,255,255,0.1)', margin: '0 2px' }} />
             <button title="Deletar (Del)" onClick={() => { deleteEls([...selIds]); setSelIds(new Set()); }}
-              style={{ ...actBtn(false), color: 'rgba(248,113,113,0.75)' }}>🗑</button>
+              style={{ ...actBtn(false), color: 'rgba(248,113,113,0.75)' }}><MapIcon name="trash" /></button>
 
             {singleSel?.type === 'token' && (<>
               <div style={{ width: 1, height: 24, background: 'rgba(255,255,255,0.1)', margin: '0 4px' }} />
