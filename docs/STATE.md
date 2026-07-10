@@ -10,7 +10,18 @@ alwaysApply: true
 > todo. Diferente do **ADR** (decisão durável e imutável). Decisão estrutural → ADR; estado do
 > trabalho → aqui. Atualize ao **pausar/encerrar**; leia ao **retomar**. Use a skill `/handoff`.
 
-**Última atualização:** 2026-07-09 por Claude (0018 — fallback de IA multi-provider implementado)
+**Última atualização:** 2026-07-09 por Claude (fix: editor de mapas quebrado por regressão da 0017)
+
+> **2026-07-09: FIX — Editor de Mapas quebrado (regressão da spec 0017, commit `852d5e1`, DEPLOYADO
+> no Firebase Hosting).** Sintoma: ao abrir o Editor de Mapas, só aparecia o header + canvas vazio;
+> toolbars/painéis sumiam e o header do app continuava visível por cima (MapEditor não cobria a
+> viewport). Causa: o wrapper de crossfade `<div key={screen} className="fade">` (introduzido na 0017,
+> L~12071) anima `transform: translateY` com `forwards` — o `translateY(0)` retido cria containing
+> block e prende descendentes `position:fixed`; o MapEditor é `position:fixed inset:0 z-index:500` e
+> ficava confinado dentro do wrapper. Fix cirúrgico: nova classe `.fade-screen` (só opacity, sem
+> transform) no wrapper de telas; as 20+ entradas `.fade` com slide-up ficam intactas. Gates: build
+> exit 0 + 16 suítes/118 testes. **Lição:** transform em wrapper de tela quebra qualquer filho
+> `position:fixed` full-screen — não reusar `.fade` (com transform) em volta de `renderScreen()`.
 
 > **2026-07-09: SPEC 0018 (fallback de IA multi-provider) IMPLEMENTADA** — `/api/ai` agora
 > tenta Groq (primário) → NVIDIA-Mistral (fallback) em cascata antes de reportar erro. Novo
@@ -21,13 +32,26 @@ alwaysApply: true
 > suítes/118 testes + `npm run build` exit 0. **Achado técnico documentado:** o Jest do CRA
 > trava `roots` em `src/`, por isso a lógica pura mora em `src/server/` (não em `api/`) —
 > ver `design.md` da 0018.
-> **PENDÊNCIA MANUAL DO ANDRE (bloqueia o fallback em produção, não bloqueia nada mais):**
-> 1) gerar uma chave NOVA em build.nvidia.com (duas chaves foram coladas em texto nesta sessão
-> e precisam ser revogadas se ainda não foram); 2) `NVIDIA_API_KEY` nas env vars da Vercel
-> (Settings → Environment Variables, Production); 3) redeploy. Sem isso, comportamento
-> idêntico a hoje (só Groq) — nada quebra. **Fora de escopo desta onda:** 3º elo da cascata
-> (DeepSeek/GLM/MiniMax) — IDs de modelo não verificados na doc oficial da NVIDIA, ver Q1 do
-> `design.md` da 0018.
+> Andre configurou `NVIDIA_API_KEY` na Vercel e fez o redeploy manual — **DEPLOYADO em produção**
+> (commit `dee9934` → `30f3b8b`, ver achado abaixo). **Fora de escopo desta onda:** 3º elo da
+> cascata (DeepSeek/GLM/MiniMax) — IDs de modelo não verificados na doc oficial da NVIDIA, ver
+> Q1 do `design.md` da 0018.
+
+> **2026-07-09: BUG DE INFRA PRÉ-EXISTENTE ACHADO E CORRIGIDO (`vercel.json`, commit `30f3b8b`)**
+> — `api.playnexusrpg.com/api/*` (TODAS as functions: `ai.js`, `create-payment.js`,
+> `payment-webhook.js`) estava servindo `index.html` (405/200 conforme método) em vez de rotear
+> pras serverless functions — **o Ajudante do Mestre e o webhook de pagamento estavam fora do ar
+> em produção**, achado ao tentar verificar a 0018 em produção. Causa raiz: `vercel.json` usava
+> o formato legado (`"builds"` + `"routes"`), que conflita com a auto-detecção de framework da
+> Vercel (Framework Preset "Create React App" configurado no dashboard) — o catch-all pra
+> `index.html` intercepta `/api/*` antes da rota específica, mesmo ela vindo primeiro na lista.
+> Confirmado contra um relato idêntico na comunidade Vercel (mesma causa, mesma correção).
+> **Fix:** removido `"builds"` (functions em `api/*.js` são auto-detectadas por convenção, sem
+> config), `"routes"` virou `"rewrites"` (formato moderno). Verificado em produção pós-deploy:
+> `GET/POST /api/ai` e `POST /api/payment-webhook` agora respondem com os headers/status do
+> próprio código (405/401/200), não mais `index.html`. **Não sei há quanto tempo esse bug
+> existia** — não investigado quando começou; se pagamentos via PIX pararam de ativar planos
+> recentemente, essa pode ser a causa.
 
 > **2026-07-09: DEPLOY 0017** — commit `f90a316` em `origin/main` (github.com/Andreytyui/NEXUS-RPG,
 > 28 arquivos) + `firebase deploy --only firestore:rules,hosting` no projeto `nexus-rpg-app`
