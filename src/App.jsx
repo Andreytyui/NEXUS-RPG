@@ -370,6 +370,12 @@ const G = () => (
     a:focus-visible{outline:2px solid rgba(201,168,76,0.8);outline-offset:2px;border-radius:3px}
 
     .fade{animation:fadeIn 0.5s ease forwards}
+    /* Crossfade do wrapper de telas (spec 0017): SO opacity, sem transform. Um transform
+       aqui (mesmo o translateY(0) final retido pelo fill-mode forwards) criaria containing
+       block e prenderia descendentes position:fixed (ex.: MapEditor inset:0) dentro do
+       wrapper, quebrando o modo tela-cheia. Por isso NAO reusa a classe .fade. */
+    @keyframes fadeScreen{from{opacity:0}to{opacity:1}}
+    .fade-screen{animation:fadeScreen 0.5s ease}
 
     .btn-gold{
       font-family:'Cinzel',serif;font-size:0.8rem;letter-spacing:0.1em;text-transform:uppercase;
@@ -12068,7 +12074,7 @@ export default function App() {
             <div style={{ display: screen === "music" ? "block" : "none" }}>
               <MusicScreen nowPlaying={nowPlaying} onNowPlaying={setNowPlaying} musicTokens={musicTokens} onMusicTokens={setMusicTokens} ytPlayerRef={ytPlayerRef} />
             </div>
-            {screen !== "music" && <div key={screen} className="fade" style={(screen==="master" || (screen==="sheet" && createdChar && activeSystem?.id==="op")) ? {flex:1, display:"flex", flexDirection:"column", minHeight:0} : {}}>{renderScreen()}</div>}
+            {screen !== "music" && <div key={screen} className="fade-screen" style={(screen==="master" || (screen==="sheet" && createdChar && activeSystem?.id==="op")) ? {flex:1, display:"flex", flexDirection:"column", minHeight:0} : {}}>{renderScreen()}</div>}
           </main>
           {nowPlaying && <MusicPlayerBar nowPlaying={nowPlaying} onNowPlaying={setNowPlaying} ytPlayerRef={ytPlayerRef} />}
           <MobileBottomNav active={screen} onNav={setScreen}/>
