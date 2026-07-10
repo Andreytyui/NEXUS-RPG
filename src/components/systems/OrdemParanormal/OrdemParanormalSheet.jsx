@@ -1468,7 +1468,7 @@ function CombateTab({ diceRef, diceInput, setDiceInput, rollFree, attrs, rollAtt
         <div className="op-label" style={{ marginBottom: 8 }}>{t("op.sheet.combat.attrTests")}</div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(5,1fr)", gap: 7 }}>
           {ATTR_KEYS.map((k) => (
-            <button key={k} className="op-attr-card" onClick={() => rollAttr(k)} aria-label={`Testar ${ATTR_LABELS[k]}`} title={`1d20 + ${ATTR_LABELS[k]}`}>
+            <button key={k} className="op-attr-card" onClick={() => rollAttr(k)} aria-label={`Testar ${ATTR_LABELS[k]}`} title={attrs[k] === 0 ? `${ATTR_LABELS[k]} 0 · rola 2d20 e pega o PIOR` : `${ATTR_LABELS[k]} · rola ${attrs[k]}d20 e pega o maior`}>
               <span className="op-attr-name">{k}</span>
               <span className="op-attr-val">{attrs[k] ?? 0}</span>
             </button>
