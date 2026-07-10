@@ -1,3 +1,9 @@
+---
+name: quick-summary-001-observabilidade-catches
+description: Resumo da quick task 001 concluída (catches silenciosos do App.jsx).
+alwaysApply: false
+---
+
 # Summary — F3: Observabilidade (catches silenciosos do App.jsx)
 
 **Concluída:** 2026-07-03 · **Resultado:** ✅

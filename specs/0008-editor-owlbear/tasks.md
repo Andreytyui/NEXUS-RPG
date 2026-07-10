@@ -1,4 +1,4 @@
-﻿---
+---
 name: tasks-0008-editor-owlbear
 description: Plano de execução da spec 0008 (ordem, gate executável, status).
 alwaysApply: false

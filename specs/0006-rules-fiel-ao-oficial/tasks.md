@@ -1,4 +1,4 @@
-﻿---
+---
 name: tasks-0006-rules-fiel-ao-oficial
 description: Plano de execução da spec 0006 (ordem, gate executável, status).
 alwaysApply: false

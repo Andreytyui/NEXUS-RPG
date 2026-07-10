@@ -1,3 +1,9 @@
+---
+name: quick-task-001-observabilidade-catches
+description: Trilha leve (tier trivial) já concluída — catches silenciosos do App.jsx.
+alwaysApply: false
+---
+
 # Task — F3: Observabilidade (catches silenciosos do App.jsx)
 
 **Data:** 2026-07-03 · **Aprovação:** Andre ("sim", fase F3 do plano da auditoria FASE 0) · **Tier:** trivial (1 arquivo)

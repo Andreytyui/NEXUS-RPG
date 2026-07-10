@@ -1,4 +1,4 @@
-﻿---
+---
 name: tasks-0007-mapa-mesa-multiplayer
 description: Plano de execução da spec 0007 (ordem, gate executável, status).
 alwaysApply: false
