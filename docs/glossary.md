@@ -13,8 +13,10 @@ alwaysApply: false
 |--------------------|----------------------------------------------------------------------------------------|---------------------------|-------------------|
 | **Agente**         | IA com personalidade e regras específicas da campanha (futuro: NPCs com memória)      | Jogador                   | IA                |
 | **Campanha**       | Espaço compartilhado de jogo criado pelo Mestre, com código de convite e chat          | Mesa física               | Campanha          |
+| **Cascata de provedores** | Lista ordenada de provedores de IA (`PROVIDER_CHAIN`) tentados em sequência quando o atual falha por disponibilidade | Roteamento por qualidade | IA |
 | **DossierCard**    | Card visual resumido do personagem exibido no dashboard e na visão do Mestre           | Ficha completa            | Ficha             |
 | **Elemento**       | Afinidade paranormal do personagem em Ordem Paranormal (Sangue, Morte, Energia…)      | Atributo                  | Ficha / OP        |
+| **Elo (fallback)** | Um par provedor+modelo específico dentro de uma cascata de IA (ex.: Groq, NVIDIA-Mistral) | Provedor (um provedor pode ter vários elos) | IA |
 | **Esquiva**        | Valor derivado de Defesa + bônus de Reflexos (cálculo em `rules.js`)                  | Defesa, Armadura          | Ficha / OP        |
 | **Ficha**          | Conjunto completo de dados de um personagem (atributos, perícias, inventário, etc.)   | DossierCard               | Ficha             |
 | **fs\***           | Prefixo das funções de Firestore em `App.jsx` (ex: `fsSaveCharacter`)                 | —                         | Infra             |

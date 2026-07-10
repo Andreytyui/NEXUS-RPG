@@ -1,10 +1,9 @@
-// Vercel serverless function — proxy seguro para Groq
-// A chave GROQ_KEY fica apenas no servidor. Exige usuário Firebase autenticado e aplica
-// rate limit por uid (spec 0004 AC-6) — antes era um proxy aberto na internet.
+// Vercel serverless function — proxy seguro de IA com fallback multi-provider (spec 0018)
+// Cascata: Groq (primário) → NVIDIA-Mistral (fallback de disponibilidade). As chaves ficam
+// só no servidor. Exige usuário Firebase autenticado e aplica rate limit por uid (spec 0004 AC-6).
 
 const { cors, verifyFirebaseIdToken } = require("./_lib");
-
-const GROQ_URL = "https://api.groq.com/openai/v1/chat/completions";
+const { PROVIDER_CHAIN, shouldFallback, buildRequestBody } = require("../src/server/aiFallback");
 
 // Rate limit simples por instância (zera a cada cold start — barra abuso casual; para
 // garantia forte seria preciso um store externo, fora do escopo da spec 0004).
@@ -25,39 +24,71 @@ module.exports = async function handler(req, res) {
   if (req.method === "OPTIONS") return res.status(200).end();
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
-  const key = process.env.GROQ_KEY;
-  if (!key) return res.status(500).json({ error: "GROQ_KEY não configurada no servidor." });
+  if (!process.env.GROQ_KEY) return res.status(500).json({ error: "GROQ_KEY não configurada no servidor." });
 
   const idToken = String(req.headers.authorization || "").replace(/^Bearer\s+/i, "");
   const auth = await verifyFirebaseIdToken(idToken);
   if (auth.error) return res.status(401).json({ error: auth.error });
   if (rateLimited(auth.uid)) return res.status(429).json({ error: "Muitas requisições — aguarde um minuto." });
 
-  const { messages, model = "llama-3.3-70b-versatile", temperature = 0.85, max_tokens = 1024 } = req.body || {};
+  const { messages, temperature = 0.85, max_tokens = 1024 } = req.body || {};
   if (!messages || !Array.isArray(messages)) {
     return res.status(400).json({ error: "Campo 'messages' obrigatório." });
   }
 
-  try {
-    const upstream = await fetch(GROQ_URL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${key}`,
-      },
-      body: JSON.stringify({ model, messages, temperature, max_tokens }),
-    });
+  // Cascata (spec 0018): tenta cada elo em ordem; falha de disponibilidade (429/5xx/timeout)
+  // passa para o próximo, falha de requisição (4xx≠429) retorna direto (repetiria em todo elo).
+  let attempted = 0;
+  let lastAttempt = { status: 500, message: "Falha ao chamar a IA." };
 
-    if (!upstream.ok) {
-      const err = await upstream.json().catch(() => ({}));
-      return res.status(upstream.status).json({ error: err?.error?.message || "Erro na API de IA." });
+  for (const provider of PROVIDER_CHAIN) {
+    const key = process.env[provider.keyEnv];
+    if (!key) {
+      console.warn(`[api/ai] ${provider.id}: ${provider.keyEnv} não configurada — pulando elo.`);
+      continue;
     }
+    attempted++;
 
-    const data = await upstream.json();
-    const reply = data.choices?.[0]?.message?.content || "Sem resposta.";
-    return res.status(200).json({ reply });
-  } catch (e) {
-    console.error("[api/ai] erro:", e.message);
-    return res.status(500).json({ error: "Falha ao chamar a IA." });
+    try {
+      const upstream = await fetch(provider.url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${key}`,
+        },
+        body: JSON.stringify(buildRequestBody(provider, { messages, temperature, max_tokens })),
+        signal: AbortSignal.timeout(provider.timeoutMs),
+      });
+
+      if (!upstream.ok) {
+        const err = await upstream.json().catch(() => ({}));
+        const message = err?.error?.message || `Erro na API de IA (${provider.id}).`;
+        lastAttempt = { status: upstream.status, message };
+
+        if (shouldFallback(upstream.status)) {
+          console.warn(`[api/ai] ${provider.id} falhou (${upstream.status}) — tentando próximo elo.`);
+          continue;
+        }
+        // 4xx ≠ 429: falha de requisição, não cascateia (repetiria em todo elo).
+        return res.status(upstream.status).json({ error: message });
+      }
+
+      const data = await upstream.json();
+      const reply = data.choices?.[0]?.message?.content || "Sem resposta.";
+      return res.status(200).json({ reply, provider: provider.id });
+    } catch (e) {
+      console.warn(`[api/ai] ${provider.id} erro de rede/timeout: ${e.message} — tentando próximo elo.`);
+      lastAttempt = { status: 500, message: "Falha ao chamar a IA." };
+    }
   }
+
+  if (attempted === 1) {
+    // Só a Groq foi tentada (NVIDIA_API_KEY ausente) — repassa o erro exato dela, igual ao
+    // comportamento do proxy antes desta feature (spec 0018 AC-5).
+    return res.status(lastAttempt.status).json({ error: lastAttempt.message });
+  }
+
+  // 2+ elos tentados e todos falharam por disponibilidade (spec 0018 AC-4).
+  console.error("[api/ai] todos os elos da cascata falharam. Último:", lastAttempt);
+  return res.status(503).json({ error: "O Ajudante do Mestre está temporariamente indisponível. Tente novamente em instantes." });
 }

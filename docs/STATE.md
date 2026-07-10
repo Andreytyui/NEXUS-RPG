@@ -10,7 +10,24 @@ alwaysApply: true
 > todo. Diferente do **ADR** (decisão durável e imutável). Decisão estrutural → ADR; estado do
 > trabalho → aqui. Atualize ao **pausar/encerrar**; leia ao **retomar**. Use a skill `/handoff`.
 
-**Última atualização:** 2026-07-09 por Claude (0017 Onda 1 completa — DEPLOYADO)
+**Última atualização:** 2026-07-09 por Claude (0018 — fallback de IA multi-provider implementado)
+
+> **2026-07-09: SPEC 0018 (fallback de IA multi-provider) IMPLEMENTADA** — `/api/ai` agora
+> tenta Groq (primário) → NVIDIA-Mistral (fallback) em cascata antes de reportar erro. Novo
+> `src/server/aiFallback.js` (puro, testado — 13/13 `npm test`); `api/ai.js` reescrito com o
+> laço de cascata (auth/rate-limit da spec 0004 AC-6 inalterados). Verificado fim a fim com
+> smoke test de `fetch` mockado (5 cenários: sucesso, fallback, não-cascateio em 4xx≠429,
+> ambos falham → 503 amigável, chave ausente → propaga erro exato da Groq). Gates: 16
+> suítes/118 testes + `npm run build` exit 0. **Achado técnico documentado:** o Jest do CRA
+> trava `roots` em `src/`, por isso a lógica pura mora em `src/server/` (não em `api/`) —
+> ver `design.md` da 0018.
+> **PENDÊNCIA MANUAL DO ANDRE (bloqueia o fallback em produção, não bloqueia nada mais):**
+> 1) gerar uma chave NOVA em build.nvidia.com (duas chaves foram coladas em texto nesta sessão
+> e precisam ser revogadas se ainda não foram); 2) `NVIDIA_API_KEY` nas env vars da Vercel
+> (Settings → Environment Variables, Production); 3) redeploy. Sem isso, comportamento
+> idêntico a hoje (só Groq) — nada quebra. **Fora de escopo desta onda:** 3º elo da cascata
+> (DeepSeek/GLM/MiniMax) — IDs de modelo não verificados na doc oficial da NVIDIA, ver Q1 do
+> `design.md` da 0018.
 
 > **2026-07-09: DEPLOY 0017** — commit `f90a316` em `origin/main` (github.com/Andreytyui/NEXUS-RPG,
 > 28 arquivos) + `firebase deploy --only firestore:rules,hosting` no projeto `nexus-rpg-app`
