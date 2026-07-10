@@ -10,7 +10,19 @@ alwaysApply: true
 > todo. Diferente do **ADR** (decisão durável e imutável). Decisão estrutural → ADR; estado do
 > trabalho → aqui. Atualize ao **pausar/encerrar**; leia ao **retomar**. Use a skill `/handoff`.
 
-**Última atualização:** 2026-07-09 por Claude (spec 0019 — correções de usabilidade do Editor de Mapas)
+**Última atualização:** 2026-07-09 por Claude (spec 0020 — Arsenal v2: editor de ataques OP)
+
+> **2026-07-09: SPEC 0020 (Arsenal v2) IMPLEMENTADA + DEPLOYADA.** Andre reclamou que criar ataque
+> na ficha OP era "horrível" (card inline apertado) e mandou referência de modal completo, pedindo
+> melhor. Feito: novo `AttackModal` (reusa `ModalShell` + `RichTextEditor` de Tabs/shared) com Nome,
+> Dano, Crítico (margem), Multiplicador, Ataque Bônus, Perícia, Atributo de Dano, Tipo de Dano
+> (dropdown `TIPOS_DANO`), Alcance, lista de **Dano Extra** {dano,tipo}, Imagem (downscale 128px),
+> Anotações rich-text. `ArsenalCard` v2 colapsável (thumb + resumo "Dano · Crítico margem/xMult" +
+> 🎲; expande com detalhes + Editar/Remover). `rollAttack` reescrito com a mecânica correta:
+> `critMargin`/`isCritical` (margem de ameaça de verdade) + `combineDamage` (multiplicador no crit,
+> dano extra somado e agrupado por tipo). Tudo em `rules.js` (puro, testado: arsenal.test.js 8 testes)
+> + `OrdemParanormalSheet.jsx`. Shape v2 aditivo/retrocompatível (ataque antigo continua rolando).
+> Gates: **19 suítes/140 testes** + build exit 0. ACs de UI (1/5/6) = checklist do Andre no tasks.md.
 
 > **2026-07-09: SPEC 0019 (correções do Editor de Mapas) IMPLEMENTADA + DEPLOYADA.** Andre reportou
 > "as funções não funcionam direito", prioridade em CAMADAS e ÍCONES ilegíveis. 3 explorações

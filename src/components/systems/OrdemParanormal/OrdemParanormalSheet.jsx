@@ -29,7 +29,10 @@ import {
   ATTR_KEYS, ATTR_LABELS, PERICIAS, PERICIA_GRUPOS, defaultTrainedSet, treinoColor,
   nexStats, deriveStats, rollOP, rollExpr, nexLevel, NEX_LADDER, rollPayload,
   dtRituais as dtRituaisRule,
+  TIPOS_DANO, ALCANCES, PERICIAS_ATAQUE, critMargin, isCritical, combineDamage,
 } from "./rules";
+import { ModalShell, inputS, fieldLabel, btnGold, btnGhost } from "./Tabs/shared/modalStyles";
+import RichTextEditor from "./Tabs/shared/RichTextEditor";
 
 const downscale = (file, max = 420) =>
   new Promise((resolve) => {
@@ -420,11 +423,32 @@ export default function OrdemParanormalSheet({ character, charId, onBack, onUpda
     fireRoll(diceInput.toUpperCase(), { ...res, expr: diceInput, rollType: "custom" });
     setDiceInput("");
   };
+  // Perícia de ataque → atributo do teste (Luta=FOR, Pontaria=AGI; ou atributo puro).
+  const PERICIA_ATK_ATTR = { Luta: "FOR", Pontaria: "AGI" };
+  const attackTestAttr = (a) => {
+    const per = a.pericia;
+    if (per && ATTR_KEYS.includes(per)) return per;          // perícia = atributo puro
+    if (per && PERICIA_ATK_ATTR[per]) return PERICIA_ATK_ATTR[per];
+    return a.attr || (isRanged(a) ? "AGI" : "FOR");           // shape antigo
+  };
   const rollAttack = (a) => {
-    const atkAttr = a.attr || "FOR"; // teste de ataque (Luta/Pontaria) — usa FOR por padrão
+    const atkAttr = attackTestAttr(a);
     const atk = rollOP(attrs[atkAttr] || 1);
-    const dmg = rollExpr(a.dano || a.damage || "1d6") || { rolls: [0], result: 0, dice: "D6" };
-    fireRoll(a.name || "Ataque", { ...atk, kind: "attack", rollType: "attack", dano: dmg.result, danoRolls: dmg.rolls });
+    const kept = atk.result;
+    const skillBonus = a.pericia && !ATTR_KEYS.includes(a.pericia) ? (Number(skillTreino[a.pericia]) || 0) : 0;
+    const atkBonus = Number(a.bonus) || 0;
+    const testTotal = kept + skillBonus + atkBonus;
+    const crit = isCritical(kept, a.critico);
+    // dano base + atributo de dano; extras rolados separados por tipo (spec 0020)
+    const baseRoll = rollExpr(a.dano || a.damage || "1d6") || { rolls: [0], result: 0 };
+    const attrDmg = a.atributoDano && attrs[a.atributoDano] ? attrs[a.atributoDano] : 0;
+    const extras = (a.extras || []).map(e => ({ result: (rollExpr(e.dano) || { result: 0 }).result, tipo: e.tipo }));
+    const dmg = combineDamage(baseRoll.result + attrDmg, a.multiplicador, crit, extras, a.tipo);
+    fireRoll(a.name || "Ataque", {
+      ...atk, result: testTotal, kind: "attack", rollType: "attack", crit,
+      testAttr: atkAttr, testBonus: skillBonus + atkBonus,
+      dano: dmg.total, danoRolls: baseRoll.rolls, danoByType: dmg.byType,
+    });
   };
   /* rolagem livre de uma notação de dados (habilidades, rituais, dano de item) → corner card */
   const rollDados = (label, expr) => {
@@ -526,6 +550,19 @@ export default function OrdemParanormalSheet({ character, charId, onBack, onUpda
   const upd = (setter) => (i, patch) => setter((arr) => arr.map((it, idx) => (idx === i ? { ...it, ...patch } : it)));
   const rm = (setter) => (i) => setter((arr) => arr.filter((_, idx) => idx !== i));
   const add = (setter, blank) => () => setter((arr) => [...arr, { id: Date.now(), ...blank }]);
+
+  /* Arsenal v2 (spec 0020): modal de edição de ataque. */
+  const [editAtk, setEditAtk] = useState(null); // { index, draft } | null
+  const openNewAttack = () => setEditAtk({ index: -1, draft: {
+    id: Date.now(), name: "", dano: "1d6", critico: "20", multiplicador: 2, bonus: 0,
+    pericia: "Luta", tipo: "", atributoDano: "", alcance: "Pessoal", extras: [], img: "", notas: "",
+  } });
+  const openEditAttack = (i) => setEditAtk({ index: i, draft: { ...attacks[i] } });
+  const saveAttack = (draft) => {
+    const idx = editAtk?.index;
+    setAttacks((arr) => (idx >= 0 ? arr.map((it, i) => (i === idx ? { ...it, ...draft } : it)) : [...arr, draft]));
+    setEditAtk(null);
+  };
 
   const rootVars = {
     "--el-primary": theme.primary, "--el-accent": theme.accent, "--el-glow": theme.accent,
@@ -951,6 +988,7 @@ export default function OrdemParanormalSheet({ character, charId, onBack, onUpda
                 diceRef={diceRef} diceInput={diceInput} setDiceInput={setDiceInput} rollFree={rollFree}
                 attrs={attrs} rollAttr={rollAttr} attacks={attacks} setAttacks={setAttacks}
                 rollAttack={rollAttack} upd={upd} rm={rm} add={add}
+                onNewAttack={openNewAttack} onEditAttack={openEditAttack}
                 rollCampaign={rollCampaign} onOpenHistory={onOpenHistory}
               />
             )}
@@ -1112,6 +1150,8 @@ export default function OrdemParanormalSheet({ character, charId, onBack, onUpda
       )}
 
       {showElementModal && <ElementoAfinidadeModal onChoose={chooseElement} />}
+      {editAtk && <AttackModal draft={editAtk.draft} isNew={editAtk.index < 0} attrs={attrs}
+        onSave={saveAttack} onClose={() => setEditAtk(null)} />}
 
       {showNex && (
         <Modal onClose={() => setShowNex(false)} title="Matriz de Progressão · NEX">
@@ -1381,53 +1421,59 @@ const isRanged = (a) => {
   if (ta.includes("disparo") || ta.includes("fogo") || ta.includes("distância")) return true;
   return al && al !== "—" && al !== "-" && !al.includes("corpo");
 };
-function ArsenalCard({ a, i, attrs, upd, rm, setAttacks, rollAttack }) {
+/* Campo de formulário do AttackModal — módulo-escopo p/ não remontar (perder foco) a cada tecla. */
+function MField({ label, children, style }) {
+  return <div style={style}><label style={fieldLabel}>{label}</label>{children}</div>;
+}
+
+function ArsenalCard({ a, i, attrs, rm, setAttacks, rollAttack, onEdit }) {
   const [expanded, setExpanded] = useState(false);
   const ranged = isRanged(a);
-  const attrKey = a.attr || (ranged ? "AGI" : "FOR");
-  const attrVal = attrs[attrKey] ?? 0;
+  const margin = critMargin(a.critico);
+  const mult = Number(a.multiplicador) > 1 ? Math.floor(Number(a.multiplicador)) : 2;
+  const critLabel = (margin >= 20 ? "20" : `${margin}-20`) + `/x${mult}`;
   const tag = (color) => ({
     fontFamily: "var(--font-data,'Share Tech Mono',monospace)", fontSize: 10,
-    padding: "2px 7px", borderRadius: 3, border: `1px solid ${color}40`,
-    background: `${color}12`, color, whiteSpace: "nowrap",
+    padding: "2px 7px", borderRadius: 3, border: `1px solid ${color}40`, background: `${color}12`, color, whiteSpace: "nowrap",
   });
+  const Line = ({ k, v }) => (v || v === 0) ? (
+    <div style={{ display: "flex", gap: 6, fontSize: 12 }}>
+      <span style={{ color: "var(--el-accent)", minWidth: 96, fontFamily: "var(--font-title,'Cinzel',serif)" }}>{k}:</span>
+      <span style={{ color: "var(--text)" }}>{v}</span>
+    </div>
+  ) : null;
   return (
     <div className="op-arsenal-row" style={{ display: "flex", flexDirection: "column", gap: 0 }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "2px 0" }}>
-        <span style={{ fontSize: 16, flexShrink: 0 }}>{ranged ? "🔫" : "⚔️"}</span>
-        <span style={{ flex: 1, fontFamily: "var(--font-title,'Cinzel',serif)", fontWeight: 600, fontSize: 13,
-          letterSpacing: "0.04em", color: "var(--text)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", cursor: "pointer" }}
-          onClick={() => setExpanded(v => !v)}>{a.name || "Sem nome"}</span>
-        <div style={{ display: "flex", gap: 4, alignItems: "center", flexShrink: 0, flexWrap: "wrap" }}>
-          {a.dano && <span style={tag("var(--el-accent)")}>{a.dano}</span>}
-          {a.tipo && <span style={tag("var(--muted2)")}>{a.tipo}</span>}
-          {a.alcance && <span style={tag("#7a9ed4")}>{a.alcance}</span>}
-          <span style={{ ...tag("var(--el-glow)"), fontWeight: 700 }} title={`Teste: ${attrKey}`}>{attrKey} {attrVal}</span>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 0", cursor: "pointer" }} onClick={() => setExpanded(v => !v)}>
+        <button onClick={(e) => { e.stopPropagation(); setExpanded(v => !v); }} style={{ background: "none", border: "none", color: "var(--el-accent)", cursor: "pointer", fontSize: 13, padding: "0 2px", flexShrink: 0 }}>{expanded ? "▲" : "▼"}</button>
+        {a.img
+          ? <img src={a.img} alt="" style={{ width: 30, height: 30, borderRadius: 5, objectFit: "cover", flexShrink: 0, border: "1px solid var(--border)" }} />
+          : <span style={{ fontSize: 18, flexShrink: 0, width: 30, textAlign: "center" }}>{ranged ? "🔫" : "⚔️"}</span>}
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontFamily: "var(--font-title,'Cinzel',serif)", fontWeight: 600, fontSize: 13, color: "var(--text)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.name || "Sem nome"}</div>
+          <div style={{ display: "flex", gap: 12, fontSize: 11, marginTop: 1, flexWrap: "wrap" }}>
+            <span style={{ color: "var(--el-accent)" }}>Dano: {a.dano || "—"}</span>
+            <span style={{ color: "#c084fc" }}>Crítico: {critLabel}</span>
+          </div>
         </div>
-        <button className="op-rolar" style={{ padding: "5px 10px", fontSize: 11, flexShrink: 0 }} onClick={() => rollAttack(a)} title="Rolar ataque + dano">🎲</button>
-        <button onClick={() => setExpanded(v => !v)} style={{ background: "none", border: "none", color: "var(--muted2)", cursor: "pointer", fontSize: 13, padding: "0 2px" }}>{expanded ? "▲" : "▼"}</button>
-        <button onClick={() => rm(setAttacks)(i)} aria-label="Remover" style={{ background: "none", border: "none", color: "var(--danger-text)", cursor: "pointer", fontSize: 15, lineHeight: 1 }}>×</button>
+        <button className="op-rolar" style={{ padding: "5px 10px", fontSize: 11, flexShrink: 0 }} onClick={(e) => { e.stopPropagation(); rollAttack(a); }} title="Rolar ataque + dano">🎲</button>
       </div>
       {expanded && (
-        <div style={{ marginTop: 8, padding: 10, background: "rgba(0,0,0,0.3)", borderRadius: 4, border: "1px solid var(--border)" }}>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
-            <label style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-              <span className="op-label" style={{ fontSize: 8 }}>Nome</span>
-              <input value={a.name || ""} onChange={(e) => upd(setAttacks)(i, { name: e.target.value })}
-                style={{ padding: "4px 7px", fontSize: 13, fontFamily: "var(--font-title,'Cinzel',serif)", fontWeight: 600 }} />
-            </label>
-            <label style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-              <span className="op-label" style={{ fontSize: 8 }}>Atributo de Teste</span>
-              <select value={attrKey} onChange={(e) => upd(setAttacks)(i, { attr: e.target.value })} style={{ padding: "4px 7px", fontSize: 12, appearance: "auto" }}>
-                {ATTR_KEYS.map(k => <option key={k} value={k}>{k} — {ATTR_LABELS[k]} ({attrs[k] ?? 0})</option>)}
-              </select>
-            </label>
-          </div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 6 }}>
-            <LabeledMini label="Dano" value={a.dano || ""} onChange={(v) => upd(setAttacks)(i, { dano: v })} />
-            <LabeledMini label="Crítico" value={a.critico || ""} onChange={(v) => upd(setAttacks)(i, { critico: v })} />
-            <LabeledMini label="Tipo" value={a.tipo || ""} onChange={(v) => upd(setAttacks)(i, { tipo: v })} />
-            <LabeledMini label="Alcance" value={a.alcance || ""} onChange={(v) => upd(setAttacks)(i, { alcance: v })} />
+        <div style={{ marginTop: 6, padding: 10, background: "rgba(0,0,0,0.3)", borderRadius: 4, border: "1px solid var(--border)", display: "flex", flexDirection: "column", gap: 4 }}>
+          <Line k="Ataque Bônus" v={Number(a.bonus) || 0} />
+          <Line k="Tipo de Dano" v={a.tipo} />
+          <Line k="Alcance" v={a.alcance} />
+          <Line k="Perícia" v={a.pericia} />
+          <Line k="Atributo Dano" v={a.atributoDano || "Nenhum"} />
+          {(a.extras || []).length > 0 && (
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 2 }}>
+              {a.extras.map((e, k) => <span key={k} style={tag("#f59e0b")}>+{e.dano} {e.tipo}</span>)}
+            </div>
+          )}
+          {a.notas && <div style={{ marginTop: 4, fontSize: 13, color: "rgba(232,228,217,0.8)", fontFamily: "var(--font-body,serif)", lineHeight: 1.6 }} dangerouslySetInnerHTML={{ __html: a.notas }} />}
+          <div style={{ display: "flex", justifyContent: "space-between", marginTop: 6, borderTop: "1px solid var(--border)", paddingTop: 8 }}>
+            <button onClick={() => rm(setAttacks)(i)} style={{ background: "none", border: "none", color: "var(--danger-text)", cursor: "pointer", fontSize: 12, fontFamily: "var(--font-title,'Cinzel',serif)" }}>Remover</button>
+            <button onClick={onEdit} style={{ background: "none", border: "none", color: "var(--el-accent)", cursor: "pointer", fontSize: 12, fontFamily: "var(--font-title,'Cinzel',serif)" }}>Editar</button>
           </div>
         </div>
       )}
@@ -1435,7 +1481,80 @@ function ArsenalCard({ a, i, attrs, upd, rm, setAttacks, rollAttack }) {
   );
 }
 
-function CombateTab({ diceRef, diceInput, setDiceInput, rollFree, attrs, rollAttr, attacks, setAttacks, rollAttack, upd, rm, add, rollCampaign, onOpenHistory }) {
+/* Modal de edição de ataque (spec 0020 AC-1). */
+function AttackModal({ draft, isNew, attrs, onSave, onClose }) {
+  const [d, setD] = useState(draft);
+  const set = (patch) => setD((p) => ({ ...p, ...patch }));
+  const setExtra = (idx, patch) => setD((p) => ({ ...p, extras: (p.extras || []).map((e, i) => (i === idx ? { ...e, ...patch } : e)) }));
+  const addExtra = () => setD((p) => ({ ...p, extras: [...(p.extras || []), { dano: "1d6", tipo: "Balístico" }] }));
+  const rmExtra = (idx) => setD((p) => ({ ...p, extras: (p.extras || []).filter((_, i) => i !== idx) }));
+  const pickImg = (file) => {
+    if (!file?.type?.startsWith("image/")) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const img = new Image();
+      img.onload = () => {
+        const r = Math.min(1, 128 / Math.max(img.width, img.height));
+        const c = document.createElement("canvas");
+        c.width = Math.max(1, Math.round(img.width * r));
+        c.height = Math.max(1, Math.round(img.height * r));
+        c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+        set({ img: c.toDataURL("image/jpeg", 0.8) });
+      };
+      img.src = ev.target.result;
+    };
+    reader.readAsDataURL(file);
+  };
+  const sel = { ...inputS, appearance: "auto" };
+  const third = { display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 };
+  const half = { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 };
+  return (
+    <ModalShell title={isNew ? "Novo Ataque" : "Editar Ataque"} onClose={onClose} width="min(680px,100%)">
+      <MField label="Nome"><input style={inputS} value={d.name || ""} onChange={(e) => set({ name: e.target.value })} placeholder="Ex.: Pistola .40" autoFocus /></MField>
+      <div style={third}>
+        <MField label="Dano"><input style={inputS} value={d.dano || ""} onChange={(e) => set({ dano: e.target.value })} placeholder="1d8+2" /></MField>
+        <MField label="Crítico (margem)"><input style={inputS} value={d.critico || ""} onChange={(e) => set({ critico: e.target.value })} placeholder="20 / 19-20" /></MField>
+        <MField label="Multiplicador"><select style={sel} value={d.multiplicador || 2} onChange={(e) => set({ multiplicador: +e.target.value })}>{[2, 3, 4].map((m) => <option key={m} value={m}>x{m}</option>)}</select></MField>
+      </div>
+      <div style={third}>
+        <MField label="Ataque Bônus"><input style={inputS} type="number" value={d.bonus ?? 0} onChange={(e) => set({ bonus: +e.target.value })} /></MField>
+        <MField label="Perícia"><select style={sel} value={d.pericia || "Luta"} onChange={(e) => set({ pericia: e.target.value })}>{PERICIAS_ATAQUE.map((p) => <option key={p} value={p}>{p}</option>)}</select></MField>
+        <MField label="Atributo de Dano"><select style={sel} value={d.atributoDano || ""} onChange={(e) => set({ atributoDano: e.target.value })}><option value="">Nenhum</option>{ATTR_KEYS.map((k) => <option key={k} value={k}>{k} ({attrs[k] ?? 0})</option>)}</select></MField>
+      </div>
+      <div style={half}>
+        <MField label="Tipo de Dano"><select style={sel} value={d.tipo || ""} onChange={(e) => set({ tipo: e.target.value })}><option value="">—</option>{TIPOS_DANO.map((t) => <option key={t} value={t}>{t}</option>)}</select></MField>
+        <MField label="Alcance"><input list="op-alcances" style={inputS} value={d.alcance || ""} onChange={(e) => set({ alcance: e.target.value })} placeholder="Pessoal" /><datalist id="op-alcances">{ALCANCES.map((al) => <option key={al} value={al} />)}</datalist></MField>
+      </div>
+      <div style={{ ...fieldLabel, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <span>Dano extra</span>
+        <button onClick={addExtra} style={{ ...btnGhost, padding: "5px 14px" }}>+ Adicionar</button>
+      </div>
+      {(d.extras || []).map((e, idx) => (
+        <div key={idx} style={{ display: "grid", gridTemplateColumns: "1fr 1fr auto", gap: 8, alignItems: "center", marginBottom: 6 }}>
+          <input style={inputS} value={e.dano || ""} onChange={(ev) => setExtra(idx, { dano: ev.target.value })} placeholder="1d6" />
+          <select style={sel} value={e.tipo || ""} onChange={(ev) => setExtra(idx, { tipo: ev.target.value })}><option value="">—</option>{TIPOS_DANO.map((t) => <option key={t} value={t}>{t}</option>)}</select>
+          <button onClick={() => rmExtra(idx)} style={{ ...btnGhost, padding: "8px 13px", color: "var(--danger-text)" }} title="Remover">×</button>
+        </div>
+      ))}
+      <label style={fieldLabel}>Imagem</label>
+      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+        <div style={{ width: 60, height: 60, borderRadius: 6, border: "1px solid var(--border)", background: "rgba(255,255,255,0.03)", overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+          {d.img ? <img src={d.img} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <span style={{ opacity: 0.3, fontSize: 22 }}>🖼</span>}
+        </div>
+        <label style={{ ...btnGhost, cursor: "pointer" }}>Enviar<input type="file" accept="image/*" style={{ display: "none" }} onChange={(e) => { pickImg(e.target.files?.[0]); e.target.value = ""; }} /></label>
+        {d.img && <button onClick={() => set({ img: "" })} style={{ ...btnGhost, color: "var(--danger-text)" }}>Remover</button>}
+      </div>
+      <label style={fieldLabel}>Anotações</label>
+      <RichTextEditor value={d.notas || ""} onChange={(html) => set({ notas: html })} placeholder="Efeitos, munição, propriedades…" />
+      <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 18 }}>
+        <button onClick={onClose} style={btnGhost}>Cancelar</button>
+        <button onClick={() => onSave({ ...d, name: (d.name || "").trim() || "Sem nome" })} style={btnGold}>{isNew ? "Criar" : "Salvar"}</button>
+      </div>
+    </ModalShell>
+  );
+}
+
+function CombateTab({ diceRef, diceInput, setDiceInput, rollFree, attrs, rollAttr, attacks, setAttacks, rollAttack, upd, rm, add, onNewAttack, onEditAttack, rollCampaign, onOpenHistory }) {
   const [filter, setFilter] = useState("");
   const { t } = useLocale();
   const inputMini = { padding: "4px 7px", fontSize: 13, width: "100%" };
@@ -1480,7 +1599,7 @@ function CombateTab({ diceRef, diceInput, setDiceInput, rollFree, attrs, rollAtt
       <div>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8, gap: 8 }}>
           <span className="op-label">{t("op.sheet.combat.arsenal")} · {attacks.length}</span>
-          <MiniBtn onClick={add(setAttacks, { name: "Nova arma", dano: "1d6", critico: "20", tipo: "", alcance: "Pessoal", attr: "FOR" })}>{t("op.sheet.combat.newAtk")}</MiniBtn>
+          <MiniBtn onClick={onNewAttack}>{t("op.sheet.combat.newAtk")}</MiniBtn>
         </div>
         {attacks.length > 3 && (
           <input value={filter} onChange={(e) => setFilter(e.target.value)} placeholder={t("op.sheet.combat.filterAtk")}
@@ -1490,7 +1609,7 @@ function CombateTab({ diceRef, diceInput, setDiceInput, rollFree, attrs, rollAtt
           <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
             {shown.map((a) => {
               const i = attacks.indexOf(a);
-              return <ArsenalCard key={a.id || i} a={a} i={i} attrs={attrs} upd={upd} rm={rm} setAttacks={setAttacks} rollAttack={rollAttack} />;
+              return <ArsenalCard key={a.id || i} a={a} i={i} attrs={attrs} rm={rm} setAttacks={setAttacks} rollAttack={rollAttack} onEdit={() => onEditAttack(i)} />;
             })}
           </div>
         )}

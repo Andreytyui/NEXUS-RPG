@@ -152,6 +152,64 @@ export function rollExpr(expr) {
   };
 }
 
+/* ── Arsenal v2 (spec 0020) ─────────────────────────────────────────────── */
+
+/* Tipos de dano oficiais de Ordem Paranormal (para o dropdown do editor de ataque). */
+export const TIPOS_DANO = [
+  "Balístico", "Corte", "Impacto", "Perfuração", "Fogo", "Frio", "Eletricidade",
+  "Químico", "Mental", "Medo", "Morte", "Sangue", "Energia", "Conhecimento",
+];
+
+/* Alcances comuns (dropdown com opção livre). */
+export const ALCANCES = ["Pessoal", "Toque", "Curto", "Médio", "Longo", "Extremo"];
+
+/* Perícias de ataque + o atributo puro, para o dropdown de Perícia do ataque. */
+export const PERICIAS_ATAQUE = ["Luta", "Pontaria", "FOR", "AGI", "INT", "PRE", "VIG"];
+
+/**
+ * Margem de ameaça: menor resultado no d20 que ainda é crítico.
+ * Aceita "20", "19", "19-20", "19+"… → o menor número; default 20; clamp [2,20].
+ */
+export function critMargin(critico) {
+  const m = String(critico ?? "20").match(/\d+/g);
+  if (!m) return 20;
+  const n = Math.min(...m.map(Number));
+  return Math.min(20, Math.max(2, n));
+}
+
+/** O d20 MANTIDO (maior) é crítico se atingiu a margem de ameaça. */
+export function isCritical(keptDie, critico) {
+  return Number(keptDie) >= critMargin(critico);
+}
+
+/**
+ * Combina o dano de um ataque (spec 0020 AC-2/AC-3). Recebe números JÁ rolados
+ * (pureza/testabilidade). No crítico, o dano BASE é multiplicado pelo multiplicador;
+ * o dano extra NÃO é multiplicado (dano adicional de efeito, padrão OP). Retorna o
+ * total e o breakdown por tipo.
+ * @param {number} base       dano base já rolado (inclui atributo de dano)
+ * @param {number} mult       multiplicador de crítico (default 2)
+ * @param {boolean} isCrit
+ * @param {Array<{result:number,tipo?:string}>} extras  danos extra já rolados
+ * @param {string} mainType   tipo do dano base
+ */
+export function combineDamage(base, mult, isCrit, extras = [], mainType = "") {
+  const m = Number(mult) > 1 ? Math.floor(Number(mult)) : 2;
+  const b = Math.max(0, Math.round(Number(base) || 0));
+  const mainTotal = isCrit ? b * m : b;
+  const byType = {};
+  const addType = (tp, v) => { const k = tp || "—"; byType[k] = (byType[k] || 0) + v; };
+  addType(mainType, mainTotal);
+  let total = mainTotal;
+  for (const e of extras || []) {
+    const v = Math.max(0, Math.round(Number(e && e.result) || 0));
+    if (!v) continue;
+    total += v;
+    addType(e.tipo, v);
+  }
+  return { total, byType };
+}
+
 /*
  * NEX clearance ladder (5% → 99%) for the progression matrix modal.
  * Tiers are decorative "classified clearance" bands; abilities note generic
