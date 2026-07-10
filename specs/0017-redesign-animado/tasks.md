@@ -13,7 +13,7 @@ alwaysApply: false
 
 | #  | Task                                                        | Cobre AC | Depende de | Gate (comando)                                   | Status |
 |----|-------------------------------------------------------------|----------|------------|--------------------------------------------------|--------|
-| 1  | `src/themes/motion.js` — tokens + `staggerDelay` + testes   | AC-1,7   | —          | `npm test -- motion`                             | todo   |
+| 1  | `src/themes/motion.js` — tokens + `staggerDelay` + testes   | AC-1/AC-7 | —          | `npm test -- motion`                             | todo   |
 | 2  | Bloco global de keyframes/utilitárias + `@media reduced-motion` no `<style>` de `G` | AC-1,5 | 1 | `npm run build` (verde)                          | todo   |
 | 3  | Reconciliar accent: `SYSTEMS` deriva de `getTheme` + teste  | AC-6     | —          | `npm test -- systems-accent`                     | todo   |
 | 4  | Login: stagger, underline no focus, shimmer, progress dots  | AC-2     | 2          | `npm run build` + checklist visual login         | todo   |

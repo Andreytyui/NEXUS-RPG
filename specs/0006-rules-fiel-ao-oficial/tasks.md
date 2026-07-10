@@ -18,7 +18,7 @@ alwaysApply: false
   `defaultTrainedSet`, `rollOP` (atributo 0 ⇒ 2d20 pior; N dados melhor; crit), `rollExpr`
   (válido, modificador, inválido, limite 30 dados), `rollPayload`, `NEX_LADDER` (marcos AC-5),
   `PATENTES` (tabela oficial AC-4). Testes de dtRituais/deslocamento/patente **falham** até T2.
-- [x] **T2 — rules.js:** adicionar `dtRituais(nex, attrs, bonus=0)`; corrigir
+- [x] **T2 — rules.js (AC-2/AC-3/AC-4/AC-5):** adicionar `dtRituais(nex, attrs, bonus=0)`; corrigir
   `deriveStats.deslocamento` para 9m/6q; substituir `PATENTES`+`patenteForNex` pela tabela
   oficial + `patenteForPrestigio(pp)`; corrigir notas do `NEX_LADDER`; atualizar comentário de
   cabeçalho (não espelha mais o FullSheet no deslocamento).

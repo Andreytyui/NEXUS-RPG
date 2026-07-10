@@ -14,7 +14,7 @@ alwaysApply: false
 | 1 | `src/domain/character.js`: `getActiveAvatar` + `isActiveAvatarAI` puros   | AC-1,4,5   | —          | `npm test -- character`     | todo   |
 | 2 | Teste unitário do helper (legado, fase ativa, fallback, IA)               | AC-1,4,5   | 1          | idem                        | todo   |
 | 3 | Ficha OP: retrato usa helper + galeria de fases no modal (CRUD + ativa)   | AC-2,3     | 1          | build + verificação manual  | todo   |
-| 4 | Ficha OP: upload/IA aplicam na fase ativa (downscale, `imageAI`)          | AC-3,5     | 3          | build + verificação manual  | todo   |
+| 4 | Ficha OP: upload/IA aplicam na fase ativa (downscale, `imageAI`)          | AC-3/AC-5  | 3          | build + verificação manual  | todo   |
 | 5 | `DossierCard.jsx` usa `getActiveAvatar` `[P]`                             | AC-4       | 1          | build + dashboard           | todo   |
 | 6 | App.jsx: MestrePanel/SharedSheets/SheetList/cards usam helper `[P]`       | AC-4       | 1          | build + telas afetadas      | todo   |
 | 7 | STATE.md + verificação manual do fluxo completo                           | todos      | 1–6        | checklist                   | todo   |
