@@ -82,6 +82,13 @@ alwaysApply: true
   representa três coisas diferentes (o antigo 👁 de revelar / visibilidade / preview vira três
   ícones distintos). Verificação visual documentada.
 
+### AC-13: Layout do editor não corta e o painel recolhe
+- **Dado** telas de altura moderada (~800px) e a toolbar direita com ~15 botões
+- **Então** a toolbar nunca tem ícones cortados no topo/base (limita a altura e rola por dentro);
+  o painel esquerdo (Cenas/Camadas) pode ser recolhido (botão « no header) para ganhar espaço de
+  mapa e reaberto por uma alça » encostada à esquerda (e pelo botão de painel da toolbar).
+- Verificação visual documentada.
+
 ## Fora de escopo (vinculante)
 - Criar/deletar camadas (as 7 fixas são paridade Owlbear).
 - Grid hexagonal (spec 0014), texto rico (0015).

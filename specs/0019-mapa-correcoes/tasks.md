@@ -15,6 +15,7 @@ alwaysApply: false
 | C | Ferramentas: limpar `measureLine` no up/esc; fog/opacity com commit único; wheel não-passivo; +/− e ⌂ centrados/fit; snap centralizado + default ON | AC-6/AC-7/AC-8/AC-9 | index.jsx | done |
 | D | Persistência: catches com log+toast; downscale de fundo; `collectOrphanImageIds`+sweep | AC-10/AC-11 | index.jsx, reducer.js, imageQuota.js (novo) | done |
 | E | Iconografia: `icons.jsx` SVG, substituir emojis nas toolbars/painéis | AC-12 | index.jsx, icons.jsx (novo) | done |
+| F | Layout: toolbar direita compacta+scroll (não corta); painel esquerdo recolhível (« recolher / » alça de reabrir) | AC-13 | index.jsx, icons.jsx | done |
 
 ## Plano de teste
 - Unidade (novos): `collectOrphanImageIds` (imageQuota.test.js), `cellSnapCenter` (snap centralizado),

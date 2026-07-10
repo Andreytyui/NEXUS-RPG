@@ -44,6 +44,8 @@ const PATHS = {
   trash:   <><path d="M4 7h16M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2M6 7l1 13a1 1 0 001 1h8a1 1 0 001-1l1-13" /></>,
   chevUp:  <><path d="M6 15l6-6 6 6" /></>,
   chevDown:<><path d="M6 9l6 6 6-6" /></>,
+  collapseL:<><path d="M13 6l-6 6 6 6M19 6l-6 6 6 6" /></>, // « recolher painel
+  expandR: <><path d="M11 6l6 6-6 6M5 6l6 6-6 6" /></>,     // » expandir painel
   // Alinhamento
   alignL:  <><path d="M4 4v16M8 8h10M8 16h6" /></>,
   alignCX: <><path d="M12 4v16M7 8h10M9 16h6" /></>,

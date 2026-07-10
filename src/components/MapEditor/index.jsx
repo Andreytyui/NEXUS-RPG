@@ -1095,7 +1095,7 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
   const hasImgEls  = elements.some(el => el.type === 'image');
 
   const TB = active => ({
-    width: 44, height: 44, borderRadius: 10, border: 'none', cursor: 'pointer', fontSize: 18,
+    width: 38, height: 38, borderRadius: 9, border: 'none', cursor: 'pointer', fontSize: 18, flexShrink: 0,
     display: 'flex', alignItems: 'center', justifyContent: 'center',
     background: active ? 'rgba(168,85,247,0.2)' : 'transparent',
     color: active ? '#a855f7' : 'rgba(255,255,255,0.5)',
@@ -1108,7 +1108,7 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 500, background: '#1e1e2f', display: 'flex', flexDirection: 'column', userSelect: 'none', fontFamily: 'Inter,system-ui,sans-serif' }}
       onClick={() => { setCtxMenu(null); setLayerPickerOpen(false); }}>
-      <style>{`@keyframes rain{0%{transform:translateY(-10px) rotate(15deg);opacity:0}10%{opacity:0.7}90%{opacity:0.7}100%{transform:translateY(110vh) rotate(15deg);opacity:0}}@keyframes snow{0%{transform:translateY(-10px) translateX(0);opacity:0}10%{opacity:0.85}50%{transform:translateY(50vh) translateX(20px)}90%{opacity:0.85}100%{transform:translateY(110vh) translateX(-10px);opacity:0}}@keyframes fogDrift{0%{transform:translateX(-5%)}50%{transform:translateX(5%)}100%{transform:translateX(-5%)}}`}</style>
+      <style>{`@keyframes rain{0%{transform:translateY(-10px) rotate(15deg);opacity:0}10%{opacity:0.7}90%{opacity:0.7}100%{transform:translateY(110vh) rotate(15deg);opacity:0}}@keyframes snow{0%{transform:translateY(-10px) translateX(0);opacity:0}10%{opacity:0.85}50%{transform:translateY(50vh) translateX(20px)}90%{opacity:0.85}100%{transform:translateY(110vh) translateX(-10px);opacity:0}}@keyframes fogDrift{0%{transform:translateX(-5%)}50%{transform:translateX(5%)}100%{transform:translateX(-5%)}}.map-toolbar-scroll::-webkit-scrollbar{width:0;height:0;display:none}`}</style>
 
       {/* TOP BAR */}
       <div style={{ height: 48, background: '#12121e', borderBottom: '1px solid rgba(255,255,255,0.12)', display: 'flex', alignItems: 'center', gap: 8, padding: '0 14px', flexShrink: 0, zIndex: 10 }}>
@@ -1145,6 +1145,7 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
             <div style={{ padding: '10px 12px 6px', display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
               <span style={{ flex: 1, fontFamily: 'Cinzel,serif', fontSize: 10, color: 'rgba(255,255,255,0.4)', letterSpacing: 1, textTransform: 'uppercase' }}>Cenas</span>
               <button onClick={addScene} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.5)', cursor: 'pointer', fontSize: 20, lineHeight: 1, padding: '0 4px' }} title="Nova cena">+</button>
+              <button onClick={() => setShowLeft(false)} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.5)', cursor: 'pointer', padding: '2px 2px', display: 'flex', alignItems: 'center' }} title="Recolher painel"><MapIcon name="collapseL" size={16} /></button>
             </div>
             <div style={{ display: 'flex', overflowX: 'auto', padding: '0 8px 8px', gap: 6, flexShrink: 0 }}>
               {(campaignMode ? campScenes : scenes).map(sc => {
@@ -1209,6 +1210,14 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
               })}
             </div>
           </div>
+        )}
+
+        {/* Alça para reabrir o painel recolhido (spec 0019 AC-13) */}
+        {!showLeft && !viewer && (
+          <button onClick={() => setShowLeft(true)} title="Mostrar cenas e camadas"
+            style={{ position: 'absolute', left: 0, top: '50%', transform: 'translateY(-50%)', zIndex: 30, width: 22, height: 64, borderRadius: '0 10px 10px 0', border: '1px solid rgba(255,255,255,0.14)', borderLeft: 'none', background: 'rgba(22,22,46,0.92)', backdropFilter: 'blur(16px)', color: 'rgba(255,255,255,0.6)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <MapIcon name="expandR" size={15} />
+          </button>
         )}
 
         {/* MAP CANVAS */}
@@ -1436,8 +1445,8 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
           )}
         </div>
 
-        {/* RIGHT TOOLBAR */}
-        <div style={{ position: 'absolute', right: 14, top: '50%', transform: 'translateY(-50%)', zIndex: 30, display: 'flex', flexDirection: 'column', gap: 2, background: 'rgba(22,22,46,0.92)', backdropFilter: 'blur(16px)', border: '1px solid rgba(255,255,255,0.14)', borderRadius: 14, padding: 6 }}>
+        {/* RIGHT TOOLBAR — nunca corta: limita a altura e rola por dentro (spec 0019 AC-13) */}
+        <div className="map-toolbar-scroll" style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', zIndex: 30, display: 'flex', flexDirection: 'column', gap: 2, background: 'rgba(22,22,46,0.92)', backdropFilter: 'blur(16px)', border: '1px solid rgba(255,255,255,0.14)', borderRadius: 14, padding: 6, maxHeight: 'calc(100% - 20px)', overflowY: 'auto', overflowX: 'hidden', scrollbarWidth: 'none' }}>
           {(viewer ? TOOLS.filter(t => VIEWER_TOOLS.includes(t.id)) : TOOLS).map(t => <button key={t.id} title={t.label} onClick={() => setTool(t.id)} style={TB(tool === t.id)}><MapIcon name={t.icon} size={20} /></button>)}
           <div style={{ height: 1, background: 'rgba(255,255,255,0.08)', margin: '4px 0' }} />
           {!viewer && campaignMode && (
