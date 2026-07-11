@@ -296,5 +296,12 @@ export const OrdemSheetStyles = () => (
     .rte-area i, .rte-area em, .op-rich-render i, .op-rich-render em{ color:#e8e4d9; font-style:italic; }
     .op-rich-render p{ margin:0 0 6px; } .op-rich-render p:last-child{ margin-bottom:0; }
     .op-rich-render a{ color:var(--el-accent); }
+    /* Select temático (spec 0020): fundo escuro sólido + seta custom; sem branco padrão do browser */
+    select.op-select{ -webkit-appearance:none; -moz-appearance:none; appearance:none;
+      background-color:#12121e; color:#e8e4d9; cursor:pointer; padding-right:32px;
+      background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23c084fc' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'><path d='M6 9l6 6 6-6'/></svg>");
+      background-repeat:no-repeat; background-position:right 11px center; }
+    select.op-select:focus{ border-color:var(--el-accent); outline:none; }
+    select.op-select option{ background-color:#12121e; color:#e8e4d9; }
   `}</style>
 );

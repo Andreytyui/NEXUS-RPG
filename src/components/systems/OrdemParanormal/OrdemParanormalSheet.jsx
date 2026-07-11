@@ -1505,7 +1505,7 @@ function AttackModal({ draft, isNew, attrs, onSave, onClose }) {
     };
     reader.readAsDataURL(file);
   };
-  const sel = { ...inputS, appearance: "auto" };
+  const sel = inputS; // estilização e seta via classe .op-select (ordemStyles)
   const third = { display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 };
   const half = { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 };
   return (
@@ -1514,15 +1514,15 @@ function AttackModal({ draft, isNew, attrs, onSave, onClose }) {
       <div style={third}>
         <MField label="Dano"><input style={inputS} value={d.dano || ""} onChange={(e) => set({ dano: e.target.value })} placeholder="1d8+2" /></MField>
         <MField label="Crítico (margem)"><input style={inputS} value={d.critico || ""} onChange={(e) => set({ critico: e.target.value })} placeholder="20 / 19-20" /></MField>
-        <MField label="Multiplicador"><select style={sel} value={d.multiplicador || 2} onChange={(e) => set({ multiplicador: +e.target.value })}>{[2, 3, 4].map((m) => <option key={m} value={m}>x{m}</option>)}</select></MField>
+        <MField label="Multiplicador"><select className="op-select" style={sel} value={d.multiplicador || 2} onChange={(e) => set({ multiplicador: +e.target.value })}>{[2, 3, 4].map((m) => <option key={m} value={m}>x{m}</option>)}</select></MField>
       </div>
       <div style={third}>
         <MField label="Ataque Bônus"><input style={inputS} type="number" value={d.bonus ?? 0} onChange={(e) => set({ bonus: +e.target.value })} /></MField>
-        <MField label="Perícia"><select style={sel} value={d.pericia || "Luta"} onChange={(e) => set({ pericia: e.target.value })}>{PERICIAS_ATAQUE.map((p) => <option key={p} value={p}>{p}</option>)}</select></MField>
-        <MField label="Atributo de Dano"><select style={sel} value={d.atributoDano || ""} onChange={(e) => set({ atributoDano: e.target.value })}><option value="">Nenhum</option>{ATTR_KEYS.map((k) => <option key={k} value={k}>{k} ({attrs[k] ?? 0})</option>)}</select></MField>
+        <MField label="Perícia"><select className="op-select" style={sel} value={d.pericia || "Luta"} onChange={(e) => set({ pericia: e.target.value })}>{PERICIAS_ATAQUE.map((p) => <option key={p} value={p}>{p}</option>)}</select></MField>
+        <MField label="Atributo de Dano"><select className="op-select" style={sel} value={d.atributoDano || ""} onChange={(e) => set({ atributoDano: e.target.value })}><option value="">Nenhum</option>{ATTR_KEYS.map((k) => <option key={k} value={k}>{k} ({attrs[k] ?? 0})</option>)}</select></MField>
       </div>
       <div style={half}>
-        <MField label="Tipo de Dano"><select style={sel} value={d.tipo || ""} onChange={(e) => set({ tipo: e.target.value })}><option value="">—</option>{TIPOS_DANO.map((t) => <option key={t} value={t}>{t}</option>)}</select></MField>
+        <MField label="Tipo de Dano"><select className="op-select" style={sel} value={d.tipo || ""} onChange={(e) => set({ tipo: e.target.value })}><option value="">—</option>{TIPOS_DANO.map((t) => <option key={t} value={t}>{t}</option>)}</select></MField>
         <MField label="Alcance"><input list="op-alcances" style={inputS} value={d.alcance || ""} onChange={(e) => set({ alcance: e.target.value })} placeholder="Pessoal" /><datalist id="op-alcances">{ALCANCES.map((al) => <option key={al} value={al} />)}</datalist></MField>
       </div>
       <div style={{ ...fieldLabel, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -1532,7 +1532,7 @@ function AttackModal({ draft, isNew, attrs, onSave, onClose }) {
       {(d.extras || []).map((e, idx) => (
         <div key={idx} style={{ display: "grid", gridTemplateColumns: "1fr 1fr auto", gap: 8, alignItems: "center", marginBottom: 6 }}>
           <input style={inputS} value={e.dano || ""} onChange={(ev) => setExtra(idx, { dano: ev.target.value })} placeholder="1d6" />
-          <select style={sel} value={e.tipo || ""} onChange={(ev) => setExtra(idx, { tipo: ev.target.value })}><option value="">—</option>{TIPOS_DANO.map((t) => <option key={t} value={t}>{t}</option>)}</select>
+          <select className="op-select" style={sel} value={e.tipo || ""} onChange={(ev) => setExtra(idx, { tipo: ev.target.value })}><option value="">—</option>{TIPOS_DANO.map((t) => <option key={t} value={t}>{t}</option>)}</select>
           <button onClick={() => rmExtra(idx)} style={{ ...btnGhost, padding: "8px 13px", color: "var(--danger-text)" }} title="Remover">×</button>
         </div>
       ))}
