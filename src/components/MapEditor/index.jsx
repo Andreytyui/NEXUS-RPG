@@ -96,6 +96,7 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
   const [tokImageId, setTokImageId] = useState(null);   // imagem aplicada aos próximos tokens
   /* spec 0009 — sync v2 (state → cena ativa → elements) */
   const [campState,  setCampState]  = useState(null);   // doc map/state ({ v, activeSceneId })
+  const [stateLoaded, setStateLoaded] = useState(false); // 1º snapshot de map/state chegou (loading)
   const [campScenes, setCampScenes] = useState([]);     // metas kind:'scene' (painel + cena ativa)
   const [remoteEls,  setRemoteEls]  = useState(null);   // elementos da cena ativa (snapshot)
   /* spec 0010 — interação do jogador / canal live */
@@ -290,7 +291,7 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
         catch (e) { console.error('[mesa] migração v2 falhou:', e); }
       }
       if (cancelled) return;
-      unsubState  = subscribeMapState(db, campaignId, setCampState);
+      unsubState  = subscribeMapState(db, campaignId, (s) => { setCampState(s); setStateLoaded(true); });
       unsubScenes = subscribeScenes(db, campaignId, (metas) => setCampScenes(metas));
     })();
     return () => { cancelled = true; unsubState?.(); unsubScenes?.(); };
@@ -1202,6 +1203,9 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
   const anyHidden  = selIds.size > 0 && [...selIds].some(id => elements.find(e => e.id === id)?.hidden);
   const anyLocked  = selIds.size > 0 && [...selIds].some(id => elements.find(e => e.id === id)?.locked);
   const hasImgEls  = elements.some(el => el.type === 'image');
+  /* Modo campanha: enquanto o 1º snapshot do Firestore não chegou (ou trocou de cena e os
+   * elementos ainda não hidrataram), mostra loading em vez da cena default vazia do reducer. */
+  const hydrating  = campaignMode && !!db && (!stateLoaded || (!!campState?.activeSceneId && remoteEls === null));
 
   const TB = active => ({
     width: 38, height: 38, borderRadius: 9, border: 'none', cursor: 'pointer', fontSize: 18, flexShrink: 0,
@@ -1217,7 +1221,7 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 500, background: '#1e1e2f', display: 'flex', flexDirection: 'column', userSelect: 'none', fontFamily: 'Inter,system-ui,sans-serif' }}
       onClick={() => { setCtxMenu(null); setLayerPickerOpen(false); }}>
-      <style>{`@keyframes rain{0%{transform:translateY(-10px) rotate(15deg);opacity:0}10%{opacity:0.7}90%{opacity:0.7}100%{transform:translateY(110vh) rotate(15deg);opacity:0}}@keyframes snow{0%{transform:translateY(-10px) translateX(0);opacity:0}10%{opacity:0.85}50%{transform:translateY(50vh) translateX(20px)}90%{opacity:0.85}100%{transform:translateY(110vh) translateX(-10px);opacity:0}}@keyframes fogDrift{0%{transform:translateX(-5%)}50%{transform:translateX(5%)}100%{transform:translateX(-5%)}}.map-toolbar-scroll::-webkit-scrollbar{width:0;height:0;display:none}`}</style>
+      <style>{`@keyframes rain{0%{transform:translateY(-10px) rotate(15deg);opacity:0}10%{opacity:0.7}90%{opacity:0.7}100%{transform:translateY(110vh) rotate(15deg);opacity:0}}@keyframes snow{0%{transform:translateY(-10px) translateX(0);opacity:0}10%{opacity:0.85}50%{transform:translateY(50vh) translateX(20px)}90%{opacity:0.85}100%{transform:translateY(110vh) translateX(-10px);opacity:0}}@keyframes fogDrift{0%{transform:translateX(-5%)}50%{transform:translateX(5%)}100%{transform:translateX(-5%)}}.map-toolbar-scroll::-webkit-scrollbar{width:0;height:0;display:none}@keyframes mapspin{to{transform:rotate(360deg)}}.map-top-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;flex-shrink:1}@media(max-width:720px){.map-top-hide{display:none!important}}@media(max-width:560px){.map-btn-label{display:none}}`}</style>
 
       {/* TOP BAR */}
       <div style={{ height: 48, background: '#12121e', borderBottom: '1px solid rgba(255,255,255,0.12)', display: 'flex', alignItems: 'center', gap: 8, padding: '0 14px', flexShrink: 0, zIndex: 10 }}>
@@ -1226,18 +1230,18 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
             onMouseEnter={e => { e.currentTarget.style.color = '#fff'; }} onMouseLeave={e => { e.currentTarget.style.color = 'rgba(255,255,255,0.45)'; }}
             title="Voltar"><MapIcon name="back" size={15} /> Voltar</button>
         )}
+        <div className="map-top-hide" style={{ width: 1, height: 20, background: 'rgba(255,255,255,0.08)' }} />
+        <span className="map-top-hide" style={{ fontFamily: 'Cinzel Decorative,serif', fontSize: 11, color: '#c9a84c', letterSpacing: 2, whiteSpace: 'nowrap' }}>⚔ NEXUS</span>
+        <div className="map-top-hide" style={{ width: 1, height: 20, background: 'rgba(255,255,255,0.08)' }} />
+        <span className="map-top-hide" style={{ fontSize: 11, color: 'rgba(255,255,255,0.3)', whiteSpace: 'nowrap' }}>{campaignMode ? (viewer ? 'Mesa tática · ao vivo' : 'Mesa tática') : 'Editor de Mapas'}</span>
         <div style={{ width: 1, height: 20, background: 'rgba(255,255,255,0.08)' }} />
-        <span style={{ fontFamily: 'Cinzel Decorative,serif', fontSize: 11, color: '#c9a84c', letterSpacing: 2, whiteSpace: 'nowrap' }}>⚔ NEXUS</span>
-        <div style={{ width: 1, height: 20, background: 'rgba(255,255,255,0.08)' }} />
-        <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.3)', whiteSpace: 'nowrap' }}>{campaignMode ? (viewer ? 'Mesa tática · ao vivo' : 'Mesa tática') : 'Editor de Mapas'}</span>
-        <div style={{ width: 1, height: 20, background: 'rgba(255,255,255,0.08)' }} />
-        <span style={{ fontSize: 13, color: 'rgba(255,255,255,0.85)' }}>{scene.name}</span>
+        <span className="map-top-name" style={{ fontSize: 13, color: 'rgba(255,255,255,0.85)' }}>{scene.name}</span>
         <div style={{ flex: 1 }} />
         {!viewer && (<>
-        <button disabled={!canUndo} onClick={() => dispatch({ type: 'UNDO' })} style={{ ...topBtn, opacity: canUndo ? 1 : 0.3 }}><MapIcon name="undo" size={15} /> Desfazer</button>
-        <button disabled={!canRedo} onClick={() => dispatch({ type: 'REDO' })} style={{ ...topBtn, opacity: canRedo ? 1 : 0.3 }}><MapIcon name="redo" size={15} /> Refazer</button>
+        <button disabled={!canUndo} onClick={() => dispatch({ type: 'UNDO' })} title="Desfazer" style={{ ...topBtn, opacity: canUndo ? 1 : 0.3 }}><MapIcon name="undo" size={15} /> <span className="map-btn-label">Desfazer</span></button>
+        <button disabled={!canRedo} onClick={() => dispatch({ type: 'REDO' })} title="Refazer" style={{ ...topBtn, opacity: canRedo ? 1 : 0.3 }}><MapIcon name="redo" size={15} /> <span className="map-btn-label">Refazer</span></button>
         <div style={{ width: 1, height: 20, background: 'rgba(255,255,255,0.08)' }} />
-        <button style={topBtn} onClick={() => bgInputRef.current?.click()}><MapIcon name="image" size={15} /> Adicionar Imagem</button>
+        <button style={topBtn} title="Adicionar Imagem" onClick={() => bgInputRef.current?.click()}><MapIcon name="image" size={15} /> <span className="map-btn-label">Adicionar Imagem</span></button>
         <input ref={bgInputRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={e => { loadBg(e.target.files?.[0]); e.target.value = ''; }} />
         <input ref={replaceInputRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={e => { replaceImage(e.target.files?.[0]); e.target.value = ''; }} />
         <div style={{ width: 1, height: 20, background: 'rgba(255,255,255,0.08)' }} />
@@ -1843,6 +1847,13 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
           </div>
         )}
       </div>
+
+      {hydrating && (
+        <div style={{ position: 'absolute', inset: 0, zIndex: 650, background: 'rgba(18,18,30,0.96)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 16 }}>
+          <div style={{ width: 34, height: 34, borderRadius: '50%', border: '3px solid rgba(168,85,247,0.2)', borderTopColor: '#a855f7', animation: 'mapspin 0.8s linear infinite' }} />
+          <div style={{ fontFamily: 'Cinzel,serif', fontSize: 13, color: 'rgba(233,213,255,0.7)', letterSpacing: 1 }}>Carregando a mesa…</div>
+        </div>
+      )}
 
       {promptModal && (
         <div onPointerDown={e => { if (e.target === e.currentTarget) closePrompt(null); }}
