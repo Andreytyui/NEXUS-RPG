@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useReducer } from 'react';
-import { historyReducer, initialHistoryState, DEFAULT_LAYERS } from './reducer.js';
+import { historyReducer, initialHistoryState } from './reducer.js';
+import { DEFAULT_LAYERS_V2 } from './schema'; // fallback correto (7 camadas V2, não as 4 v1 antigas)
 import {
   subscribeMapState, subscribeScenes, subscribeElements, getImage, saveImage,
   saveSceneMeta, publishElements, setActiveScene as fsSetActiveScene,
@@ -79,7 +80,7 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
   const [measureLine,     setMeasureLine]     = useState(null);
   const [selIds,          setSelIds]          = useState(new Set());
   const [ctxMenu,         setCtxMenu]         = useState(null);
-  const [weather,         setWeather]         = useState(null);
+  // Clima: derivado de scene.weather (ver abaixo) — persistido via PATCH_SCENE p/ sincronizar a mesa.
   const [showLeft,        setShowLeft]        = useState(true);
   const [snapGrid,        setSnapGrid]        = useState(true);   // spec 0019: snap ligado por padrão
   const [flash,           setFlash]           = useState(null);  // aviso temporário (camada travada, quota…)
@@ -128,6 +129,8 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
   const rotateRef        = useRef(null);
   const drawRef          = useRef(null);
   const fogDragRef       = useRef(null);
+  const pointersRef      = useRef(new Map()); // toque: pointerId → {x,y} de cada dedo ativo
+  const pinchRef         = useRef(null);      // gesto de 2 dedos em andamento (zoom + pan)
   const tokImgInputRef   = useRef(null);
   const replaceInputRef  = useRef(null); // spec 0011 AC-7: substituir imagem
   const replaceTargetRef = useRef(null);
@@ -140,8 +143,9 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
   const elements = scene.elements || [];
   const gridSize = scene.grid?.size || scene.gridSize || 70;
   const bgSize   = scene.bgSize   || { w: 3000, h: 2000 };
-  const layers   = scene.layers   || DEFAULT_LAYERS;
+  const layers   = scene.layers   || DEFAULT_LAYERS_V2;
   const layerOrder = Object.fromEntries(layers.map((l, i) => [l.id, i]));
+  const weather  = scene.weather ?? null; // clima agora vive na cena (sincroniza p/ a mesa)
   const mapW     = bgSize.w;
   const mapH     = bgSize.h;
 
@@ -173,7 +177,7 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
   }
   /* Reordena camadas (spec 0019 AC-2). delta>0 = sobe no empilhamento (topo do painel). */
   function moveLayer(id, delta) {
-    const arr = [...(stateRef.current.scene.layers || DEFAULT_LAYERS)];
+    const arr = [...(stateRef.current.scene.layers || DEFAULT_LAYERS_V2)];
     const i = arr.findIndex(l => l.id === id);
     const j = i + delta;
     if (i < 0 || j < 0 || j >= arr.length) return;
@@ -743,7 +747,7 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
       if ((e.ctrlKey || e.metaKey) && e.key === 'a') {
         e.preventDefault();
         const lm = {};
-        (stateRef.current.scene.layers || DEFAULT_LAYERS).forEach(l => { lm[l.id] = l; });
+        (stateRef.current.scene.layers || DEFAULT_LAYERS_V2).forEach(l => { lm[l.id] = l; });
         setSelIds(new Set(stateRef.current.elements.filter(el => {
           const l = lm[el.layerId]; return l?.visible && !l?.locked;
         }).map(el => el.id)));
@@ -775,10 +779,17 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
   function onElementDown(e, el) {
     const { selIds: sids, elements: els, scene: sc } = stateRef.current;
     const lm = {};
-    (sc.layers || DEFAULT_LAYERS).forEach(l => { lm[l.id] = l; });
+    (sc.layers || DEFAULT_LAYERS_V2).forEach(l => { lm[l.id] = l; });
     const layerLocked = !!(lm[el.layerId]?.locked);
     e.stopPropagation();
     elementDownRef.current = true;
+    // Toque: registra o dedo e prende os eventos ao container (drag sobrevive ao sair da
+    // viewport — some com o bug de "solta ao encostar na toolbar"). Se virar 2 dedos, o
+    // container assume o pinch e este arrasto é cancelado no onDown.
+    if (e.pointerId != null) {
+      pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      try { containerRef.current?.setPointerCapture?.(e.pointerId); } catch { /* noop */ }
+    }
     if (e.button === 2) return;
     // Jogador (spec 0010 AC-1): só interage com o que as permissões da cena autorizam.
     if (viewer && !canMove(sc, el, uid, false)) return;
@@ -818,7 +829,53 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
     }
   }
 
+  /* Entra no gesto de 2 dedos: cancela qualquer ação de 1 dedo em andamento SEM efetivar
+     (o elemento volta à última posição salva) e memoriza distância/centro/escala iniciais. */
+  function beginPinch() {
+    dragRef.current = null; drawRef.current = null; boxRef.current = null; setBoxSel(null);
+    fogRef.current = false; fogDragRef.current = null; fogFreeRef.current = null; setFogDraft(null);
+    measureRef.current = null; setMeasureLine(null);
+    resizeRef.current = null; rotateRef.current = null; panRef.current = null;
+    const pts = [...pointersRef.current.values()];
+    if (pts.length < 2) return;
+    const [a, b] = pts;
+    const r = containerRef.current.getBoundingClientRect();
+    pinchRef.current = {
+      dist: Math.hypot(a.x - b.x, a.y - b.y),
+      cx: (a.x + b.x) / 2 - r.left, cy: (a.y + b.y) / 2 - r.top,
+      startScale: stateRef.current.scale,
+      startPan: { ...stateRef.current.pan },
+    };
+    if (viewer) setFollowMaster(false); // gesto de navegação solta o Sync View (AC-6)
+  }
+
+  /* Passo do pinch: zoom pela razão de distância (centrado no ponto médio inicial) +
+     pan pelo deslocamento do centro entre os dois dedos. */
+  function applyPinch() {
+    const pin = pinchRef.current; if (!pin) return;
+    const pts = [...pointersRef.current.values()];
+    if (pts.length < 2) return;
+    const [a, b] = pts;
+    const r = containerRef.current.getBoundingClientRect();
+    const dist = Math.hypot(a.x - b.x, a.y - b.y) || 1;
+    const midX = (a.x + b.x) / 2 - r.left, midY = (a.y + b.y) / 2 - r.top;
+    const ns = Math.max(0.08, Math.min(6, pin.startScale * (dist / (pin.dist || 1))));
+    // mantém o ponto sob o centro do gesto fixo enquanto escala, e soma o arrasto do centro
+    const px = pin.startPan.x, py = pin.startPan.y, s0 = pin.startScale;
+    setPan({
+      x: midX - (pin.cx - px) * ns / s0 + (midX - pin.cx),
+      y: midY - (pin.cy - py) * ns / s0 + (midY - pin.cy),
+    });
+    setScale(ns);
+  }
+
   function onDown(e) {
+    // Toque: contabiliza o dedo. Ao chegar no 2º, o container assume o gesto de pinch/pan.
+    if (e.pointerId != null) {
+      pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      try { e.currentTarget.setPointerCapture?.(e.pointerId); } catch { /* noop */ }
+      if (pointersRef.current.size >= 2) { elementDownRef.current = false; beginPinch(); return; }
+    }
     if (elementDownRef.current) { elementDownRef.current = false; return; }
     setCtxMenu(null); setLayerPickerOpen(false);
     const { tool: t } = stateRef.current;
@@ -879,6 +936,11 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
   }
 
   function onMove(e) {
+    // Toque: atualiza a posição do dedo; se há gesto de 2 dedos, faz zoom+pan e sai.
+    if (e.pointerId != null && pointersRef.current.has(e.pointerId)) {
+      pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    }
+    if (pinchRef.current) { applyPinch(); return; }
     if (panRef.current) {
       const { mx, my, ox, oy } = panRef.current;
       if (viewer) setFollowMaster(false); // pan manual solta o Sync View (AC-6)
@@ -969,6 +1031,16 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
   }
 
   function onUp(e) {
+    // Toque: baixa o dedo e solta a captura. Encerrando o pinch, não retoma ação de 1 dedo
+    // (evita salto) — o dedo restante fica ocioso até nova toque.
+    if (e.pointerId != null) {
+      pointersRef.current.delete(e.pointerId);
+      try { e.currentTarget?.releasePointerCapture?.(e.pointerId); } catch { /* noop */ }
+    }
+    if (pinchRef.current) {
+      if (pointersRef.current.size < 2) pinchRef.current = null;
+      return;
+    }
     const wasInteracting = !!dragRef.current || !!resizeRef.current || !!rotateRef.current;
     if (resizeRef.current?.live) {
       dispatch({ type: 'UPDATE_ELEMENT', sceneId: stateRef.current.scene.id, id: resizeRef.current.elId, patch: resizeRef.current.live });
@@ -1005,7 +1077,7 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
       const { x1, y1, x2, y2 } = boxSel;
       const minX = Math.min(x1, x2), maxX = Math.max(x1, x2), minY = Math.min(y1, y2), maxY = Math.max(y1, y2);
       const { pan: p, scale: s, elements: els, scene: sc } = stateRef.current;
-      const lm = {}; (sc.layers || DEFAULT_LAYERS).forEach(l => { lm[l.id] = l; });
+      const lm = {}; (sc.layers || DEFAULT_LAYERS_V2).forEach(l => { lm[l.id] = l; });
       const hit = new Set();
       els.forEach(el => {
         const l = lm[el.layerId]; if (!l?.visible || l?.locked) return;
@@ -1237,8 +1309,8 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
 
         {/* MAP CANVAS */}
         <div ref={containerRef}
-          style={{ flex: 1, position: 'relative', overflow: 'hidden', cursor }}
-          onMouseDown={onDown} onMouseMove={onMove} onMouseUp={onUp} onMouseLeave={onUp}
+          style={{ flex: 1, position: 'relative', overflow: 'hidden', cursor, touchAction: 'none' }}
+          onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp}
           onDoubleClick={onDoubleClick}
           onContextMenu={e => e.preventDefault()}
           onDrop={e => {
@@ -1259,8 +1331,12 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
                 <rect width="100%" height="100%" fill="url(#dots)" />
               </svg>
               <div style={{ fontSize: 56, opacity: 0.15 }}>🗺️</div>
-              <div style={{ fontFamily: 'Cinzel,serif', fontSize: 13, letterSpacing: 3, color: 'rgba(255,255,255,0.12)' }}>ARRASTE UMA IMAGEM AQUI</div>
-              <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.08)' }}>ou clique em "Adicionar Imagem" acima</div>
+              {viewer ? (
+                <div style={{ fontFamily: 'Cinzel,serif', fontSize: 13, letterSpacing: 3, color: 'rgba(255,255,255,0.12)' }}>AGUARDANDO O MESTRE PREPARAR A CENA</div>
+              ) : (<>
+                <div style={{ fontFamily: 'Cinzel,serif', fontSize: 13, letterSpacing: 3, color: 'rgba(255,255,255,0.12)' }}>ARRASTE UMA IMAGEM AQUI</div>
+                <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.08)' }}>ou clique em "Adicionar Imagem" acima</div>
+              </>)}
             </div>
           )}
 
@@ -1286,7 +1362,7 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
               return (
                 <div key={img.id}
                   style={{ position: 'absolute', left: px, top: py, width: pw, height: ph, transform: `rotate(${liveRot}deg)`, transformOrigin: 'center center', opacity, outline: isSel ? '2px solid #a855f7' : 'none', outlineOffset: 1, cursor: (img.locked || layer?.locked) ? 'default' : 'grab', zIndex: layerZIndex(layerOrder[img.layerId] ?? 0, img.z), pointerEvents: (viewer || img.locked || layer?.locked) ? 'none' : 'auto' }}
-                  onMouseDown={e => onElementDown(e, img)}
+                  onPointerDown={e => onElementDown(e, img)}
                   onContextMenu={e => { e.preventDefault(); e.stopPropagation(); setSelIds(new Set([img.id])); setCtxMenu({ x: e.clientX, y: e.clientY, type: 'image', elId: img.id }); }}>
                   <img src={src} draggable={false} style={{ width: '100%', height: '100%', display: 'block', pointerEvents: 'none' }} />
                   {img.locked && <span style={{ position: 'absolute', top: 4, left: 4, fontSize: 10, background: 'rgba(0,0,0,0.7)', borderRadius: '50%', width: 16, height: 16, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>🔒</span>}
@@ -1294,9 +1370,10 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
                     {[['NW','nw-resize',{top:-5,left:-5}],['NE','ne-resize',{top:-5,right:-5}],['SW','sw-resize',{bottom:-5,left:-5}],['SE','se-resize',{bottom:-5,right:-5}]].map(([key, cur, pos]) => (
                       <div key={key}
                         style={{ position: 'absolute', width: 10, height: 10, background: '#a855f7', border: '2px solid #fff', borderRadius: 2, cursor: cur, zIndex: 6, ...pos }}
-                        onMouseDown={e => {
+                        onPointerDown={e => {
                           e.stopPropagation(); e.preventDefault();
                           elementDownRef.current = true;
+                          try { containerRef.current?.setPointerCapture?.(e.pointerId); } catch { /* noop */ }
                           const { x: sx, y: sy } = clientXY(e);
                           const wp = screenToWorld(sx, sy);
                           resizeRef.current = { elId: img.id, corner: key, startMouse: { wx: wp.x, wy: wp.y }, startEl: { x: img.x, y: img.y, w: img.w, h: img.h } };
@@ -1304,9 +1381,10 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
                     ))}
                     <div
                       style={{ position: 'absolute', top: -24, left: '50%', transform: 'translateX(-50%)', width: 12, height: 12, borderRadius: '50%', background: '#fbbf24', border: '2px solid #fff', cursor: 'crosshair', zIndex: 6 }}
-                      onMouseDown={e => {
+                      onPointerDown={e => {
                         e.stopPropagation(); e.preventDefault();
                         elementDownRef.current = true;
+                        try { containerRef.current?.setPointerCapture?.(e.pointerId); } catch { /* noop */ }
                         const rect = containerRef.current.getBoundingClientRect();
                         const { pan: p, scale: s } = stateRef.current;
                         const cx = (img.x + img.w / 2) * s + p.x;
@@ -1352,7 +1430,7 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
                   pointerEvents: viewer && !canMove(scene, t, uid, false) ? 'none' : undefined,
                   textShadow: '0 1px 3px rgba(0,0,0,0.8)', transition: 'opacity 0.2s,box-shadow 0.15s',
                 }}
-                  onMouseDown={e => onElementDown(e, t)}
+                  onPointerDown={e => onElementDown(e, t)}
                   onContextMenu={e => { e.preventDefault(); e.stopPropagation(); if (viewer) return; setSelIds(new Set([t.id])); setCtxMenu({ x: e.clientX, y: e.clientY, type: 'token', tokenId: t.id }); }}>
                   {tokImg
                     ? <img src={tokImg} draggable={false} style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '50%', pointerEvents: 'none' }} />
@@ -1384,7 +1462,7 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
                   style={{ position: 'absolute', left: px, top: py, width: d.w, height: d.h, opacity, zIndex: layerZIndex(layerOrder[d.layerId] ?? 0, d.z), outline: isSel ? '1.5px dashed #a855f7' : 'none', outlineOffset: 2, cursor: (d.locked || dLayer?.locked) ? 'default' : 'grab', pointerEvents: 'none', filter: d.spectre ? 'blur(1px)' : 'none' }}>
                   {/* Só o TRAÇO é clicável (não a bbox transparente) — spec 0019 AC-5 */}
                   <svg width={Math.max(1, d.w)} height={Math.max(1, d.h)} style={{ display: 'block', overflow: 'visible', pointerEvents: (viewer || d.locked || dLayer?.locked) ? 'none' : 'visiblePainted', cursor: 'grab' }} xmlns="http://www.w3.org/2000/svg"
-                    onMouseDown={e => onElementDown(e, d)}
+                    onPointerDown={e => onElementDown(e, d)}
                     onContextMenu={e => { e.preventDefault(); e.stopPropagation(); setSelIds(new Set([d.id])); setCtxMenu({ x: e.clientX, y: e.clientY, type: 'image', elId: d.id }); }}>
                     <DrawingShape d={d} />
                   </svg>
@@ -1417,11 +1495,11 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
               return (
                 <div key={n.id}
                   style={{ position: 'absolute', left: px, top: py, background: '#fbbf24', color: '#1a1500', padding: '8px 10px', borderRadius: 4, fontSize: 12, maxWidth: 160, wordBreak: 'break-word', boxShadow: isSel ? '0 0 0 2px #a855f7,3px 4px 12px rgba(0,0,0,0.5)' : '3px 4px 12px rgba(0,0,0,0.5)', zIndex: layerZIndex(layerOrder[n.layerId] ?? 0, n.z), opacity: (n.hidden ? 0.35 : 1) * (noteLayer?.opacity ?? 1), cursor: (n.locked || noteLayer?.locked) ? 'default' : 'grab' }}
-                  onMouseDown={e => onElementDown(e, n)}>
+                  onPointerDown={e => onElementDown(e, n)}>
                   {n.text}
                   {n.locked && <span style={{ position: 'absolute', top: -5, right: -5, fontSize: 9, background: 'rgba(0,0,0,0.75)', borderRadius: '50%', width: 14, height: 14, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>🔒</span>}
                   {!viewer && <button
-                    onMouseDown={e => e.stopPropagation()}
+                    onPointerDown={e => e.stopPropagation()}
                     onClick={e => { e.stopPropagation(); deleteEl(n.id); }}
                     style={{ position: 'absolute', top: -7, right: -7, width: 17, height: 17, borderRadius: '50%', background: '#222', border: 'none', color: '#fff', fontSize: 10, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 11 }}>×</button>}
                 </div>
@@ -1725,7 +1803,7 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
               <div style={{ height: 1, background: 'rgba(255,255,255,0.08)', margin: '4px 0' }} />
               <div style={{ padding: '6px 16px 2px', fontSize: 10, color: 'rgba(255,255,255,0.3)', letterSpacing: 1, textTransform: 'uppercase' }}>Clima</div>
               {[{ label: '🌧 Chuva', val: 'rain' }, { label: '❄ Neve', val: 'snow' }, { label: '🌫 Névoa Densa', val: 'fog' }, { label: '✕ Limpar Clima', val: null }].map((item, i) => (
-                <button key={i} onClick={() => { setWeather(w => w === item.val ? null : item.val); setCtxMenu(null); }}
+                <button key={i} onClick={() => { dispatch({ type: 'PATCH_SCENE', sceneId: scene.id, patch: { weather: weather === item.val ? null : item.val } }); setCtxMenu(null); }}
                   style={{ display: 'block', width: '100%', textAlign: 'left', padding: '8px 16px', background: weather === item.val && item.val ? 'rgba(168,85,247,0.1)' : 'none', border: 'none', color: weather === item.val && item.val ? '#a855f7' : 'rgba(255,255,255,0.8)', cursor: 'pointer', fontSize: 13 }}
                   onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.06)'; }} onMouseLeave={e => { e.currentTarget.style.background = weather === item.val && item.val ? 'rgba(168,85,247,0.1)' : 'none'; }}>{item.label}</button>
               ))}
