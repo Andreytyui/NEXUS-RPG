@@ -19,13 +19,14 @@ alwaysApply: false
   Fontes: Guia Rápido de Regras (Scribd/Studocu). Textos são de referência (app não auto-aplica).
 - **[muda-jogo] Sobrecarga sem efeito nem teto** · `Tabs/InventarioTab.jsx:378-386`. Oficial:
   -5 Atletismo/Furtividade, -3m deslocamento; teto absoluto = 2× o limite. Hoje só mostra rótulo.
-- **[incômodo] Rituais sem gate de círculo por NEX** · `Tabs/RituaisTab.jsx:12,107,249`. Permite
-  ritual de qualquer círculo sem checar NEX (1º=5%,2º=25%,3º=55%,4º=85%). Não calcula errado, mas
-  permite ficha ilegal. (Decidir com Andre se vira trava ou só aviso.)
+- **[incômodo · DECISÃO ANDRE = AVISO, não trava] Rituais sem gate de círculo por NEX** ·
+  `Tabs/RituaisTab.jsx:12,107,249`. Andre: dar autonomia ao jogador/mestre, mas mostrar a limitação.
+  → Implementar **aviso visual** (badge/tooltip) quando o círculo do ritual > o permitido pelo NEX
+  (1º=5%,2º=25%,3º=55%,4º=85%), SEM impedir de adicionar. TODO.
 - **[cosmético] `deriveStats().esquiva`/`.bloqueio` mortos** · `rules.js:113-114` (retornam AGI/0,
   não consumidos; a ficha recalcula em L385). Reconciliar ou remover.
-- **[precisa validação Andre] Perícias "só treinado"** · `rules.js:20-31`: Sobrevivência provavelmente
-  usável destreinada; conferir Crime/Artes/Adestramento. **NÃO mexido — pende confirmação.**
+- **[RESOLVIDO — sem ação] Perícia "Sobrevivência" destreinada?** · Andre confirmou: **NÃO** é usável
+  destreinada. O código (`rules.js` `Sobrevivência*`) já está correto. Nenhuma mudança.
 - **NÃO MEXER (decisão Andre = manter homebrew):** Esquiva passiva (`OrdemParanormalSheet.jsx:385`),
   Proficiência +2..+6 (`:386`). Ficam.
 
@@ -61,8 +62,11 @@ alwaysApply: false
 - **[incômodo] `charsLoading` buscado mas descartado** — Dashboard sem spinner · `App.jsx:11722`.
 - **[incômodo] Uploads de capa engolem falha de resize** · `App.jsx:208,1498,2485,3878,4353`.
 - **[incômodo] i18n EN incompleto** cai p/ PT misturado · `i18n/useLocale.js:21-30` (auditar en.js vs pt.js).
-- **[polish] PIX morto?** `createPixPayment`/`fsGetUserPlan` nunca chamados (`App.jsx:84,75`); UI manda
-  p/ Catarse. Confirmar com Andre se PIX foi abandonado de propósito.
+- **[DECISÃO ANDRE = É BUG, consertar] PIX desligado** · `createPixPayment`/`fsGetUserPlan` nunca
+  chamados (`App.jsx:84,75`); a UI manda pro Catarse externo. Andre: era pra funcionar → **consertar
+  o fluxo de pagamento PIX** (front chama `createPixPayment` → backend `/api/create-payment` já existe;
+  ativar plano via webhook `/api/payment-webhook`). Tarefa maior — investigar o fluxo ponta a ponta
+  (front `PlansScreen` + backend Vercel + `MERCADOPAGO_*` env vars). TODO prioritário.
 - **[polish] Lint**: `no-dupe-keys` (`App.jsx:8927,9230`), array morto D&D (`DungeonsAndDragonsSheet.jsx:383-386`),
   vários `no-unused-vars` (features meio-implementadas: `setShowAddSkill`/`newSkillName` L8202/8231),
   `exhaustive-deps` em auto-save (`App.jsx:8284,8318` — verificar closure obsoleta).
