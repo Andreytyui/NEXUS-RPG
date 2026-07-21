@@ -17,14 +17,18 @@ alwaysApply: false
   Cego (desprevenido+lento+camuflagem total), removido "Exposto" (inexistente) → **Desprevenido**
   (-5 Defesa); adicionadas Agarrado, Alquebrado, Caído, Confuso, Indefeso, Petrificado, Sangrando.
   Fontes: Guia Rápido de Regras (Scribd/Studocu). Textos são de referência (app não auto-aplica).
-- **[muda-jogo] Sobrecarga sem efeito nem teto** · `Tabs/InventarioTab.jsx:378-386`. Oficial:
-  -5 Atletismo/Furtividade, -3m deslocamento; teto absoluto = 2× o limite. Hoje só mostra rótulo.
-- **[incômodo · DECISÃO ANDRE = AVISO, não trava] Rituais sem gate de círculo por NEX** ·
-  `Tabs/RituaisTab.jsx:12,107,249`. Andre: dar autonomia ao jogador/mestre, mas mostrar a limitação.
-  → Implementar **aviso visual** (badge/tooltip) quando o círculo do ritual > o permitido pelo NEX
-  (1º=5%,2º=25%,3º=55%,4º=85%), SEM impedir de adicionar. TODO.
-- **[cosmético] `deriveStats().esquiva`/`.bloqueio` mortos** · `rules.js:113-114` (retornam AGI/0,
-  não consumidos; a ficha recalcula em L385). Reconciliar ou remover.
+- **[FEITO spec 0021] Sobrecarga com efeito + teto** · `Tabs/InventarioTab.jsx`. Helper puro novo
+  `cargaTeto(attrs)` = 2× carga máxima (`rules.js`, testado). A barra de carga agora mostra o teto
+  absoluto ("Teto absoluto: N espaços (2× o máximo)"), o efeito da sobrecarga (−5 Atletismo/Furtividade,
+  −3m deslocamento) quando `cargaAtual > max`, e o estado "ACIMA DO TETO / não pode carregar mais nada"
+  quando `> teto`. App não trava (só informa).
+- **[FEITO spec 0021 · aviso, não trava] Aviso de círculo de ritual por NEX** · `Tabs/RituaisTab.jsx`.
+  Helper puro novo `circuloMaxNex(nex)` (1º=5%,2º=25%,3º=55%,4º=85%; `rules.js`, testado). O `RitualCard`
+  mostra badge "⚠ NEX BAIXO" + tooltip quando `círculo > circuloMaxNex(nex)`, SEM impedir de adicionar
+  (decisão Andre: autonomia do jogador/mestre). `nex` propagado da sheet → RituaisTab.
+- **[FEITO spec 0021] `deriveStats().esquiva`/`.bloqueio` mortos removidos** · `rules.js`. Só `.peTurno`
+  é consumido pela ficha; `.defesa`/`.deslocamento` ficam (cobertos por teste). Esquiva homebrew
+  (10+AGI+Reflexos) segue recalculada na própria ficha (`OrdemParanormalSheet.jsx:385`), intocada.
 - **[RESOLVIDO — sem ação] Perícia "Sobrevivência" destreinada?** · Andre confirmou: **NÃO** é usável
   destreinada. O código (`rules.js` `Sobrevivência*`) já está correto. Nenhuma mudança.
 - **NÃO MEXER (decisão Andre = manter homebrew):** Esquiva passiva (`OrdemParanormalSheet.jsx:385`),
@@ -32,25 +36,32 @@ alwaysApply: false
 
 ## B. Mapas (PRIORIDADE 2)
 
-- **[bloqueia-uso] Editor é 100% mouse — zero toque** · `index.jsx` (onMouse*, sem onPointer/onTouch).
-  Migrar container + `onElementDown` para Pointer Events + `setPointerCapture` + `touch-action:none`.
-  Resolve de brinde o **arraste que solta ao encostar na toolbar** (`onMouseLeave={onUp}`, L1226).
-  → MAIOR item de "usável de verdade" (tablet/celular na mesa).
-- **[incômodo] `replaceImage()` sem downscale** · `index.jsx:497-508` (grava full-res, dribla o cap
-  de 2048/JPEG da AC-11). Reusar pipeline do `loadBg`.
-- **[incômodo] Clima não sincroniza/persiste** · `weather` é state local (`index.jsx:82`); mestre liga
-  chuva e a mesa não vê. Mover p/ `scene.weather`.
+- **[FEITO spec 0021] Editor com toque (Pointer Events)** · `index.jsx`. Container + `onElementDown` +
+  alças de resize/rotate + nota migrados de `onMouse*` para `onPointer*`; `touch-action:none` no container;
+  `setPointerCapture` no container em todo down (elemento e canvas) → o arrasto sobrevive ao sair da
+  viewport, **eliminando o bug de "solta ao encostar na toolbar"** (o `onMouseLeave={onUp}` foi removido).
+  Adicionado **pinch-zoom + pan de 2 dedos** (refs `pointersRef`/`pinchRef`, helpers `beginPinch`/
+  `applyPinch`) — sem isso o `touch-action:none` deixaria o mapa não-navegável por gesto (os botões
+  +/−/⌂ continuam). Gestos soltam o Sync View (AC-6). Gates: 9 suítes/67 testes MapEditor + build exit 0.
+  Follow-up: double-tap (ping) no toque não garantido — fora de escopo.
+- **[JÁ RESOLVIDO — 0019 AC-11] `replaceImage()` com downscale** · `index.jsx:499-516` já faz o cap
+  2048/JPEG igual ao `loadBg` (o fix veio na 0019, depois deste assessment ser escrito). Sem ação.
+- **[FEITO spec 0021] Clima sincroniza/persiste** · movido de state local para `scene.weather`
+  (`index.jsx`): o menu de clima agora faz `dispatch(PATCH_SCENE {weather})` — mesmo caminho do `loadBg`,
+  que `saveSceneMeta` propaga p/ a mesa. Mestre liga chuva/neve/névoa → jogador vê e persiste no reload.
 - **[incômodo] Re-render global por frame** no arraste/resize/rotate · `setDragTick` (`index.jsx:894,901,926`).
 - **[incômodo] Top-bar corta em tela estreita** · `index.jsx:1114-1137` (a AC-13 só tratou toolbar/painel).
 - **[incômodo] `window.prompt/alert`** p/ nota/renomear/rótulo/salvar-asset (`index.jsx:859,619,653,534`) →
   modais in-app (ModalShell).
-- **[incômodo] Estado vazio errado p/ viewer** · `index.jsx:1240-1249` ("Adicionar Imagem" a quem não pode).
+- **[FEITO spec 0021] Estado vazio correto p/ viewer** · `index.jsx`: o jogador agora vê "AGUARDANDO O
+  MESTRE PREPARAR A CENA" em vez de "Arraste/Adicionar Imagem" (que ele não pode).
 - **[incômodo] Sem loading no modo campanha** até 1ª hidratação Firestore · `index.jsx:301-317`.
 - **[polish] Emojis residuais**: context-menus (`index.jsx:1652-1726`), condições de token (`:39-43`),
   sub-toolbars Desenho/Fog (`:1497,1516`), permissão de camada 👤👥🚷 (`:1188`), chrome (⚔🗺✏✕) → `MapIcon`.
 - **[polish] `aria-label`** nos botões só-ícone (MapIcon é aria-hidden).
-- **[polish/latente] Fallback `DEFAULT_LAYERS` (4 camadas ids antigos)** diverge do schema V2 (7) ·
-  `reducer.js:5-10` usado como fallback em `index.jsx`. Deveria ser `DEFAULT_LAYERS_V2`.
+- **[FEITO spec 0021] Fallback `DEFAULT_LAYERS_V2`** · `index.jsx` agora importa e usa `DEFAULT_LAYERS_V2`
+  (7 camadas do schema) em todos os fallbacks `scene.layers || …`, no lugar das 4 v1 antigas do
+  `reducer.js` (que quebravam zIndex/lock se o fallback disparasse com ids de camada divergentes).
 
 ## C. Geral / transversal (PRIORIDADE 3)
 

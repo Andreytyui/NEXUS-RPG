@@ -10,7 +10,47 @@ alwaysApply: true
 > todo. Diferente do **ADR** (decisão durável e imutável). Decisão estrutural → ADR; estado do
 > trabalho → aqui. Atualize ao **pausar/encerrar**; leia ao **retomar**. Use a skill `/handoff`.
 
-**Última atualização:** 2026-07-09 por Claude (programa "Nexus impecável" — auditoria + condições OP fiéis)
+**Última atualização:** 2026-07-20 por Claude (assessment-0021 §B — clima sync + fallback camadas + estado-vazio viewer)
+
+> **2026-07-20 (3): ASSESSMENT-0021 §B — mais 3 itens FUNCIONAIS FEITOS (build exit 0, NÃO deployado).**
+> (1) **Clima sincroniza** — movido de state local `weather` para `scene.weather`; o menu de clima faz
+> `dispatch(PATCH_SCENE {weather})` e `saveSceneMeta` propaga p/ a mesa (mesmo caminho do `loadBg`). Antes
+> o mestre ligava chuva e o jogador não via. (2) **Fallback de camadas** — `index.jsx` agora usa
+> `DEFAULT_LAYERS_V2` (7 camadas do schema) em vez das 4 v1 do `reducer.js` em todos os `scene.layers||…`.
+> (3) **Estado-vazio do viewer** — jogador vê "AGUARDANDO O MESTRE PREPARAR A CENA" no lugar de "Adicionar
+> Imagem" (que não pode). **Bônus:** `replaceImage()` já tinha downscale (fix veio na 0019 — assessment
+> desatualizado; marcado como resolvido). Build exit 0. **§B RESTA (só polish, próxima sessão p/ resetar
+> custo):** `window.prompt`→modais (nota/cena/rótulo/asset), emojis residuais→MapIcon, aria-labels,
+> top-bar em tela estreita, `setDragTick` re-render por frame, loading até 1ª hidratação Firestore.
+> **Pendente do Andre:** validar toque+clima em 2 navegadores/tablet + deploy (Hosting) das levas §A+§B.
+
+> **2026-07-20 (2): ASSESSMENT-0021 §B — TOQUE NO EDITOR DE MAPAS FEITO (maior item de "usável de
+> verdade"; build exit 0, NÃO deployado).** Migrei `MapEditor/index.jsx` de Mouse Events para **Pointer
+> Events**: container + `onElementDown` + alças de resize/rotate + nota agora usam `onPointer*`;
+> `touch-action:none` no container; `setPointerCapture` no container em todo down (elemento e canvas) —
+> o arrasto sobrevive ao sair da viewport, o que **elimina o bug do arraste que soltava ao encostar na
+> toolbar** (removido o `onMouseLeave={onUp}`). Como `touch-action:none` mata o pan/zoom nativo, adicionei
+> **pinch-zoom + pan de 2 dedos** (novos refs `pointersRef`/`pinchRef` + helpers `beginPinch`/`applyPinch`
+> no topo de onDown/onMove/onUp; o 2º dedo cancela a ação de 1 dedo sem efetivar e assume o gesto). Gestos
+> soltam o Sync View do jogador (AC-6). Gates: 9 suítes/67 testes MapEditor + build exit 0. **Fora de
+> escopo/follow-up:** double-tap (ping) por toque não garantido; demais itens §B (replaceImage downscale,
+> clima não sincroniza, emojis residuais, top-bar estreita, window.prompt→modais, estado-vazio viewer).
+> **Pendente do Andre:** validar em tablet/celular de verdade + deploy (Firebase Hosting) das levas §A+§B.
+
+> **2026-07-20: ASSESSMENT-0021 §A (regras OP) — 3 itens FEITOS (build exit 0, NÃO deployado ainda).**
+> Continuei o backlog do programa "Nexus impecável" pela ordem (regras OP = prioridade 1). Fechados:
+> (1) **Sobrecarga** (`InventarioTab`): helper puro `cargaTeto(attrs)`=2× carga máxima; barra de carga
+> agora exibe teto absoluto + efeito oficial (−5 Atletismo/Furtividade, −3m deslocamento) quando
+> sobrecarregado + estado "ACIMA DO TETO" quando > teto (não trava, só informa). (2) **Aviso de círculo
+> de ritual por NEX** (`RituaisTab`): helper puro `circuloMaxNex(nex)` (1º=5/2º=25/3º=55/4º=85%); badge
+> "⚠ NEX BAIXO" + tooltip no RitualCard quando círculo > permitido, SEM travar (decisão Andre = autonomia).
+> `nex` propagado da sheet. (3) **Código morto** `deriveStats().esquiva/.bloqueio` REMOVIDOS de `rules.js`
+> (só `.peTurno` era consumido; Esquiva homebrew 10+AGI+Reflexos segue na própria ficha, intocada).
+> Helpers novos testados (rules.test.js: cargaTeto + circuloMaxNex). **Gates: 19 suítes/142 testes + build
+> exit 0.** ACs de UI (badges/barra) = checklist visual do Andre. **PRÓXIMOS na fila (assessment §A resta):**
+> rituais gate visual está feito; falta o **PIX** (§C, decisão Andre = É BUG, consertar fluxo ponta a ponta)
+> e a §B Mapas (**toque/Pointer Events** = maior item de "usável de verdade"). **Pendente do Andre:** deploy
+> (Firebase Hosting) desta leva §A quando quiser publicar.
 
 > **2026-07-09: PROGRAMA "NEXUS IMPECÁVEL" INICIADO.** Andre deu mandato aberto ("melhore tudo,
 > impecável, OP + Mapas + tudo"). Rodei 3 auditorias (subagentes): regras OP, mapas, bug-hunt geral.
