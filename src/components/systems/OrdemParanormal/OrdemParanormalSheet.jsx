@@ -998,7 +998,7 @@ export default function OrdemParanormalSheet({ character, charId, onBack, onUpda
             )}
 
             {activeTab === "rituais" && (
-              <RituaisTab rituais={rituais} setRituais={setRituais} dtBase={dtRituaisRule(nex, attrs)} dtBonus={dtRituaisBonus} setDtBonus={setDtRituaisBonus} onRollDados={rollDados} />
+              <RituaisTab rituais={rituais} setRituais={setRituais} dtBase={dtRituaisRule(nex, attrs)} dtBonus={dtRituaisBonus} setDtBonus={setDtRituaisBonus} onRollDados={rollDados} nex={nex} />
             )}
 
             {activeTab === "inventario" && (

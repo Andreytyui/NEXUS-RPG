@@ -105,16 +105,28 @@ export function nexStats(nexVal, classId, attrs) {
   };
 }
 
-/* Derived combat readouts (matches FullSheet). */
+/* Derived combat readouts (matches FullSheet).
+ * NOTE: a ficha (OrdemParanormalSheet) recalcula Defesa/Esquiva/Deslocamento com os
+ * bônus e o homebrew do Cellbit (Esquiva = 10+AGI+Reflexos). Aqui só sobra o que ela
+ * de fato consome — `peTurno`. Os campos esquiva/bloqueio mortos foram removidos
+ * (assessment-0021 §A). Defesa/deslocamento ficam por estarem cobertos por teste. */
 export function deriveStats(attrs, nex) {
   return {
     defesa: 10 + attrs.AGI,
-    esquiva: attrs.AGI,
-    bloqueio: 0,
     peTurno: 1 + nexLevel(nex),
     deslocamento: "9m / 6q",
   };
 }
+
+/* Sobrecarga (oficial): o teto ABSOLUTO de carga é 2× a carga máxima — acima disso o
+ * personagem não consegue carregar mais nada. Entre `cargaMaxima` e o teto ele está
+ * sobrecarregado (-5 em Atletismo/Furtividade, -3m de deslocamento). */
+export const cargaTeto = (attrs) => 2 * cargaMaxima(attrs);
+
+/* Maior círculo de ritual que o NEX permite aprender (oficial, via assessment-0021 §A):
+ * 1º=5%, 2º=25%, 3º=55%, 4º=85%. Usado só para AVISO visual — não trava (decisão Andre). */
+export const circuloMaxNex = (nex) =>
+  nex >= 85 ? 4 : nex >= 55 ? 3 : nex >= 25 ? 2 : nex >= 5 ? 1 : 0;
 
 /* DT para resistir aos seus rituais (oficial): 10 + NEX/5 + Presença (+ bônus da ficha). */
 export function dtRituais(nex, attrs, bonus = 0) {

@@ -2,7 +2,7 @@
  * Valores esperados verificados contra o livro (ver spec 0006, tabela de verificação). */
 import {
   nexLevel, nexStats, deriveStats, dtRituais,
-  PATENTES, patenteForPrestigio, cargaMaxima, defaultTrainedSet,
+  PATENTES, patenteForPrestigio, cargaMaxima, cargaTeto, circuloMaxNex, defaultTrainedSet,
   rollOP, rollExpr, rollPayload, NEX_LADDER, treinoColor,
 } from "../rules";
 
@@ -50,6 +50,28 @@ describe("deriveStats — AC-1/AC-3", () => {
   });
   it("deslocamento padrão oficial = 9m / 6q, sem AGI", () => {
     expect(deriveStats({ AGI: 4 }, 5).deslocamento).toBe("9m / 6q");
+  });
+});
+
+describe("cargaTeto — assessment-0021 §A (sobrecarga)", () => {
+  it("teto absoluto = 2× a carga máxima", () => {
+    expect(cargaTeto({ FOR: 0 })).toBe(cargaMaxima({ FOR: 0 }) * 2); // 10
+    expect(cargaTeto({ FOR: 3 })).toBe(40);  // (5 + 15) × 2
+    expect(cargaTeto({})).toBe(10);
+  });
+});
+
+describe("circuloMaxNex — assessment-0021 §A (aviso de círculo por NEX)", () => {
+  it("libera 1º=5%, 2º=25%, 3º=55%, 4º=85%", () => {
+    expect(circuloMaxNex(4)).toBe(0);
+    expect(circuloMaxNex(5)).toBe(1);
+    expect(circuloMaxNex(24)).toBe(1);
+    expect(circuloMaxNex(25)).toBe(2);
+    expect(circuloMaxNex(54)).toBe(2);
+    expect(circuloMaxNex(55)).toBe(3);
+    expect(circuloMaxNex(84)).toBe(3);
+    expect(circuloMaxNex(85)).toBe(4);
+    expect(circuloMaxNex(99)).toBe(4);
   });
 });
 

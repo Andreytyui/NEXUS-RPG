@@ -4,7 +4,7 @@ import {
   fieldLabel, inputS, btnGold, btnGhost, chip, ModalShell,
   tLabel, tCardTitle, tBody, tStat, tEmpty, tSubtext,
 } from "./shared/modalStyles";
-import { patenteForPrestigio, cargaMaxima } from "../rules";
+import { patenteForPrestigio, cargaMaxima, cargaTeto } from "../rules";
 import ITENS_OFICIAIS from "../../../../data/ordemParanormal/itens-oficiais.json";
 
 const TIPOS = [
@@ -374,20 +374,33 @@ export default function InventarioTab({ inventario, setInventario, onRollDados, 
         </div>
         {/* Carga — visual bar */}
         {(() => {
+          const teto = cargaTeto(attrs);               // teto absoluto = 2× a carga máxima (oficial)
+          const over = cargaAtual > max;               // sobrecarregado (entre max e teto)
+          const atStop = cargaAtual > teto;             // acima do teto absoluto: não carrega mais
           const pct = Math.min(100, Math.round((cargaAtual / max) * 100));
-          const over = cargaAtual > max;
-          const barColor = over ? "#e53935" : pct > 75 ? "#fbc02d" : "#4caf50";
+          const barColor = atStop ? "#b71c1c" : over ? "#e53935" : pct > 75 ? "#fbc02d" : "#4caf50";
+          const cinzel = "var(--font-title,'Cinzel',serif)";
           return (
             <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                 <span style={{ ...tLabel, fontSize: 9 }}>CARGA</span>
                 <span style={{ fontFamily: "var(--font-data,'Share Tech Mono',monospace)", fontSize: 12, color: barColor, display: "flex", alignItems: "center", gap: 4 }}>
                   {cargaAtual} / {max} espaços
-                  {over && <span style={{ fontSize: 9, color: "#e53935", fontFamily: "var(--font-title,'Cinzel',serif)", letterSpacing: "0.06em" }}>SOBRECARREGADO</span>}
+                  {atStop
+                    ? <span style={{ fontSize: 9, color: "#b71c1c", fontFamily: cinzel, letterSpacing: "0.06em" }}>ACIMA DO TETO</span>
+                    : over && <span style={{ fontSize: 9, color: "#e53935", fontFamily: cinzel, letterSpacing: "0.06em" }}>SOBRECARREGADO</span>}
                 </span>
               </div>
               <div style={{ height: 6, background: "rgba(0,0,0,0.4)", borderRadius: 3, overflow: "hidden", border: "1px solid rgba(255,255,255,0.06)" }}>
                 <div style={{ height: "100%", width: `${pct}%`, background: `linear-gradient(90deg, ${barColor}99, ${barColor})`, borderRadius: 3, transition: "width 0.3s ease, background 0.3s ease", boxShadow: `0 0 6px ${barColor}60` }} />
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                <span style={{ ...tSubtext, fontSize: 9 }}>Teto absoluto: {teto} espaços (2× o máximo)</span>
+                {over && (
+                  <span style={{ fontSize: 9, color: atStop ? "#ff8a80" : "#fbc02d", fontFamily: "var(--font-data,'Share Tech Mono',monospace)" }}>
+                    {atStop ? "Não pode carregar mais nada" : "−5 Atletismo/Furtividade · −3m deslocamento"}
+                  </span>
+                )}
               </div>
             </div>
           );

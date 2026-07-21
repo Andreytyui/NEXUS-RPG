@@ -7,6 +7,7 @@ import {
   tLabel, tCardTitle, tStat, tEmpty,
 } from "./shared/modalStyles";
 import RITUAIS_OFICIAIS from "../../../../data/ordemParanormal/rituais-oficiais.json";
+import { circuloMaxNex } from "../rules";
 
 const ELEMENTOS = ["conhecimento", "energia", "morte", "sangue", "medo", "varia"];
 const CIRCULOS = [1, 2, 3, 4];
@@ -323,7 +324,7 @@ const ROMAN = ["", "I", "II", "III", "IV"];
 const EXEC_ICON = { "Padrão": "◈", "Padrão Completo": "◈◈", "Movimento": "↝", "Livre": "◦", "Reação": "⟳", "Completa": "◈◈" };
 
 /* ═══ Card de ritual ═══ */
-function RitualCard({ r, onEdit, onRemove, onRoll }) {
+function RitualCard({ r, onEdit, onRemove, onRoll, overNex, maxCirc }) {
   const [open, setOpen] = useState(false);
   const b = BADGE[r.elemento] || BADGE.varia;
   const circ = ROMAN[r.circulo] || String(r.circulo);
@@ -355,6 +356,14 @@ function RitualCard({ r, onEdit, onRemove, onRoll }) {
         </span>
 
         <span style={{ ...tCardTitle, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.nome}</span>
+
+        {overNex && (
+          <span title={`Seu NEX permite até rituais de ${maxCirc}º círculo. Este é de ${r.circulo}º — mestre pode não liberar.`}
+            style={{ fontFamily: FONT_CINZEL, fontSize: 8, fontWeight: 700, letterSpacing: "0.06em", padding: "2px 7px", borderRadius: 3,
+              border: "1px solid #e0803060", background: "rgba(224,128,48,0.12)", color: "#e08030", whiteSpace: "nowrap", flexShrink: 0, cursor: "help" }}>
+            ⚠ NEX BAIXO
+          </span>
+        )}
 
         <div style={{ display: "flex", gap: 4, alignItems: "center", flexShrink: 0 }}>
           {r.execucao && (
@@ -427,11 +436,12 @@ function RitualCard({ r, onEdit, onRemove, onRoll }) {
 }
 
 /* ═══ Tab principal ═══ */
-export default function RituaisTab({ rituais, setRituais, dtBase, dtBonus, setDtBonus, onRollDados }) {
+export default function RituaisTab({ rituais, setRituais, dtBase, dtBonus, setDtBonus, onRollDados, nex }) {
   const [busca, setBusca] = useState("");
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState(null);
   const [showAdd, setShowAdd] = useState(false);
+  const maxCirc = circuloMaxNex(nex);  // maior círculo que o NEX libera — só p/ aviso visual
 
   const homebrew = rituais.filter((r) => r.is_homebrew);
   const filtered = rituais.filter((r) => r.nome?.toLowerCase().includes(busca.toLowerCase()));
@@ -473,6 +483,8 @@ export default function RituaisTab({ rituais, setRituais, dtBase, dtBonus, setDt
         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
           {filtered.map((r) => (
             <RitualCard key={r.id} r={r}
+              overNex={maxCirc > 0 && Number(r.circulo) > maxCirc}
+              maxCirc={maxCirc}
               onEdit={() => { setEditing(r); setShowForm(true); }}
               onRemove={() => removeRitual(r.id)}
               onRoll={onRollDados} />
