@@ -116,6 +116,7 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
   /* spec 0013 — biblioteca de assets do usuário */
   const [assets,   setAssets]   = useState([]);     // docs users/{uid}/assets/*
   const [dockOpen, setDockOpen] = useState(false);  // dock 🎒 aberto
+  const [promptModal, setPromptModal] = useState(null); // modal in-app (substitui window.prompt) — { title, fields, resolve }
 
   const containerRef     = useRef(null);
   const bgInputRef       = useRef(null);
@@ -174,6 +175,17 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
     setFlash(msg);
     clearTimeout(flashTimerRef.current);
     flashTimerRef.current = setTimeout(() => setFlash(null), 2600);
+  }
+  /* Prompt in-app (substitui window.prompt — modal com tema do editor). Resolve com um
+   * objeto { [field.key]: valor } ao confirmar, ou null ao cancelar. `fields` = [{ key,
+   * label, value?, placeholder? }]. */
+  function askPrompt(title, fields) {
+    return new Promise((resolve) => {
+      setPromptModal({ title, fields: fields.map(f => ({ ...f, value: f.value || '' })), resolve });
+    });
+  }
+  function closePrompt(result) {
+    setPromptModal((m) => { m?.resolve(result); return null; });
   }
   /* Reordena camadas (spec 0019 AC-2). delta>0 = sobe no empilhamento (topo do painel). */
   function moveLayer(id, delta) {
@@ -550,14 +562,18 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
   /* Salvar um token/imagem/nota da cena na biblioteca (AC-1). */
   async function saveToLibrary(el) {
     if (!el) return;
-    if (!db || !uid) { alert('Faça login para usar a biblioteca de assets.'); return; }
-    if (assets.length >= ASSET_SOFT_CAP) { alert(`Limite de ${ASSET_SOFT_CAP} assets atingido — remova alguns antes de salvar.`); return; }
+    if (!db || !uid) { showFlash('Faça login para usar a biblioteca de assets.'); return; }
+    if (assets.length >= ASSET_SOFT_CAP) { showFlash(`Limite de ${ASSET_SOFT_CAP} assets atingido — remova alguns antes de salvar.`); return; }
     const type = assetTypeForElement(el);
     const raw = el.imageId ? stateRef.current.imageStore[el.imageId] : null;
-    if (!raw && type !== 'note') { alert('Este elemento não tem imagem para salvar na biblioteca.'); return; }
-    const name = window.prompt('Nome do asset:', el.label || (el.text || '').slice(0, 24) || 'Asset');
-    if (name == null) return;
-    const tags = (window.prompt('Tags (separadas por vírgula):', '') || '').split(',').map(t => t.trim()).filter(Boolean);
+    if (!raw && type !== 'note') { showFlash('Este elemento não tem imagem para salvar na biblioteca.'); return; }
+    const res = await askPrompt('Salvar na biblioteca', [
+      { key: 'name', label: 'Nome do asset', value: el.label || (el.text || '').slice(0, 24) || 'Asset' },
+      { key: 'tags', label: 'Tags (separadas por vírgula)', placeholder: 'ex.: chefe, floresta' },
+    ]);
+    if (res == null) return;
+    const name = res.name;
+    const tags = (res.tags || '').split(',').map(t => t.trim()).filter(Boolean);
     const red = raw ? await reduceForAsset(raw) : null;
     saveAsset(db, uid, {
       type, name: name.trim() || 'Asset', tags, folder: null,
@@ -632,10 +648,11 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
     setBgImages(prev => { const n = { ...prev }; delete n[id]; return n; });
     if (activeScene === id) setActiveScene(next.id);
   }
-  function renameScene(id) {
+  async function renameScene(id) {
     const list = campaignMode ? campScenes : scenes;
     const sc = list.find(s => s.id === id);
-    const n = window.prompt('Nome da cena:', sc?.name || 'Cena');
+    const res = await askPrompt('Renomear cena', [{ key: 'name', label: 'Nome da cena', value: sc?.name || 'Cena' }]);
+    const n = res?.name;
     if (!n?.trim()) return;
     if (campaignMode && id !== activeScene) { saveSceneMeta(db, campaignId, uid, { ...sc, name: n.trim() }); return; }
     dispatch({ type: 'RENAME_SCENE', sceneId: id, name: n.trim() });
@@ -667,10 +684,16 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
     const zs = els.filter(e => e.layerId === el.layerId).map(e => e.z ?? 0);
     updateEl(id, { z: Math.min(...zs) - 1 });
   }
-  function editLabel(id) {
+  async function editLabel(id) {
     const el = stateRef.current.elements.find(e => e.id === id);
-    const nl = window.prompt('Rótulo:', el?.label || '');
-    if (nl !== null) updateEl(id, { label: nl || '?' });
+    const res = await askPrompt('Rótulo do elemento', [{ key: 'label', label: 'Rótulo', value: el?.label || '' }]);
+    if (res !== null) updateEl(id, { label: (res.label || '').trim() || '?' });
+  }
+  /* Cria uma nota no ponto (x,y) do mundo pedindo o texto via modal in-app. */
+  async function promptNote(x, y) {
+    const res = await askPrompt('Nova nota', [{ key: 'text', label: 'Texto da nota', placeholder: 'Anotação visível no mapa' }]);
+    const txt = res?.text?.trim();
+    if (txt) addEl({ id: newElementId(), type: 'note', layerId: 'layer-note', x, y, text: txt, hidden: false, locked: false, spectre: false });
   }
   function coverFog() { upScene({ fog: { v: 2, fillAll: true, shapes: [] } }); }
   function clearFog() { upScene({ fog: { v: 2, fillAll: false, shapes: [] } }); }
@@ -928,8 +951,7 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
       drawRef.current = { shape: drawMode, color: drawColor, strokeWidth: drawWidth, pts: [{ x: wp.x, y: wp.y }] };
       setDrawLive({ ...drawRef.current, pts: [...drawRef.current.pts] });
     } else if (t === 'note') {
-      const txt = window.prompt('Texto da nota:');
-      if (txt?.trim()) addEl({ id: newElementId(), type: 'note', layerId: 'layer-note', x: wp.x, y: wp.y, text: txt.trim(), hidden: false, locked: false, spectre: false });
+      promptNote(wp.x, wp.y);
     } else if (t === 'measure') {
       measureRef.current = { x1: wp.x, y1: wp.y }; setMeasureLine({ x1: wp.x, y1: wp.y, x2: wp.x, y2: wp.y });
     }
@@ -1821,6 +1843,29 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
           </div>
         )}
       </div>
+
+      {promptModal && (
+        <div onPointerDown={e => { if (e.target === e.currentTarget) closePrompt(null); }}
+          style={{ position: 'absolute', inset: 0, zIndex: 700, background: 'rgba(6,6,14,0.72)', backdropFilter: 'blur(3px)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'Inter,system-ui,sans-serif' }}>
+          <form onSubmit={e => { e.preventDefault(); closePrompt(Object.fromEntries(promptModal.fields.map(f => [f.key, f.value]))); }}
+            style={{ width: 'min(92vw, 380px)', background: 'linear-gradient(180deg,#1a1a34,#131327)', border: '1px solid rgba(168,85,247,0.25)', borderRadius: 14, padding: 20, boxShadow: '0 20px 60px rgba(0,0,0,0.7)' }}>
+            <div style={{ fontFamily: 'Cinzel,serif', fontSize: 15, color: '#e9d5ff', marginBottom: 14, letterSpacing: 0.5 }}>{promptModal.title}</div>
+            {promptModal.fields.map((f, i) => (
+              <label key={f.key} style={{ display: 'block', marginBottom: 12 }}>
+                <span style={{ display: 'block', fontSize: 11, color: 'rgba(255,255,255,0.55)', marginBottom: 5, textTransform: 'uppercase', letterSpacing: 1 }}>{f.label}</span>
+                <input autoFocus={i === 0} value={f.value} placeholder={f.placeholder || ''}
+                  onChange={e => { const v = e.target.value; setPromptModal(m => m && ({ ...m, fields: m.fields.map(x => x.key === f.key ? { ...x, value: v } : x) })); }}
+                  onKeyDown={e => { if (e.key === 'Escape') { e.preventDefault(); closePrompt(null); } }}
+                  style={{ width: '100%', boxSizing: 'border-box', padding: '9px 11px', background: 'rgba(0,0,0,0.35)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: 8, color: '#fff', fontSize: 14, outline: 'none' }} />
+              </label>
+            ))}
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 6 }}>
+              <button type="button" onClick={() => closePrompt(null)} style={{ padding: '8px 16px', background: 'none', border: '1px solid rgba(255,255,255,0.18)', borderRadius: 8, color: 'rgba(255,255,255,0.7)', cursor: 'pointer', fontSize: 13 }}>Cancelar</button>
+              <button type="submit" style={{ padding: '8px 18px', background: 'rgba(168,85,247,0.9)', border: 'none', borderRadius: 8, color: '#fff', cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>OK</button>
+            </div>
+          </form>
+        </div>
+      )}
     </div>
   );
 }
