@@ -499,10 +499,25 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
     if (!file?.type.startsWith('image/') || !elId) return;
     const reader = new FileReader();
     reader.onload = ev => {
-      const imageId = 'img_' + Date.now();
-      setImageStore(prev => ({ ...prev, [imageId]: ev.target.result }));
-      updateEl(elId, { imageId });
-      replaceTargetRef.current = null;
+      const img = new Image();
+      img.onload = () => {
+        // Downscale igual ao loadBg (spec 0019 AC-11) — antes gravava full-res e driblava a quota.
+        const cap = 2048;
+        const r = Math.min(1, cap / Math.max(img.width, img.height));
+        let dataUrl = ev.target.result, w = img.width, h = img.height;
+        if (r < 1) {
+          const c = document.createElement('canvas');
+          c.width = Math.max(1, Math.round(img.width * r));
+          c.height = Math.max(1, Math.round(img.height * r));
+          c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+          dataUrl = c.toDataURL('image/jpeg', 0.85); w = c.width; h = c.height;
+        }
+        const imageId = 'img_' + Date.now();
+        setImageStore(prev => ({ ...prev, [imageId]: dataUrl }));
+        updateEl(elId, { imageId, w, h });
+        replaceTargetRef.current = null;
+      };
+      img.src = ev.target.result;
     };
     reader.readAsDataURL(file);
   }
