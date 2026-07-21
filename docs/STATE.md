@@ -10,7 +10,22 @@ alwaysApply: true
 > todo. Diferente do **ADR** (decisão durável e imutável). Decisão estrutural → ADR; estado do
 > trabalho → aqui. Atualize ao **pausar/encerrar**; leia ao **retomar**. Use a skill `/handoff`.
 
-**Última atualização:** 2026-07-09 por Claude (spec 0020 — Arsenal v2: editor de ataques OP)
+**Última atualização:** 2026-07-09 por Claude (programa "Nexus impecável" — auditoria + condições OP fiéis)
+
+> **2026-07-09: PROGRAMA "NEXUS IMPECÁVEL" INICIADO.** Andre deu mandato aberto ("melhore tudo,
+> impecável, OP + Mapas + tudo"). Rodei 3 auditorias (subagentes): regras OP, mapas, bug-hunt geral.
+> **Backlog priorizado consolidado em `docs/architecture/assessment-0021.md`** — ler esse arquivo pra
+> continuar (é a fila de trabalho durável entre sessões). **Decisões do Andre:** manter homebrew do
+> Cellbit (Esquiva 10+AGI+Reflexos e Proficiência +2..+6 FICAM, NÃO mexer); regras de OP primeiro.
+> **FEITO nesta leva (spec 0021, DEPLOYADO):** condições de OP reescritas fiéis ao livro em `App.jsx`
+> `OP_CONDICOES` — corrigidas Abalado/Apavorado/Atordoado/Cego (estavam contaminadas por D&D),
+> "Exposto" (inexistente) virou **Desprevenido**, e adicionadas Agarrado/Alquebrado/Caído/Confuso/
+> Indefeso/Petrificado/Sangrando (fontes web oficiais citadas no assessment). Build exit 0.
+> **PRÓXIMOS na fila (ver assessment):** [A] sobrecarga sem efeito/teto (InventarioTab); rituais sem
+> gate de círculo; [B] **toque no editor de mapas (Pointer Events) — maior item de "usável de verdade"**,
+> replaceImage sem downscale, clima não sincroniza, emojis residuais; [C] catches silenciosos de save
+> de ficha/arquivar campanha (perda de sync silenciosa). **Pendências que precisam do Andre:** perícias
+> "só treinado" (Sobrevivência?), rituais trava vs aviso, PIX morto (abandonado de propósito?).
 
 > **2026-07-09: SPEC 0020 (Arsenal v2) IMPLEMENTADA + DEPLOYADA.** Andre reclamou que criar ataque
 > na ficha OP era "horrível" (card inline apertado) e mandou referência de modal completo, pedindo
