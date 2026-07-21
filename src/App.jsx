@@ -2504,7 +2504,7 @@ function MasterSettings({ campaign, onBack, isMaster=true }) {
   const handleArchive = async () => {
     if (!window.confirm(campaign.isActive?"Arquivar a campanha?":"Reativar a campanha?")) return;
     try { await updateDoc(doc(db,"campaigns",campaign.id),{isActive:!campaign.isActive}); onBack(); }
-    catch(e) {}
+    catch(e) { console.error("[campanha] falha ao arquivar:", e); showMsg("Erro ao arquivar a campanha. Tente de novo."); }
   };
 
   return (
@@ -11730,7 +11730,7 @@ export default function App() {
   const [historyOpen, setHistoryOpen] = useState(false);
   const [creatingChar, setCreatingChar] = useState(false);
   const [createdChar, setCreatedChar] = useState(null);
-  const { characters, setCharacters, charsLoading, saveCharacter, deleteCharacter } = useCharacter(currentUser?.uid, activeSystem?.id);
+  const { characters, setCharacters, charsLoading, saveError, clearSaveError, saveCharacter, deleteCharacter } = useCharacter(currentUser?.uid, activeSystem?.id);
   const sessKey = activeSystem ? `nexus_sessions_${activeSystem.id}` : null;
   const [sessions, setSessions] = useState(() => {
     try {
@@ -12074,6 +12074,12 @@ export default function App() {
       <G/>
       <ThemeStyles/>
       <Deco/>
+      {saveError && (
+        <div role="alert" style={{position:"fixed", bottom:20, left:"50%", transform:"translateX(-50%)", zIndex:9000, background:"#2a1414", border:"1px solid rgba(224,112,112,0.5)", color:"#f0b0b0", borderRadius:8, padding:"10px 16px 10px 18px", fontSize:13, maxWidth:"90%", display:"flex", alignItems:"center", gap:12, boxShadow:"0 8px 30px rgba(0,0,0,0.6)"}}>
+          <span>⚠ {saveError}</span>
+          <button onClick={clearSaveError} style={{background:"none", border:"none", color:"rgba(255,255,255,0.6)", cursor:"pointer", fontSize:16, lineHeight:1}}>×</button>
+        </div>
+      )}
       <div style={{display:"flex", minHeight:"100vh", background: screen === "roadmap" ? "transparent" : "var(--bg)", position:"relative", zIndex:1}}>
         <Sidebar active={screen} onNav={setScreen} collapsed={collapsed} setCollapsed={setCollapsed} system={activeSystem} onChangeSystem={()=>setActiveSystem(null)} onLogout={logout} campaignCount={campaigns.filter(c=>c.isActive&&c.masterId===currentUser?.uid).length}/>
         <div style={{flex:1, display:"flex", flexDirection:"column", minWidth:0, overflow:"hidden"}}>
