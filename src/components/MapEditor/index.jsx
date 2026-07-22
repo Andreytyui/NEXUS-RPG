@@ -140,6 +140,7 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
   const elementDownRef   = useRef(false);
   const flashTimerRef    = useRef(null);
   const stateRef         = useRef({});
+  const dragRafRef       = useRef(0); // coalesce dos re-renders de arraste/resize/rotate (1 por frame)
 
   const scene    = scenes.find(s => s.id === activeScene) || scenes[0];
   const elements = scene.elements || [];
@@ -187,6 +188,12 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
   }
   function closePrompt(result) {
     setPromptModal((m) => { m?.resolve(result); return null; });
+  }
+  /* Re-render do arraste/resize/rotate coalescido em 1 por frame (as posições ao vivo já vivem
+   * em refs — dragTick só dispara o repaint; dispositivos de toque emitem >60 pointermove/s). */
+  function scheduleDragRender() {
+    if (dragRafRef.current) return;
+    dragRafRef.current = requestAnimationFrame(() => { dragRafRef.current = 0; setDragTick(t => t + 1); });
   }
   /* Reordena camadas (spec 0019 AC-2). delta>0 = sobe no empilhamento (topo do painel). */
   function moveLayer(id, delta) {
@@ -991,14 +998,14 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
       if (corner.includes('W')) { x = startEl.x + dx; w = Math.max(20, startEl.w - dx); if (w === 20) x = startEl.x + startEl.w - 20; }
       if (corner.includes('N')) { y = startEl.y + dy; h = Math.max(20, startEl.h - dy); if (h === 20) y = startEl.y + startEl.h - 20; }
       resizeRef.current.live = { x, y, w, h };
-      setDragTick(t => t + 1); return;
+      scheduleDragRender(); return;
     }
     if (rotateRef.current) {
       const { x: sx, y: sy } = clientXY(e);
       const { cx, cy, startAngle, startRotation } = rotateRef.current;
       const angle = Math.atan2(sy - cy, sx - cx) * 180 / Math.PI;
       rotateRef.current.liveRotation = startRotation + (angle - startAngle);
-      setDragTick(t => t + 1); return;
+      scheduleDragRender(); return;
     }
     if (dragRef.current) {
       const { x: sx, y: sy } = clientXY(e); const wp = screenToWorld(sx, sy);
@@ -1023,7 +1030,7 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
           if (e2 && canMove(stateRef.current.scene, e2, uid, false)) updateElementPos(db, campaignId, sid, id, pos);
         });
       }
-      setDragTick(t => t + 1); return;
+      scheduleDragRender(); return;
     }
     if (boxRef.current) {
       const { x: sx, y: sy } = clientXY(e);
@@ -1064,6 +1071,7 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
       if (pointersRef.current.size < 2) pinchRef.current = null;
       return;
     }
+    if (dragRafRef.current) { cancelAnimationFrame(dragRafRef.current); dragRafRef.current = 0; } // o commit abaixo já re-renderiza
     const wasInteracting = !!dragRef.current || !!resizeRef.current || !!rotateRef.current;
     if (resizeRef.current?.live) {
       dispatch({ type: 'UPDATE_ELEMENT', sceneId: stateRef.current.scene.id, id: resizeRef.current.elId, patch: resizeRef.current.live });
@@ -1268,7 +1276,7 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
                   <div key={sc.id} onClick={() => switchScene(sc.id)}
                     style={{ flexShrink: 0, width: 72, borderRadius: 6, cursor: 'pointer', border: `1px solid ${sc.id === activeScene ? 'rgba(168,85,247,0.5)' : 'rgba(255,255,255,0.06)'}`, background: sc.id === activeScene ? 'rgba(168,85,247,0.1)' : 'rgba(255,255,255,0.02)', overflow: 'hidden' }}>
                     <div style={{ aspectRatio: '16/9', background: '#0d0d1a', position: 'relative', overflow: 'hidden' }}>
-                      {thumbSrc ? <img src={thumbSrc} alt="" draggable={false} style={{ width: '100%', height: '100%', objectFit: 'cover', opacity: 0.8 }} /> : <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, opacity: 0.15 }}>🗺</div>}
+                      {thumbSrc ? <img src={thumbSrc} alt="" draggable={false} style={{ width: '100%', height: '100%', objectFit: 'cover', opacity: 0.8 }} /> : <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', opacity: 0.2, color: '#fff' }}><MapIcon name="image" size={16} /></div>}
                       {sc.id === activeScene && <div style={{ position: 'absolute', top: 3, right: 3, width: 5, height: 5, borderRadius: '50%', background: '#a855f7' }} />}
                     </div>
                     <div style={{ padding: '3px 4px 4px', display: 'flex', alignItems: 'center', gap: 2 }}>
@@ -1298,12 +1306,12 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
                         style={{ ...lbtn, opacity: layer.locked ? 1 : 0.35, color: layer.locked ? '#fbbf24' : 'rgba(255,255,255,0.7)' }} title={layer.locked ? 'Destravar camada' : 'Travar camada'}><MapIcon name={layer.locked ? 'lock' : 'unlock'} size={15} /></button>
                       {campaignMode && (() => {
                         const p = scene.permissions?.[layer.id]?.update || 'none';
-                        const icon = p === 'owner' ? '👤' : p === 'all' ? '👥' : '🚷';
+                        const icon = p === 'owner' ? 'person' : p === 'all' ? 'group' : 'noentry';
                         const label = p === 'owner' ? 'dono move' : p === 'all' ? 'todos movem' : 'só o mestre';
                         return (
                           <button onClick={() => cyclePerm(layer.id)}
-                            style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, padding: 0, opacity: p === 'none' ? 0.3 : 1, color: 'rgba(255,255,255,0.7)' }}
-                            title={`Jogadores: ${label} (clique para alternar)`}>{icon}</button>
+                            style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, display: 'flex', opacity: p === 'none' ? 0.3 : 1, color: 'rgba(255,255,255,0.7)' }}
+                            title={`Jogadores: ${label} (clique para alternar)`} aria-label={`Permissão da camada ${layer.name}: ${label}`}><MapIcon name={icon} size={14} /></button>
                         );
                       })()}
                       <span style={{ flex: 1, fontSize: 11, color: 'rgba(255,255,255,0.65)', marginLeft: 2 }}>{layer.name}</span>
@@ -1356,7 +1364,7 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
                 <defs><pattern id="dots" x="0" y="0" width="40" height="40" patternUnits="userSpaceOnUse"><circle cx="20" cy="20" r="1.2" fill="#fff" /></pattern></defs>
                 <rect width="100%" height="100%" fill="url(#dots)" />
               </svg>
-              <div style={{ fontSize: 56, opacity: 0.15 }}>🗺️</div>
+              <div style={{ opacity: 0.15, color: '#fff' }}><MapIcon name="image" size={56} /></div>
               {viewer ? (
                 <div style={{ fontFamily: 'Cinzel,serif', fontSize: 13, letterSpacing: 3, color: 'rgba(255,255,255,0.12)' }}>AGUARDANDO O MESTRE PREPARAR A CENA</div>
               ) : (<>
@@ -1391,7 +1399,7 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
                   onPointerDown={e => onElementDown(e, img)}
                   onContextMenu={e => { e.preventDefault(); e.stopPropagation(); setSelIds(new Set([img.id])); setCtxMenu({ x: e.clientX, y: e.clientY, type: 'image', elId: img.id }); }}>
                   <img src={src} draggable={false} style={{ width: '100%', height: '100%', display: 'block', pointerEvents: 'none' }} />
-                  {img.locked && <span style={{ position: 'absolute', top: 4, left: 4, fontSize: 10, background: 'rgba(0,0,0,0.7)', borderRadius: '50%', width: 16, height: 16, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>🔒</span>}
+                  {img.locked && <span style={{ position: 'absolute', top: 4, left: 4, fontSize: 10, background: 'rgba(0,0,0,0.7)', borderRadius: '50%', width: 16, height: 16, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fbbf24' }}><MapIcon name="lock" size={9} /></span>}
                   {isSingleSel && !img.locked && (<>
                     {[['NW','nw-resize',{top:-5,left:-5}],['NE','ne-resize',{top:-5,right:-5}],['SW','sw-resize',{bottom:-5,left:-5}],['SE','se-resize',{bottom:-5,right:-5}]].map(([key, cur, pos]) => (
                       <div key={key}
@@ -1469,7 +1477,7 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
                   {tokImg && t.label && t.label !== '?' && (
                     <div style={{ position: 'absolute', bottom: -17, left: '50%', transform: 'translateX(-50%)', background: 'rgba(0,0,0,0.75)', borderRadius: 4, padding: '1px 6px', fontSize: 10, whiteSpace: 'nowrap', pointerEvents: 'none' }}>{t.label}</div>
                   )}
-                  {t.locked && <span style={{ position: 'absolute', top: -5, right: -5, fontSize: 9, background: 'rgba(0,0,0,0.75)', borderRadius: '50%', width: 14, height: 14, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>🔒</span>}
+                  {t.locked && <span style={{ position: 'absolute', top: -5, right: -5, fontSize: 9, background: 'rgba(0,0,0,0.75)', borderRadius: '50%', width: 14, height: 14, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fbbf24' }}><MapIcon name="lock" size={9} /></span>}
                 </div>
               );
             })}
@@ -1523,7 +1531,7 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
                   style={{ position: 'absolute', left: px, top: py, background: '#fbbf24', color: '#1a1500', padding: '8px 10px', borderRadius: 4, fontSize: 12, maxWidth: 160, wordBreak: 'break-word', boxShadow: isSel ? '0 0 0 2px #a855f7,3px 4px 12px rgba(0,0,0,0.5)' : '3px 4px 12px rgba(0,0,0,0.5)', zIndex: layerZIndex(layerOrder[n.layerId] ?? 0, n.z), opacity: (n.hidden ? 0.35 : 1) * (noteLayer?.opacity ?? 1), cursor: (n.locked || noteLayer?.locked) ? 'default' : 'grab' }}
                   onPointerDown={e => onElementDown(e, n)}>
                   {n.text}
-                  {n.locked && <span style={{ position: 'absolute', top: -5, right: -5, fontSize: 9, background: 'rgba(0,0,0,0.75)', borderRadius: '50%', width: 14, height: 14, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>🔒</span>}
+                  {n.locked && <span style={{ position: 'absolute', top: -5, right: -5, fontSize: 9, background: 'rgba(0,0,0,0.75)', borderRadius: '50%', width: 14, height: 14, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fbbf24' }}><MapIcon name="lock" size={9} /></span>}
                   {!viewer && <button
                     onPointerDown={e => e.stopPropagation()}
                     onClick={e => { e.stopPropagation(); deleteEl(n.id); }}
@@ -1602,7 +1610,7 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
               <button key={l} title={`${v}× célula`} onClick={() => setTokSize(v)} style={{ ...TB(tokSize === v), width: 26, height: 26, borderRadius: 6, fontSize: 11 }}>{l}</button>
             ))}
             <div style={{ width: 1, height: 20, background: 'rgba(255,255,255,0.1)' }} />
-            <button title="Token com imagem (retrato)" onClick={() => tokImgInputRef.current?.click()} style={{ ...TB(!!tokImageId), width: 28, height: 28, borderRadius: 6 }}>🖼</button>
+            <button title="Token com imagem (retrato)" aria-label="Token com imagem" onClick={() => tokImgInputRef.current?.click()} style={{ ...TB(!!tokImageId), width: 28, height: 28, borderRadius: 6 }}><MapIcon name="image" size={16} /></button>
             {tokImageId && imageStore[tokImageId] && (
               <img src={imageStore[tokImageId]} alt="" title="Clique para remover a imagem" onClick={() => setTokImageId(null)}
                 style={{ width: 24, height: 24, borderRadius: '50%', objectFit: 'cover', border: `2px solid ${tokColor}`, cursor: 'pointer' }} />
@@ -1613,8 +1621,8 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
 
         {tool === 'draw' && !viewer && (
           <div style={{ position: 'absolute', bottom: 16, left: '50%', transform: 'translateX(-50%)', zIndex: 30, background: 'rgba(22,22,46,0.95)', backdropFilter: 'blur(16px)', border: '1px solid rgba(255,255,255,0.14)', borderRadius: 14, padding: '10px 16px', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-            {[['free', '✏', 'Traço livre'], ['line', '╱', 'Linha'], ['rect', '▭', 'Retângulo'], ['circle', '◯', 'Círculo']].map(([m, ch, tt]) => (
-              <button key={m} title={tt} onClick={() => setDrawMode(m)} style={{ ...TB(drawMode === m), width: 30, height: 30, borderRadius: 8 }}>{ch}</button>
+            {[['free', 'draw', 'Traço livre'], ['line', 'shapeLine', 'Linha'], ['rect', 'shapeRect', 'Retângulo'], ['circle', 'shapeCircle', 'Círculo']].map(([m, ic, tt]) => (
+              <button key={m} title={tt} aria-label={tt} onClick={() => setDrawMode(m)} style={{ ...TB(drawMode === m), width: 30, height: 30, borderRadius: 8 }}><MapIcon name={ic} size={16} /></button>
             ))}
             <div style={{ width: 1, height: 20, background: 'rgba(255,255,255,0.1)' }} />
             {COLORS.map(c => (
@@ -1632,13 +1640,13 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
         {(tool === 'fog' || tool === 'reveal') && (
           <div style={{ position: 'absolute', bottom: 16, left: '50%', transform: 'translateX(-50%)', zIndex: 30, background: 'rgba(22,22,46,0.95)', backdropFilter: 'blur(16px)', border: '1px solid rgba(255,255,255,0.14)', borderRadius: 14, padding: '10px 18px', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
             {/* Formas (spec 0012 AC-1..3) */}
-            {[['rect', '▭', 'Retângulo (células)'], ['circle', '◯', 'Círculo'], ['poly', '⬠', 'Polígono (clique a clique; Enter/duplo-clique fecha; Esc cancela)'], ['free', '✏', 'Traço livre']].map(([m, ch, tt]) => (
-              <button key={m} title={tt} onClick={() => { setFogShape(m); setFogEdit(false); fogPolyRef.current = null; setFogDraft(null); }} style={{ ...TB(fogShape === m && !fogEdit), width: 30, height: 30, borderRadius: 8 }}>{ch}</button>
+            {[['rect', 'shapeRect', 'Retângulo (células)'], ['circle', 'shapeCircle', 'Círculo'], ['poly', 'shapePoly', 'Polígono (clique a clique; Enter/duplo-clique fecha; Esc cancela)'], ['free', 'draw', 'Traço livre']].map(([m, ic, tt]) => (
+              <button key={m} title={tt} aria-label={tt} onClick={() => { setFogShape(m); setFogEdit(false); fogPolyRef.current = null; setFogDraft(null); }} style={{ ...TB(fogShape === m && !fogEdit), width: 30, height: 30, borderRadius: 8 }}><MapIcon name={ic} size={16} /></button>
             ))}
             <div style={{ width: 1, height: 20, background: 'rgba(255,255,255,0.1)' }} />
             <button title="Editar formas de fog (clique seleciona; Delete apaga)" onClick={() => { setFogEdit(v => !v); setFogSel(null); fogPolyRef.current = null; setFogDraft(null); }} style={{ ...TB(fogEdit), width: 30, height: 30, borderRadius: 8 }}><MapIcon name="brush" size={17} /></button>
             {fogEdit && fogSel && (
-              <button title="Apagar forma selecionada" onClick={() => removeFogShape(fogSel)} style={{ ...TB(false), width: 'auto', padding: '0 10px', height: 30, borderRadius: 8, fontSize: 11, color: 'rgba(248,113,113,0.85)' }}>🗑 Apagar forma</button>
+              <button title="Apagar forma selecionada" onClick={() => removeFogShape(fogSel)} style={{ ...TB(false), width: 'auto', padding: '0 10px', height: 30, borderRadius: 8, fontSize: 11, color: 'rgba(248,113,113,0.85)', gap: 6 }}><MapIcon name="trash" size={14} /> Apagar forma</button>
             )}
             <button title={previewPlayer ? 'Voltar à visão do mestre' : 'Ver como o jogador vê (preview)'} onClick={() => setPreviewPlayer(v => !v)} style={{ ...TB(previewPlayer), width: 30, height: 30, borderRadius: 8 }}><MapIcon name="eye" size={17} /></button>
             {fogShape === 'rect' && !fogEdit && (<>

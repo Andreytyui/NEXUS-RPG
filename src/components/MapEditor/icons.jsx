@@ -61,6 +61,13 @@ const PATHS = {
   rain:    <><path d="M6 14a4 4 0 010-8 5 5 0 019.6-1.5A3.5 3.5 0 0118 14z" /><path d="M8 18l-1 2M12 18l-1 2M16 18l-1 2" /></>, // 🌧 chuva
   snow:    <><path d="M12 3v18M4.5 7.5l15 9M19.5 7.5l-15 9" /></>,                  // ❄ neve
   weatherFog:<><path d="M4 9h16M3 13h18M5 17h14" /></>,                             // 🌫 névoa densa (clima)
+  person:  <><circle cx="12" cy="8" r="3.5" /><path d="M5.5 20a6.5 6.5 0 0113 0" /></>, // 👤 dono
+  group:   <><circle cx="9" cy="9" r="3" /><path d="M3 19a6 6 0 0112 0" /><path d="M16 6.5a3 3 0 010 5.6M17 13.5a6 6 0 014 5.5" /></>, // 👥 todos
+  noentry: <><circle cx="12" cy="12" r="9" /><path d="M6 12h12" /></>,               // 🚷 ninguém
+  shapeLine:  <><path d="M5 19L19 5" /></>,                                          // ╱ linha
+  shapeRect:  <><rect x="4" y="6" width="16" height="12" rx="1" /></>,               // ▭ retângulo
+  shapeCircle:<><circle cx="12" cy="12" r="8" /></>,                                 // ◯ círculo
+  shapePoly:  <><path d="M12 3l8 6-3 9H7L4 9z" /></>,                                // ⬠ polígono
 };
 
 export function MapIcon({ name, size = 18, style }) {
