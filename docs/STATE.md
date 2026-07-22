@@ -10,7 +10,17 @@ alwaysApply: true
 > todo. Diferente do **ADR** (decisão durável e imutável). Decisão estrutural → ADR; estado do
 > trabalho → aqui. Atualize ao **pausar/encerrar**; leia ao **retomar**. Use a skill `/handoff`.
 
-**Última atualização:** 2026-07-21 por Claude (MOBILE "virar app" — fatia 1: PWA + fim do zoom iOS + nav legível; DEPLOYADO)
+**Última atualização:** 2026-07-21 por Claude (MOBILE "virar app" — fatia 2: pílula bottom-nav + isMobile reativo + fontes OP; DEPLOYADO)
+
+> **2026-07-21 (4): MOBILE "virar app" — FATIA 2 FEITA + DEPLOYADA (commit `baae1b3`, build exit 0,
+> 19 suítes/142 testes).** (1) **Pílula deslizante na bottom-nav** — portada a shared-layout do desktop
+> (0017 AC-4) p/ `MobileBottomNav`; novo hook **`useViewportWidth`** (listener resize/orientation,
+> coalescido por rAF) + `useIsMobile`. (2) **isMobile reativo** na ficha OP (`App.jsx` ~L8439, agora
+> `useIsMobile()`) — reflui ao girar. (3) **fontes OP <480px** (perícia 10→11, head 8→9.5). **FATIA 3
+> (backlog mobile restante):** **service worker** (offline/cache — CRA não registra; maior item p/
+> "app de verdade"); alvos de toque do MapEditor (menus/toolbar 12-13px); outras leituras de
+> `window.innerWidth` sem listener no canvas (auditoria citou ~L11406/11421 — reconferir nºs atuais e,
+> se em corpo de componente, trocar por `useIsMobile`); revisar demais fontes <11px pelo app.
 
 > **2026-07-21 (3): NOVO WORKSTREAM "VIRAR APP" (mobile fácil+eficiente) — FATIA 1 FEITA + DEPLOYADA
 > (commit `6f851fc`, build exit 0, 19 suítes/142 testes).** Andre: "faça a versão mobile extremamente
