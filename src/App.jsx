@@ -399,7 +399,7 @@ const G = () => (
     .nav-item:hover{background:rgba(255,255,255,0.05);color:var(--text)}
     .nav-item.active{color:var(--purple2);background:var(--purple-dim)}
     input,textarea{
-      font-family:'Crimson Pro',serif;font-size:15px;
+      font-family:'Crimson Pro',serif;font-size:16px;
       background:var(--card2);border:1px solid var(--border);border-radius:5px;
       color:var(--text);outline:none;transition:border-color 0.2s;
       padding:11px 14px;width:100%;
@@ -436,8 +436,8 @@ const G = () => (
       .bottomnav button{
         flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;
         gap:3px;padding:10px 2px 8px;background:none;border:none;cursor:pointer;
-        font-family:'Cinzel',serif;font-size:7px;letter-spacing:0.8px;text-transform:uppercase;
-        color:var(--muted);transition:all 0.2s;min-height:56px;-webkit-tap-highlight-color:transparent;
+        font-family:'Cinzel',serif;font-size:10px;letter-spacing:0.4px;text-transform:uppercase;
+        color:var(--muted);transition:all 0.2s;min-height:58px;-webkit-tap-highlight-color:transparent;
       }
       .bottomnav button svg{width:20px;height:20px;opacity:0.7;transition:opacity 0.2s}
       .bottomnav button.active{color:var(--gold)}
@@ -4492,8 +4492,8 @@ function CampaignDetail({ campaign, uid, userName, userPhoto, characters, onBack
           const active = activeTab===tab.id;
           return (
             <button key={tab.id} onClick={()=>setActiveTab(tab.id)} style={{
-              padding:"10px 14px",border:"none",cursor:"pointer",flexShrink:0,
-              fontFamily:"Cinzel,serif",fontSize:9,letterSpacing:"0.1em",textTransform:"uppercase",
+              padding:"11px 16px",border:"none",cursor:"pointer",flexShrink:0,
+              fontFamily:"Cinzel,serif",fontSize:12,letterSpacing:"0.08em",textTransform:"uppercase",
               color: active ? "#e0c8ff" : "rgba(255,255,255,0.4)",
               background: active ? "rgba(176,48,216,0.15)" : "transparent",
               borderBottom: active ? "2px solid #b030d8" : "2px solid transparent",

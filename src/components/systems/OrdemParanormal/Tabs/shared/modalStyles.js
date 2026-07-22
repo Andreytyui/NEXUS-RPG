@@ -89,7 +89,7 @@ export const inputS = {
   background: "rgba(255,255,255,0.05)",
   border: "1px solid rgba(255,255,255,0.1)", borderRadius: 6,
   color: "rgba(232,228,217,0.9)",
-  fontFamily: FONT.ui, fontSize: 14, outline: "none",
+  fontFamily: FONT.ui, fontSize: 16, outline: "none", // 16px evita o zoom automático do iOS ao focar
   boxSizing: "border-box",
 };
 export const btnGold = {
