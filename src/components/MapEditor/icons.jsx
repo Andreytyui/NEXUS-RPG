@@ -54,6 +54,13 @@ const PATHS = {
   alignCY: <><path d="M4 12h16M8 7v10M16 9v6" /></>,
   alignB:  <><path d="M4 20h16M8 6v10M16 10v6" /></>,
   brush:   <><path d="M4 20c2-1 3-3 3-5l6-6 3 3-6 6c-2 0-4 1-5 3z" /><path d="M13 7l4-4 3 3-4 4" /></>, // borracha de fog / editar
+  // ── Menus de contexto (spec 0021 §B polish) ──
+  close:   <><path d="M6 6l12 12M18 6L6 18" /></>,                                 // ✕ fechar/limpar
+  target:  <><circle cx="12" cy="12" r="7" /><circle cx="12" cy="12" r="2.5" /><path d="M12 2v3M12 19v3M2 12h3M19 12h3" /></>, // 🎯 atribuir
+  unlink:  <><path d="M9 15l-2 2a3.5 3.5 0 01-5-5l2-2M15 9l2-2a3.5 3.5 0 015 5l-2 2" /><path d="M8 4v2M4 8h2M16 20v-2M20 16h-2" /></>, // 🔗 desanexar
+  rain:    <><path d="M6 14a4 4 0 010-8 5 5 0 019.6-1.5A3.5 3.5 0 0118 14z" /><path d="M8 18l-1 2M12 18l-1 2M16 18l-1 2" /></>, // 🌧 chuva
+  snow:    <><path d="M12 3v18M4.5 7.5l15 9M19.5 7.5l-15 9" /></>,                  // ❄ neve
+  weatherFog:<><path d="M4 9h16M3 13h18M5 17h14" /></>,                             // 🌫 névoa densa (clima)
 };
 
 export function MapIcon({ name, size = 18, style }) {

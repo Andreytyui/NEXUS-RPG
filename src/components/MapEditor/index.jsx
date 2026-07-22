@@ -1273,8 +1273,8 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
                     </div>
                     <div style={{ padding: '3px 4px 4px', display: 'flex', alignItems: 'center', gap: 2 }}>
                       <span style={{ flex: 1, fontSize: 9, color: sc.id === activeScene ? '#fff' : 'rgba(255,255,255,0.55)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{sc.name}</span>
-                      <button onClick={e => { e.stopPropagation(); renameScene(sc.id); }} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.25)', cursor: 'pointer', fontSize: 9, padding: '1px 2px' }} title="Renomear">✏</button>
-                      {(campaignMode ? campScenes : scenes).length > 1 && <button onClick={e => { e.stopPropagation(); deleteScene(sc.id); }} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.25)', cursor: 'pointer', fontSize: 9, padding: '1px 2px' }} title="Excluir">✕</button>}
+                      <button onClick={e => { e.stopPropagation(); renameScene(sc.id); }} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.3)', cursor: 'pointer', padding: '1px 2px', display: 'flex' }} title="Renomear" aria-label="Renomear cena"><MapIcon name="draw" size={12} /></button>
+                      {(campaignMode ? campScenes : scenes).length > 1 && <button onClick={e => { e.stopPropagation(); deleteScene(sc.id); }} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.3)', cursor: 'pointer', padding: '1px 2px', display: 'flex' }} title="Excluir" aria-label="Excluir cena"><MapIcon name="close" size={12} /></button>}
                     </div>
                   </div>
                 );
@@ -1770,19 +1770,19 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
             onClick={e => e.stopPropagation()}>
             {ctxMenu.type === 'token' ? (<>
               {[
-                { label: elements.find(e => e.id === ctxMenu.tokenId)?.hidden ? '👁 Mostrar Token' : '👁 Ocultar Token', action: () => { toggleHide(ctxMenu.tokenId); setCtxMenu(null); } },
-                { label: elements.find(e => e.id === ctxMenu.tokenId)?.locked ? '🔓 Destravar' : '🔒 Travar', action: () => { toggleLock(ctxMenu.tokenId); setCtxMenu(null); } },
-                { label: '⬚ Duplicar', action: () => { dupEl(ctxMenu.tokenId); setCtxMenu(null); } },
-                { label: 'Tt Editar Rótulo', action: () => { editLabel(ctxMenu.tokenId); setCtxMenu(null); } },
-                { label: elements.find(e => e.id === ctxMenu.tokenId)?.spectre ? '👻 Remover Espectro' : '👻 Espectro', action: () => { toggleSpectre(ctxMenu.tokenId); setCtxMenu(null); } },
-                ...(campaignMode ? [{ label: '🎯 Atribuir a…', action: () => { openAssignMenu(ctxMenu.tokenId); setCtxMenu(null); } }] : []),
-                ...(elements.find(e => e.id === ctxMenu.tokenId)?.parentId ? [{ label: '🔗 Desanexar', action: () => { updateEl(ctxMenu.tokenId, { parentId: null }); setCtxMenu(null); } }] : []),
-                { label: '⬆ Trazer para frente', action: () => { bringToFront(ctxMenu.tokenId); setCtxMenu(null); } },
-                { label: '⬇ Enviar para trás', action: () => { sendToBack(ctxMenu.tokenId); setCtxMenu(null); } },
-                ...(db && uid ? [{ label: '🎒 Salvar na biblioteca', action: () => { saveToLibrary(elements.find(e => e.id === ctxMenu.tokenId)); setCtxMenu(null); } }] : []),
+                { icon: elements.find(e => e.id === ctxMenu.tokenId)?.hidden ? 'eyeOff' : 'eye', label: elements.find(e => e.id === ctxMenu.tokenId)?.hidden ? 'Mostrar Token' : 'Ocultar Token', action: () => { toggleHide(ctxMenu.tokenId); setCtxMenu(null); } },
+                { icon: elements.find(e => e.id === ctxMenu.tokenId)?.locked ? 'unlock' : 'lock', label: elements.find(e => e.id === ctxMenu.tokenId)?.locked ? 'Destravar' : 'Travar', action: () => { toggleLock(ctxMenu.tokenId); setCtxMenu(null); } },
+                { icon: 'duplicate', label: 'Duplicar', action: () => { dupEl(ctxMenu.tokenId); setCtxMenu(null); } },
+                { icon: 'text', label: 'Editar Rótulo', action: () => { editLabel(ctxMenu.tokenId); setCtxMenu(null); } },
+                { icon: 'spectre', label: elements.find(e => e.id === ctxMenu.tokenId)?.spectre ? 'Remover Espectro' : 'Espectro', action: () => { toggleSpectre(ctxMenu.tokenId); setCtxMenu(null); } },
+                ...(campaignMode ? [{ icon: 'target', label: 'Atribuir a…', action: () => { openAssignMenu(ctxMenu.tokenId); setCtxMenu(null); } }] : []),
+                ...(elements.find(e => e.id === ctxMenu.tokenId)?.parentId ? [{ icon: 'unlink', label: 'Desanexar', action: () => { updateEl(ctxMenu.tokenId, { parentId: null }); setCtxMenu(null); } }] : []),
+                { icon: 'chevUp', label: 'Trazer para frente', action: () => { bringToFront(ctxMenu.tokenId); setCtxMenu(null); } },
+                { icon: 'chevDown', label: 'Enviar para trás', action: () => { sendToBack(ctxMenu.tokenId); setCtxMenu(null); } },
+                ...(db && uid ? [{ icon: 'library', label: 'Salvar na biblioteca', action: () => { saveToLibrary(elements.find(e => e.id === ctxMenu.tokenId)); setCtxMenu(null); } }] : []),
               ].map((item, i) => (
-                <button key={i} onClick={item.action} style={{ display: 'block', width: '100%', textAlign: 'left', padding: '8px 16px', background: 'none', border: 'none', color: 'rgba(255,255,255,0.8)', cursor: 'pointer', fontSize: 13 }}
-                  onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.06)'; }} onMouseLeave={e => { e.currentTarget.style.background = 'none'; }}>{item.label}</button>
+                <button key={i} onClick={item.action} style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', textAlign: 'left', padding: '8px 16px', background: 'none', border: 'none', color: 'rgba(255,255,255,0.8)', cursor: 'pointer', fontSize: 13 }}
+                  onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.06)'; }} onMouseLeave={e => { e.currentTarget.style.background = 'none'; }}><MapIcon name={item.icon} size={15} style={{ opacity: 0.7, flexShrink: 0 }} />{item.label}</button>
               ))}
               <div style={{ height: 1, background: 'rgba(255,255,255,0.08)', margin: '4px 0' }} />
               <div style={{ padding: '4px 14px 2px', fontSize: 10, color: 'rgba(255,255,255,0.35)', letterSpacing: 1 }}>CONDIÇÕES</div>
@@ -1797,51 +1797,51 @@ export default function MapEditor({ onBack, campaignId, uid, isMaster, db }) {
               </div>
               <div style={{ height: 1, background: 'rgba(255,255,255,0.08)', margin: '4px 0' }} />
               <button onClick={() => { deleteEl(ctxMenu.tokenId); setCtxMenu(null); }}
-                style={{ display: 'block', width: '100%', textAlign: 'left', padding: '8px 16px', background: 'none', border: 'none', color: 'rgba(248,113,113,0.85)', cursor: 'pointer', fontSize: 13 }}
-                onMouseEnter={e => { e.currentTarget.style.background = 'rgba(248,113,113,0.08)'; }} onMouseLeave={e => { e.currentTarget.style.background = 'none'; }}>🗑 Deletar Token</button>
+                style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', textAlign: 'left', padding: '8px 16px', background: 'none', border: 'none', color: 'rgba(248,113,113,0.85)', cursor: 'pointer', fontSize: 13 }}
+                onMouseEnter={e => { e.currentTarget.style.background = 'rgba(248,113,113,0.08)'; }} onMouseLeave={e => { e.currentTarget.style.background = 'none'; }}><MapIcon name="trash" size={15} style={{ flexShrink: 0 }} />Deletar Token</button>
             </>) : ctxMenu.type === 'image' ? (<>
               {[
-                { label: elements.find(e => e.id === ctxMenu.elId)?.hidden ? '👁 Mostrar' : '👁 Ocultar', action: () => { toggleHide(ctxMenu.elId); setCtxMenu(null); } },
-                { label: elements.find(e => e.id === ctxMenu.elId)?.locked ? '🔓 Destravar' : '🔒 Travar', action: () => { toggleLock(ctxMenu.elId); setCtxMenu(null); } },
-                { label: '⬚ Duplicar', action: () => { dupEl(ctxMenu.elId); setCtxMenu(null); } },
-                ...(elements.find(e => e.id === ctxMenu.elId)?.parentId ? [{ label: '🔗 Desanexar', action: () => { updateEl(ctxMenu.elId, { parentId: null }); setCtxMenu(null); } }] : []),
-                { label: '⬆ Trazer para frente', action: () => { bringToFront(ctxMenu.elId); setCtxMenu(null); } },
-                { label: '⬇ Enviar para trás', action: () => { sendToBack(ctxMenu.elId); setCtxMenu(null); } },
-                ...(elements.find(e => e.id === ctxMenu.elId)?.type === 'image' ? [{ label: '🖼 Substituir imagem…', action: () => { replaceTargetRef.current = ctxMenu.elId; replaceInputRef.current?.click(); setCtxMenu(null); } }] : []),
-                ...(db && uid ? [{ label: '🎒 Salvar na biblioteca', action: () => { saveToLibrary(elements.find(e => e.id === ctxMenu.elId)); setCtxMenu(null); } }] : []),
+                { icon: elements.find(e => e.id === ctxMenu.elId)?.hidden ? 'eyeOff' : 'eye', label: elements.find(e => e.id === ctxMenu.elId)?.hidden ? 'Mostrar' : 'Ocultar', action: () => { toggleHide(ctxMenu.elId); setCtxMenu(null); } },
+                { icon: elements.find(e => e.id === ctxMenu.elId)?.locked ? 'unlock' : 'lock', label: elements.find(e => e.id === ctxMenu.elId)?.locked ? 'Destravar' : 'Travar', action: () => { toggleLock(ctxMenu.elId); setCtxMenu(null); } },
+                { icon: 'duplicate', label: 'Duplicar', action: () => { dupEl(ctxMenu.elId); setCtxMenu(null); } },
+                ...(elements.find(e => e.id === ctxMenu.elId)?.parentId ? [{ icon: 'unlink', label: 'Desanexar', action: () => { updateEl(ctxMenu.elId, { parentId: null }); setCtxMenu(null); } }] : []),
+                { icon: 'chevUp', label: 'Trazer para frente', action: () => { bringToFront(ctxMenu.elId); setCtxMenu(null); } },
+                { icon: 'chevDown', label: 'Enviar para trás', action: () => { sendToBack(ctxMenu.elId); setCtxMenu(null); } },
+                ...(elements.find(e => e.id === ctxMenu.elId)?.type === 'image' ? [{ icon: 'image', label: 'Substituir imagem…', action: () => { replaceTargetRef.current = ctxMenu.elId; replaceInputRef.current?.click(); setCtxMenu(null); } }] : []),
+                ...(db && uid ? [{ icon: 'library', label: 'Salvar na biblioteca', action: () => { saveToLibrary(elements.find(e => e.id === ctxMenu.elId)); setCtxMenu(null); } }] : []),
               ].map((item, i) => (
-                <button key={i} onClick={item.action} style={{ display: 'block', width: '100%', textAlign: 'left', padding: '8px 16px', background: 'none', border: 'none', color: 'rgba(255,255,255,0.8)', cursor: 'pointer', fontSize: 13 }}
-                  onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.06)'; }} onMouseLeave={e => { e.currentTarget.style.background = 'none'; }}>{item.label}</button>
+                <button key={i} onClick={item.action} style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', textAlign: 'left', padding: '8px 16px', background: 'none', border: 'none', color: 'rgba(255,255,255,0.8)', cursor: 'pointer', fontSize: 13 }}
+                  onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.06)'; }} onMouseLeave={e => { e.currentTarget.style.background = 'none'; }}><MapIcon name={item.icon} size={15} style={{ opacity: 0.7, flexShrink: 0 }} />{item.label}</button>
               ))}
               <div style={{ height: 1, background: 'rgba(255,255,255,0.08)', margin: '4px 0' }} />
               <button onClick={() => { deleteEl(ctxMenu.elId); setCtxMenu(null); }}
-                style={{ display: 'block', width: '100%', textAlign: 'left', padding: '8px 16px', background: 'none', border: 'none', color: 'rgba(248,113,113,0.85)', cursor: 'pointer', fontSize: 13 }}
-                onMouseEnter={e => { e.currentTarget.style.background = 'rgba(248,113,113,0.08)'; }} onMouseLeave={e => { e.currentTarget.style.background = 'none'; }}>🗑 Deletar Imagem</button>
+                style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', textAlign: 'left', padding: '8px 16px', background: 'none', border: 'none', color: 'rgba(248,113,113,0.85)', cursor: 'pointer', fontSize: 13 }}
+                onMouseEnter={e => { e.currentTarget.style.background = 'rgba(248,113,113,0.08)'; }} onMouseLeave={e => { e.currentTarget.style.background = 'none'; }}><MapIcon name="trash" size={15} style={{ flexShrink: 0 }} />Deletar Imagem</button>
             </>) : (<>
               <div style={{ padding: '6px 16px 2px', fontSize: 10, color: 'rgba(255,255,255,0.3)', letterSpacing: 1, textTransform: 'uppercase' }}>Mapa</div>
               {[
-                { label: '🖼 Adicionar Imagem', action: () => { bgInputRef.current?.click(); setCtxMenu(null); } },
-                { label: '⊞ Mostrar/Ocultar Grade', action: () => { setShowGrid(g => !g); setCtxMenu(null); } },
+                { icon: 'image', label: 'Adicionar Imagem', action: () => { bgInputRef.current?.click(); setCtxMenu(null); } },
+                { icon: 'grid', label: 'Mostrar/Ocultar Grade', action: () => { setShowGrid(g => !g); setCtxMenu(null); } },
               ].map((item, i) => (
-                <button key={i} onClick={item.action} style={{ display: 'block', width: '100%', textAlign: 'left', padding: '8px 16px', background: 'none', border: 'none', color: 'rgba(255,255,255,0.8)', cursor: 'pointer', fontSize: 13 }}
-                  onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.06)'; }} onMouseLeave={e => { e.currentTarget.style.background = 'none'; }}>{item.label}</button>
+                <button key={i} onClick={item.action} style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', textAlign: 'left', padding: '8px 16px', background: 'none', border: 'none', color: 'rgba(255,255,255,0.8)', cursor: 'pointer', fontSize: 13 }}
+                  onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.06)'; }} onMouseLeave={e => { e.currentTarget.style.background = 'none'; }}><MapIcon name={item.icon} size={15} style={{ opacity: 0.7, flexShrink: 0 }} />{item.label}</button>
               ))}
               <div style={{ height: 1, background: 'rgba(255,255,255,0.08)', margin: '4px 0' }} />
               <div style={{ padding: '6px 16px 2px', fontSize: 10, color: 'rgba(255,255,255,0.3)', letterSpacing: 1, textTransform: 'uppercase' }}>Clima</div>
-              {[{ label: '🌧 Chuva', val: 'rain' }, { label: '❄ Neve', val: 'snow' }, { label: '🌫 Névoa Densa', val: 'fog' }, { label: '✕ Limpar Clima', val: null }].map((item, i) => (
+              {[{ icon: 'rain', label: 'Chuva', val: 'rain' }, { icon: 'snow', label: 'Neve', val: 'snow' }, { icon: 'weatherFog', label: 'Névoa Densa', val: 'fog' }, { icon: 'close', label: 'Limpar Clima', val: null }].map((item, i) => (
                 <button key={i} onClick={() => { dispatch({ type: 'PATCH_SCENE', sceneId: scene.id, patch: { weather: weather === item.val ? null : item.val } }); setCtxMenu(null); }}
-                  style={{ display: 'block', width: '100%', textAlign: 'left', padding: '8px 16px', background: weather === item.val && item.val ? 'rgba(168,85,247,0.1)' : 'none', border: 'none', color: weather === item.val && item.val ? '#a855f7' : 'rgba(255,255,255,0.8)', cursor: 'pointer', fontSize: 13 }}
-                  onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.06)'; }} onMouseLeave={e => { e.currentTarget.style.background = weather === item.val && item.val ? 'rgba(168,85,247,0.1)' : 'none'; }}>{item.label}</button>
+                  style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', textAlign: 'left', padding: '8px 16px', background: weather === item.val && item.val ? 'rgba(168,85,247,0.1)' : 'none', border: 'none', color: weather === item.val && item.val ? '#a855f7' : 'rgba(255,255,255,0.8)', cursor: 'pointer', fontSize: 13 }}
+                  onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.06)'; }} onMouseLeave={e => { e.currentTarget.style.background = weather === item.val && item.val ? 'rgba(168,85,247,0.1)' : 'none'; }}><MapIcon name={item.icon} size={15} style={{ opacity: 0.75, flexShrink: 0 }} />{item.label}</button>
               ))}
               <div style={{ height: 1, background: 'rgba(255,255,255,0.08)', margin: '4px 0' }} />
               <div style={{ padding: '6px 16px 2px', fontSize: 10, color: 'rgba(255,255,255,0.3)', letterSpacing: 1, textTransform: 'uppercase' }}>Névoa de Guerra</div>
               {[
-                { label: '🌑 Cobrir com Névoa', action: () => { coverFog(); setCtxMenu(null); } },
-                { label: '🌒 Auto Névoa (bordas)', action: () => { autoFog(); setCtxMenu(null); } },
-                { label: '☀ Revelar Tudo', action: () => { clearFog(); setCtxMenu(null); } },
+                { icon: 'coverAll', label: 'Cobrir com Névoa', action: () => { coverFog(); setCtxMenu(null); } },
+                { icon: 'fog', label: 'Auto Névoa (bordas)', action: () => { autoFog(); setCtxMenu(null); } },
+                { icon: 'revealAll', label: 'Revelar Tudo', action: () => { clearFog(); setCtxMenu(null); } },
               ].map((item, i) => (
-                <button key={i} onClick={item.action} style={{ display: 'block', width: '100%', textAlign: 'left', padding: '8px 16px', background: 'none', border: 'none', color: 'rgba(255,255,255,0.8)', cursor: 'pointer', fontSize: 13 }}
-                  onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.06)'; }} onMouseLeave={e => { e.currentTarget.style.background = 'none'; }}>{item.label}</button>
+                <button key={i} onClick={item.action} style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', textAlign: 'left', padding: '8px 16px', background: 'none', border: 'none', color: 'rgba(255,255,255,0.8)', cursor: 'pointer', fontSize: 13 }}
+                  onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.06)'; }} onMouseLeave={e => { e.currentTarget.style.background = 'none'; }}><MapIcon name={item.icon} size={15} style={{ opacity: 0.7, flexShrink: 0 }} />{item.label}</button>
               ))}
             </>)}
           </div>
