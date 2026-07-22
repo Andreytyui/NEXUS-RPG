@@ -10,7 +10,22 @@ alwaysApply: true
 > todo. Diferente do **ADR** (decisão durável e imutável). Decisão estrutural → ADR; estado do
 > trabalho → aqui. Atualize ao **pausar/encerrar**; leia ao **retomar**. Use a skill `/handoff`.
 
-**Última atualização:** 2026-07-20 por Claude (assessment-0021 §B — clima sync + fallback camadas + estado-vazio viewer)
+**Última atualização:** 2026-07-21 por Claude (assessment-0021 §B POLISH — modais, loading, top-bar responsiva, emojis→MapIcon)
+
+> **2026-07-21: LEVA §A+§B COMMITADA + §B POLISH FEITO (build exit 0, 19 suítes/142 testes, NÃO
+> deployado/pushado).** Retomada da sessão anterior: os itens funcionais §A (sobrecarga/círculo NEX) e
+> §B (toque, clima, camadas, estado-vazio) estavam prontos e verdes mas NÃO commitados — **commitados em
+> 3 partes** (`e225119` OP §A, `277c623` mapas §B, `f1cd653` docs). Depois, **§B polish** (Andre pediu):
+> (1) `window.prompt/alert` → modal/toast in-app (`askPrompt` promise-based; commit `17168f7`); (2) loading
+> "Carregando a mesa…" até 1ª hidratação Firestore (flag `stateLoaded`) + top-bar responsiva (labels
+> colapsam <720/<560px, nome da cena trunca) — `e3e67a9`; (3) emojis dos context-menus + botões de cena
+> → MapIcon SVG (6 ícones novos em `icons.jsx`) — `7eb8268`. **§B RESTA (follow-up):** `setDragTick`
+> re-render por frame (perf, risco de regressão — único funcional aberto), emojis restantes (permissão
+> 👤👥🚷, badges 🔒, glyphs ▭◯⬠ das sub-toolbars), aria-label explícito nos demais botões só-ícone.
+> **PRÓXIMO na fila:** §C **PIX** (Andre = "é bug, consertar ponta a ponta" — precisa env vars
+> `MERCADOPAGO_*` na Vercel) e §C catches silenciosos. **Pendente do Andre:** push (`git push`) + deploy
+> (Firebase Hosting) de TODAS as levas §A+§B+polish quando quiser publicar; validar toque/gestos em
+> tablet e o novo modal/loading em 2 navegadores.
 
 > **2026-07-20 (3): ASSESSMENT-0021 §B — mais 3 itens FUNCIONAIS FEITOS (build exit 0, NÃO deployado).**
 > (1) **Clima sincroniza** — movido de state local `weather` para `scene.weather`; o menu de clima faz

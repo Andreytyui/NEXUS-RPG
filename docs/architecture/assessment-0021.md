@@ -49,16 +49,26 @@ alwaysApply: false
 - **[FEITO spec 0021] Clima sincroniza/persiste** · movido de state local para `scene.weather`
   (`index.jsx`): o menu de clima agora faz `dispatch(PATCH_SCENE {weather})` — mesmo caminho do `loadBg`,
   que `saveSceneMeta` propaga p/ a mesa. Mestre liga chuva/neve/névoa → jogador vê e persiste no reload.
-- **[incômodo] Re-render global por frame** no arraste/resize/rotate · `setDragTick` (`index.jsx:894,901,926`).
-- **[incômodo] Top-bar corta em tela estreita** · `index.jsx:1114-1137` (a AC-13 só tratou toolbar/painel).
-- **[incômodo] `window.prompt/alert`** p/ nota/renomear/rótulo/salvar-asset (`index.jsx:859,619,653,534`) →
-  modais in-app (ModalShell).
+- **[incômodo — RESTA] Re-render global por frame** no arraste/resize/rotate · `setDragTick`. Único item
+  funcional do §B ainda aberto; risco de regressão, avaliar com cuidado (memoizar overlays por elemento).
+- **[FEITO spec 0021] Top-bar não corta em tela estreita** · labels decorativos (⚔ NEXUS, modo) colapsam
+  <720px, texto dos botões <560px (mantém ícone+title), nome da cena trunca com reticências (classes CSS
+  no `<style>` do editor: `.map-top-hide`/`.map-btn-label`/`.map-top-name`).
+- **[FEITO spec 0021] `window.prompt/alert` → modal/toast in-app** · `askPrompt` promise-based (Enter
+  confirma / Esc/clique-fora cancela) substitui os 4 prompts (cena/rótulo/nota/asset); os 3 `alert` da
+  biblioteca usam o toast `showFlash`. Zero prompt/alert nativos no editor.
 - **[FEITO spec 0021] Estado vazio correto p/ viewer** · `index.jsx`: o jogador agora vê "AGUARDANDO O
   MESTRE PREPARAR A CENA" em vez de "Arraste/Adicionar Imagem" (que ele não pode).
-- **[incômodo] Sem loading no modo campanha** até 1ª hidratação Firestore · `index.jsx:301-317`.
-- **[polish] Emojis residuais**: context-menus (`index.jsx:1652-1726`), condições de token (`:39-43`),
-  sub-toolbars Desenho/Fog (`:1497,1516`), permissão de camada 👤👥🚷 (`:1188`), chrome (⚔🗺✏✕) → `MapIcon`.
-- **[polish] `aria-label`** nos botões só-ícone (MapIcon é aria-hidden).
+- **[FEITO spec 0021] Loading até 1ª hidratação Firestore** · flag `stateLoaded` no callback de
+  `subscribeMapState`; spinner "Carregando a mesa…" enquanto o 1º snapshot não chega ou a cena troca e
+  os elementos ainda não hidrataram — antes o jogador via a cena default vazia do reducer.
+- **[FEITO parcial spec 0021] Emojis residuais → MapIcon**: context-menus (token/imagem/mapa/clima/névoa)
+  e botões ✏/✕ do painel de cenas CONVERTIDOS (6 ícones novos: close/target/unlink/rain/snow/weatherFog).
+  RESTA: permissão de camada 👤👥🚷, badges 🔒 nos elementos, 🗺 placeholder de cena, 🖼 botão de token,
+  glyphs geométricos das sub-toolbars Desenho/Fog (▭◯⬠) — os coloridos semânticos (condições ☠️🩸🔥)
+  ficam de propósito (cor carrega sentido).
+- **[FEITO parcial spec 0021] `aria-label`** nos botões só-ícone: botões de cena feitos; a maioria dos
+  demais já tem `title` (nome acessível fallback). Passar aria-label explícito no restante = follow-up.
 - **[FEITO spec 0021] Fallback `DEFAULT_LAYERS_V2`** · `index.jsx` agora importa e usa `DEFAULT_LAYERS_V2`
   (7 camadas do schema) em todos os fallbacks `scene.layers || …`, no lugar das 4 v1 antigas do
   `reducer.js` (que quebravam zIndex/lock se o fallback disparasse com ids de camada divergentes).
