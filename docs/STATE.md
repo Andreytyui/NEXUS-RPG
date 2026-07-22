@@ -10,7 +10,21 @@ alwaysApply: true
 > todo. Diferente do **ADR** (decisão durável e imutável). Decisão estrutural → ADR; estado do
 > trabalho → aqui. Atualize ao **pausar/encerrar**; leia ao **retomar**. Use a skill `/handoff`.
 
-**Última atualização:** 2026-07-21 por Claude (assessment-0021 §B COMPLETO — follow-ups fechados: emojis, aria-labels, perf do arraste)
+**Última atualização:** 2026-07-21 por Claude (MOBILE "virar app" — fatia 1: PWA + fim do zoom iOS + nav legível; DEPLOYADO)
+
+> **2026-07-21 (3): NOVO WORKSTREAM "VIRAR APP" (mobile fácil+eficiente) — FATIA 1 FEITA + DEPLOYADA
+> (commit `6f851fc`, build exit 0, 19 suítes/142 testes).** Andre: "faça a versão mobile extremamente
+> fácil de mexer e eficiente, vai virar app". Rodei auditoria mobile (subagente) → backlog priorizado.
+> **Fatia 1 (fundação, feita):** (1) **PWA instalável** — `public/manifest.json` (standalone, ícones
+> 192/512+maskable gerados do logo via ffmpeg), `viewport-fit=cover` (safe-area real no iPhone), metas
+> `apple-mobile-web-app-*` + apple-touch-icon no `index.html`; (2) **fim do zoom iOS** — inputs globais
+> 15→16px (`App.jsx`) e de modal OP 14→16px (`modalStyles.js`); (3) **nav legível** — bottom-nav label
+> 7→10px, abas de campanha 9→12px. **FATIA 2 (backlog mobile, próxima):** `isMobile` reativo (hook com
+> listener resize/orientation — hoje `window.innerWidth<768` sem listener em `App.jsx:8400`, canvas
+> `:11406/11421`); **pílula deslizante na bottom-nav** (paridade com a do desktop `App.jsx:1136-1150`,
+> hoje `.active` abrupto `:443`); fontes minúsculas da ficha OP <480px (`ordemStyles.jsx:252-255`);
+> alvos de toque do MapEditor (menus/toolbar 12-13px); **service worker** (offline/cache — CRA não
+> registra hoje). Auditoria completa foi via subagente (não gravada em arquivo; re-rodar se precisar).
 
 > **2026-07-21 (2): §B FOLLOW-UPS FECHADOS — §B do assessment-0021 está COMPLETO (build exit 0,
 > 19 suítes/142 testes, NÃO deployado/pushado; commit `53ecead`).** (1) **Emojis residuais → MapIcon**:
