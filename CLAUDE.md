@@ -42,7 +42,7 @@ Antes de afirmar como algo funciona, siga esta ordem — pare assim que tiver a 
 
 | MCP (`mcp__<servidor>__*`) | Conta/workspace validada | Skills que consomem |
 |---|---|---|
-| _nenhum ainda_ | — | — |
+| `mcp__shadcn__*` (registry de componentes) | ⏳ **pendente** — configurado em `../.mcp.json` (`npx shadcn@latest mcp`), aguarda restart + aprovação do Andre no Claude Code | — (avaliação; render exige Tailwind, ainda NÃO adotado — ver ADR-0004) |
 
 Regra: conexão ativa **não** autoriza uso. Confirme a conta/workspace antes de ler e **reconfirme
 antes de qualquer escrita** (ver `/integracoes`). Só use um MCP presente na sessão (`mcp__<servidor>__*`).
