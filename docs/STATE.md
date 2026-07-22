@@ -10,7 +10,20 @@ alwaysApply: true
 > todo. Diferente do **ADR** (decisão durável e imutável). Decisão estrutural → ADR; estado do
 > trabalho → aqui. Atualize ao **pausar/encerrar**; leia ao **retomar**. Use a skill `/handoff`.
 
-**Última atualização:** 2026-07-21 por Claude (assessment-0021 §B POLISH — modais, loading, top-bar responsiva, emojis→MapIcon)
+**Última atualização:** 2026-07-21 por Claude (assessment-0021 §B COMPLETO — follow-ups fechados: emojis, aria-labels, perf do arraste)
+
+> **2026-07-21 (2): §B FOLLOW-UPS FECHADOS — §B do assessment-0021 está COMPLETO (build exit 0,
+> 19 suítes/142 testes, NÃO deployado/pushado; commit `53ecead`).** (1) **Emojis residuais → MapIcon**:
+> permissão de camada 👤👥🚷, badges 🔒 dos elementos, placeholders 🗺, botão 🖼 de token, glyphs ▭◯⬠╱✏
+> das sub-toolbars — TODOS convertidos (13 ícones novos em `icons.jsx` no total das 2 levas). (2)
+> **aria-label** nos botões só-ícone convertidos. (3) **Perf do arraste**: `setDragTick` agora coalesce
+> em 1 re-render por frame via `requestAnimationFrame` (`scheduleDragRender`; rAF cancelado no `onUp`) —
+> as posições ao vivo vivem em refs, sem risco de correção. **Deliberadamente FORA de escopo:** memoização
+> por elemento (não re-renderizar o componente inteiro no arraste) — refactor grande, risco alto, exige
+> extrair componentes + validação de browser. **§B do assessment agora 100%** exceto essa memoização.
+> **PRÓXIMO na fila:** §C **PIX** (Andre = "é bug, consertar ponta a ponta" — env vars `MERCADOPAGO_*`
+> na Vercel) + §C catches silenciosos + i18n EN. **Pendente do Andre:** `git push` + deploy (Firebase
+> Hosting) de todas as levas desta sessão (8 commits: `e225119`→`53ecead`); validar em tablet/2 navegadores.
 
 > **2026-07-21: LEVA §A+§B COMMITADA + §B POLISH FEITO (build exit 0, 19 suítes/142 testes, NÃO
 > deployado/pushado).** Retomada da sessão anterior: os itens funcionais §A (sobrecarga/círculo NEX) e

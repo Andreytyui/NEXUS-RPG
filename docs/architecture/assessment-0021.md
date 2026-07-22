@@ -49,8 +49,10 @@ alwaysApply: false
 - **[FEITO spec 0021] Clima sincroniza/persiste** · movido de state local para `scene.weather`
   (`index.jsx`): o menu de clima agora faz `dispatch(PATCH_SCENE {weather})` — mesmo caminho do `loadBg`,
   que `saveSceneMeta` propaga p/ a mesa. Mestre liga chuva/neve/névoa → jogador vê e persiste no reload.
-- **[incômodo — RESTA] Re-render global por frame** no arraste/resize/rotate · `setDragTick`. Único item
-  funcional do §B ainda aberto; risco de regressão, avaliar com cuidado (memoizar overlays por elemento).
+- **[FEITO spec 0021 — parcial] Re-render por frame** no arraste/resize/rotate · `setDragTick` agora
+  coalesce em 1 por frame via `requestAnimationFrame` (`scheduleDragRender`; rAF cancelado no `onUp`).
+  Corta re-renders redundantes em toque/mouse de alta taxa. RESTA (fora de escopo, risco alto): memoizar
+  o render por elemento para não re-renderizar o componente inteiro — exige extrair componentes + browser.
 - **[FEITO spec 0021] Top-bar não corta em tela estreita** · labels decorativos (⚔ NEXUS, modo) colapsam
   <720px, texto dos botões <560px (mantém ícone+title), nome da cena trunca com reticências (classes CSS
   no `<style>` do editor: `.map-top-hide`/`.map-btn-label`/`.map-top-name`).
@@ -62,13 +64,12 @@ alwaysApply: false
 - **[FEITO spec 0021] Loading até 1ª hidratação Firestore** · flag `stateLoaded` no callback de
   `subscribeMapState`; spinner "Carregando a mesa…" enquanto o 1º snapshot não chega ou a cena troca e
   os elementos ainda não hidrataram — antes o jogador via a cena default vazia do reducer.
-- **[FEITO parcial spec 0021] Emojis residuais → MapIcon**: context-menus (token/imagem/mapa/clima/névoa)
-  e botões ✏/✕ do painel de cenas CONVERTIDOS (6 ícones novos: close/target/unlink/rain/snow/weatherFog).
-  RESTA: permissão de camada 👤👥🚷, badges 🔒 nos elementos, 🗺 placeholder de cena, 🖼 botão de token,
-  glyphs geométricos das sub-toolbars Desenho/Fog (▭◯⬠) — os coloridos semânticos (condições ☠️🩸🔥)
-  ficam de propósito (cor carrega sentido).
-- **[FEITO parcial spec 0021] `aria-label`** nos botões só-ícone: botões de cena feitos; a maioria dos
-  demais já tem `title` (nome acessível fallback). Passar aria-label explícito no restante = follow-up.
+- **[FEITO spec 0021] Emojis residuais → MapIcon**: context-menus, botões ✏/✕ de cena, permissão de
+  camada 👤👥🚷, badges 🔒 dos elementos, placeholders 🗺 (thumb+estado vazio), botão 🖼 de token, glyphs
+  ▭◯⬠╱✏ das sub-toolbars Desenho/Fog, 🗑 apagar forma — TODOS convertidos (13 ícones novos no total).
+  Ficam de propósito: 🔒 em mensagens de texto do toast e as condições coloridas ☠️🩸🔥 (cor = sentido).
+- **[FEITO spec 0021] `aria-label`** nos botões só-ícone convertidos (permissão, formas, token, cena);
+  os demais já têm `title` (nome acessível fallback).
 - **[FEITO spec 0021] Fallback `DEFAULT_LAYERS_V2`** · `index.jsx` agora importa e usa `DEFAULT_LAYERS_V2`
   (7 camadas do schema) em todos os fallbacks `scene.layers || …`, no lugar das 4 v1 antigas do
   `reducer.js` (que quebravam zIndex/lock se o fallback disparasse com ids de camada divergentes).
