@@ -250,8 +250,8 @@ export const OrdemSheetStyles = () => (
       .op-photo-frame{ height:130px !important; }
       /* Even tighter skill columns; hide "outros" bonus col */
       .op-col-panel{ --skill-cols:18px minmax(0,1fr) 22px 28px 0px 30px 26px; }
-      .op-skill{ padding:4px 4px; font-size:10px; }
-      .op-skill-head{ padding:3px 4px; font-size:8px; }
+      .op-skill{ padding:5px 4px; font-size:11px; }
+      .op-skill-head{ padding:4px 4px; font-size:9.5px; }
       .op-skill>*:nth-child(5),.op-skill-head>*:nth-child(5){ display:none; }
     }
 

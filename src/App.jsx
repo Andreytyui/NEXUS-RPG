@@ -1090,13 +1090,52 @@ const navItems = [
     )},
 ];
 
+// Largura da viewport reativa a resize/rotação (o app tinha leituras de window.innerWidth
+// sem listener, que não refluíam ao girar o device). Base para layout mobile responsivo.
+function useViewportWidth() {
+  const [w, setW] = useState(() => (typeof window !== "undefined" ? window.innerWidth : 1024));
+  useEffect(() => {
+    let raf = 0;
+    const onResize = () => { cancelAnimationFrame(raf); raf = requestAnimationFrame(() => setW(window.innerWidth)); };
+    window.addEventListener("resize", onResize);
+    window.addEventListener("orientationchange", onResize);
+    return () => { cancelAnimationFrame(raf); window.removeEventListener("resize", onResize); window.removeEventListener("orientationchange", onResize); };
+  }, []);
+  return w;
+}
+function useIsMobile(bp = 768) { return useViewportWidth() < bp; }
+
 function MobileBottomNav({ active, onNav }) {
   const { t } = useLocale();
   const items = navItems.slice(0, 6);
+  // Shared-layout pill (paridade com o Sidebar desktop, spec 0017 AC-4): um único
+  // realce desliza horizontalmente até o item ativo, em vez de cada botão acender/
+  // apagar de golpe. Re-mede na troca de aba E no resize/rotação (viewportW).
+  const itemRefs = useRef({});
+  const [pill, setPill] = useState(null);
+  const viewportW = useViewportWidth();
+  useLayoutEffect(() => {
+    const el = itemRefs.current[active];
+    if (el) setPill({ left: el.offsetLeft, top: el.offsetTop, width: el.offsetWidth, height: el.offsetHeight, visible: true });
+    else setPill(prev => (prev ? { ...prev, visible: false } : null));
+  }, [active, viewportW]);
   return (
-    <div className="bottomnav">
+    <div className="bottomnav" style={{ position: "fixed", isolation: "isolate" }}>
+      {pill && (
+        <div aria-hidden="true" style={{
+          position: "absolute", top: 0, left: 0, zIndex: 0, pointerEvents: "none",
+          width: pill.width, height: pill.height, borderRadius: 12,
+          transform: `translate(${pill.left}px, ${pill.top}px)`,
+          opacity: pill.visible ? 1 : 0,
+          background: "rgba(201,168,76,0.12)",
+          boxShadow: "inset 0 0 0 1px rgba(201,168,76,0.3)",
+          transition: `transform ${DUR_ENTER}ms ${EASE_HOVER}, opacity 0.18s ease`,
+        }}/>
+      )}
       {items.map(item => (
-        <button key={item.id} className={active === item.id ? "active" : ""} onClick={() => onNav(item.id)}>
+        <button key={item.id} ref={el => { itemRefs.current[item.id] = el; }}
+          className={active === item.id ? "active" : ""} onClick={() => onNav(item.id)}
+          style={{ position: "relative", zIndex: 1 }}>
           <span style={{display:"flex",alignItems:"center",justifyContent:"center"}}>{item.svg}</span>
           <span>{t("nav."+item.id)}</span>
         </button>
@@ -8396,8 +8435,8 @@ function FullSheet({ character, onBack, onUpdate, onRoll, showPanel, onTogglePan
 
   const tabs = ["combate","poderes","habilidades","rituais","inventário","descrição"];
 
-  /* ── left col width */
-  const isMobile = window.innerWidth < 768;
+  /* ── left col width (isMobile reativo: reflui ao girar o device) */
+  const isMobile = useIsMobile();
   const leftW = isMobile ? "100%" : 310;
 
   return (
