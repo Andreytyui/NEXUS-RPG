@@ -488,6 +488,22 @@ const G = () => (
       .login-quote-mobile{display:none !important}
     }
 
+    /* ── LOGIN MOBILE (<1024px): rola sem cortar ──
+       O container antigo (height:100vh + overflow-y:auto + align-items:center) cortava o
+       TOPO do card quando ele passava da altura da tela (bug clássico de flex-center com
+       overflow). Aqui o container cresce (min-height:100dvh, sem altura fixa) e o card
+       centraliza por margin:auto — que, ao contrário de align-items:center, mantém o topo
+       rolável quando o conteúdo é mais alto que a viewport. 100dvh evita a barra de URL. */
+    @media(max-width:1023px){
+      .login-layout{display:block;min-height:100dvh}
+      .login-right{
+        position:relative !important; height:auto !important; min-height:100dvh;
+        overflow:hidden !important; align-items:flex-start;
+        padding:calc(20px + env(safe-area-inset-top,0)) 16px calc(24px + env(safe-area-inset-bottom,0)) !important;
+      }
+      .login-card{margin:auto !important; animation:none !important}
+    }
+
     /* ══ SPEC 0017 — MOTION LANGUAGE + AMBIENT (Higgsfield assets) ══ */
     /* Ambient video/poster backdrop (login + seleção) */
     .nx-ambient{position:fixed;inset:0;z-index:0;pointer-events:none;overflow:hidden}
